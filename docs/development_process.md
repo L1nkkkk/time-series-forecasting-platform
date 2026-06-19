@@ -74,6 +74,10 @@ coverage, config validation, and reproducibility.
   expected manifest entries, manifest path containment, `ExperimentStore`
   artifact reads and errors, artifact API 400/404 behavior, and CLI
   `show-artifacts`.
+- Job tests cover `JobRecord` serialization, safe job ids, `JobStore`
+  persistence and cancellation transitions, `JobRunner` success/failure/safe
+  root behavior, non-blocking submission, Jobs API submit/status/result/cancel
+  behavior, unsafe job id handling, and read-only CLI `list-jobs` / `show-job`.
 
 ## CI Strategy
 
@@ -90,11 +94,24 @@ changes, migration notes, and known limitations.
 Do not push a feature branch while tests or quality gates are failing. Before
 publishing, inspect `git status` and `git diff --stat`, commit the intended
 changes with a concise conventional message, push the feature branch, and open a
-pull request when GitHub tooling is available. For Phase 4 release branches,
-push `codex/phase4-results-api` and create or update a PR targeting `main`.
+pull request when GitHub tooling is available. For Phase 5 job runner work,
+push `codex/phase5-job-runner` and create or update a PR targeting `main`.
 
 ## Compatibility Notes
 
 Do not casually change `run_id` formatting. It is visible in `results.json`,
 `artifacts.json`, API responses, CLI output, and lookup routes. If the format
 changes, version the API behavior and document a migration path.
+
+Job ids intentionally mirror the same timestamp plus six-hex suffix shape as
+run ids. They are API-visible and stored in `runs/jobs/<job_id>`, so changes
+need the same compatibility care.
+
+## Local Job Runner Limitations
+
+The Phase 5 runner is for local demos and tests. It uses an in-process
+`ThreadPoolExecutor`, so jobs stop when the API process stops, and running
+Python threads are not force-killed on cancel. API cancellation marks queued
+jobs `cancelled` and running jobs `cancel_requested`. A future durable worker
+phase should move execution to a process or queue boundary with explicit retry,
+resume, and cancellation semantics.

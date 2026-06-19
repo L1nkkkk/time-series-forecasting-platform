@@ -1,0 +1,279 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from threading import Event
+from typing import Any
+
+from fastapi.testclient import TestClient
+
+from tests.helpers import tiny_config
+from ts_platform.api.app import create_app
+from ts_platform.api.jobs.runner import JobRunner
+from ts_platform.api.routes import jobs
+from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
+from ts_platform.config.schema import (
+    DataConfig,
+    EvaluationConfig,
+    ExperimentConfig,
+    PlatformConfig,
+    ScalerConfig,
+    TrainingConfig,
+)
+
+
+def _compare_config(tmp_path: Path, *, name: str = "api_job_compare") -> CompareConfig:
+    return CompareConfig(
+        experiment=ExperimentConfig(name=name, output_dir=tmp_path, overwrite=True, seed=11),
+        data=DataConfig(
+            name="synthetic",
+            input_len=4,
+            output_len=2,
+            batch_size=4,
+            train_ratio=0.7,
+            val_ratio=0.15,
+            test_ratio=0.15,
+            scaler=ScalerConfig(name="standard"),
+            params={"length": 48, "num_features": 1, "noise_std": 0.0},
+        ),
+        models=[
+            CompareModelConfig(name="naive"),
+            CompareModelConfig(name="moving_average", params={"window_size": 2}),
+        ],
+        training=TrainingConfig(epochs=1, learning_rate=0.01, device="cpu"),
+        evaluation=EvaluationConfig(metrics=["mae", "mse"], include_scaled_metrics=False),
+        primary_metric="mae",
+        continue_on_error=True,
+    )
+
+
+def _install_runner(
+    monkeypatch: Any,
+    tmp_path: Path,
+    *,
+    train_func: Any = None,
+    compare_func: Any = None,
+    max_workers: int = 1,
+) -> JobRunner:
+    runner = JobRunner(
+        jobs_root=tmp_path / "jobs",
+        runs_root=tmp_path / "runs",
+        max_workers=max_workers,
+        train_func=train_func,
+        compare_func=compare_func,
+    )
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", runner)
+    return runner
+
+
+def _write_train_result(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+    run_dir = runs_root / config.experiment.name / "latest"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_type": "train",
+        "experiment_name": config.experiment.name,
+        "run_id": "fake_train_run",
+        "run_dir": str(run_dir),
+        "test_metrics": {"original": {"mae": 1.0}},
+    }
+    (run_dir / "results.json").write_text(json.dumps(payload), encoding="utf-8")
+    (run_dir / "artifacts.json").write_text("{}", encoding="utf-8")
+    (run_dir / "train.log").write_text("training complete", encoding="utf-8")
+    return payload
+
+
+def _write_compare_result(config: CompareConfig, runs_root: Path) -> dict[str, Any]:
+    run_dir = runs_root / config.experiment.name / "latest"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    leaderboard_path = run_dir / "leaderboard.json"
+    leaderboard_path.write_text("[]", encoding="utf-8")
+    payload = {
+        "run_type": "compare",
+        "experiment_name": config.experiment.name,
+        "compare_run_id": "fake_compare_run",
+        "compare_run_dir": str(run_dir),
+        "leaderboard_json_path": str(leaderboard_path),
+        "success_count": 2,
+        "failed_count": 0,
+    }
+    (run_dir / "results.json").write_text(json.dumps(payload), encoding="utf-8")
+    (run_dir / "artifacts.json").write_text("{}", encoding="utf-8")
+    return payload
+
+
+def test_api_submit_train_job_returns_queued_or_running(tmp_path: Path, monkeypatch: Any) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, train_func=_write_train_result)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_train").model_dump(mode="json")
+
+    response = client.post("/jobs/train", json=config)
+    payload = response.json()
+    runner.wait(payload["job_id"], timeout=5)
+
+    assert response.status_code == 200
+    assert payload["job_type"] == "train"
+    assert payload["status"] in {"queued", "running"}
+
+
+def test_api_submit_compare_job_returns_queued_or_running(tmp_path: Path, monkeypatch: Any) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, compare_func=_write_compare_result)
+    client = TestClient(create_app())
+    config = _compare_config(tmp_path / "requested").model_dump(mode="json")
+
+    response = client.post("/jobs/compare", json=config)
+    payload = response.json()
+    runner.wait(payload["job_id"], timeout=5)
+
+    assert response.status_code == 200
+    assert payload["job_type"] == "compare"
+    assert payload["status"] in {"queued", "running"}
+
+
+def test_api_get_job(tmp_path: Path, monkeypatch: Any) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, train_func=_write_train_result)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_get").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner.wait(submitted["job_id"], timeout=5)
+
+    response = client.get(f"/jobs/{submitted['job_id']}")
+
+    assert response.status_code == 200
+    assert response.json()["job_id"] == submitted["job_id"]
+
+
+def test_api_list_jobs(tmp_path: Path, monkeypatch: Any) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, train_func=_write_train_result)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_list").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner.wait(submitted["job_id"], timeout=5)
+
+    response = client.get("/jobs")
+
+    assert response.status_code == 200
+    assert [job["job_id"] for job in response.json()["jobs"]] == [submitted["job_id"]]
+
+
+def test_api_job_result_after_success(tmp_path: Path, monkeypatch: Any) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, train_func=_write_train_result)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_result").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner.wait(submitted["job_id"], timeout=5)
+
+    response = client.get(f"/jobs/{submitted['job_id']}/result")
+    logs_response = client.get(f"/jobs/{submitted['job_id']}/logs")
+
+    assert response.status_code == 200
+    assert response.json()["experiment_name"] == "api_job_result"
+    assert logs_response.status_code == 200
+    assert logs_response.json()["log"] == "training complete"
+
+
+def test_api_job_result_returns_conflict_when_not_ready(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    started = Event()
+    release = Event()
+
+    def slow_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        started.set()
+        release.wait(timeout=5)
+        return _write_train_result(config, runs_root)
+
+    runner = _install_runner(monkeypatch, tmp_path, train_func=slow_train)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_not_ready").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    assert started.wait(timeout=5)
+
+    response = client.get(f"/jobs/{submitted['job_id']}/result")
+
+    release.set()
+    runner.wait(submitted["job_id"], timeout=5)
+    assert response.status_code == 409
+    assert response.json()["detail"]["status"] in {"queued", "running"}
+
+
+def test_api_job_records_failed_status(tmp_path: Path, monkeypatch: Any) -> None:
+    def fail_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        raise RuntimeError("api boom")
+
+    runner = _install_runner(monkeypatch, tmp_path, train_func=fail_train)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_failed").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner.wait(submitted["job_id"], timeout=5)
+
+    response = client.get(f"/jobs/{submitted['job_id']}")
+    logs_response = client.get(f"/jobs/{submitted['job_id']}/logs")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    assert "api boom" in response.json()["error"]
+    assert logs_response.status_code == 200
+    assert "api boom" in logs_response.json()["error"]
+
+
+def test_api_cancel_queued_job(tmp_path: Path, monkeypatch: Any) -> None:
+    started = Event()
+    release = Event()
+
+    def slow_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        started.set()
+        release.wait(timeout=5)
+        return _write_train_result(config, runs_root)
+
+    runner = _install_runner(monkeypatch, tmp_path, train_func=slow_train)
+    client = TestClient(create_app())
+    first_config = tiny_config(tmp_path / "requested", name="api_job_first").model_dump(mode="json")
+    second_config = tiny_config(tmp_path / "requested", name="api_job_second").model_dump(
+        mode="json"
+    )
+    first = client.post("/jobs/train", json=first_config).json()
+    assert started.wait(timeout=5)
+    second = client.post("/jobs/train", json=second_config).json()
+
+    response = client.post(f"/jobs/{second['job_id']}/cancel")
+
+    release.set()
+    runner.wait(first["job_id"], timeout=5)
+    runner.wait(second["job_id"], timeout=5)
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+
+
+def test_api_cancel_running_job_marks_cancel_requested(tmp_path: Path, monkeypatch: Any) -> None:
+    started = Event()
+    release = Event()
+
+    def slow_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        started.set()
+        release.wait(timeout=5)
+        return _write_train_result(config, runs_root)
+
+    runner = _install_runner(monkeypatch, tmp_path, train_func=slow_train)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_running_cancel").model_dump(
+        mode="json"
+    )
+    submitted = client.post("/jobs/train", json=config).json()
+    assert started.wait(timeout=5)
+
+    response = client.post(f"/jobs/{submitted['job_id']}/cancel")
+
+    release.set()
+    runner.wait(submitted["job_id"], timeout=5)
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancel_requested"
+
+
+def test_api_job_rejects_unsafe_job_id(tmp_path: Path, monkeypatch: Any) -> None:
+    _install_runner(monkeypatch, tmp_path, train_func=_write_train_result)
+    client = TestClient(create_app())
+
+    response = client.get("/jobs/bad%20id")
+
+    assert response.status_code == 400

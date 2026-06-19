@@ -26,6 +26,8 @@ code, no third-party notice is required beyond documenting the design reference.
 - `api`: Expose platform endpoints, load discovery metadata, delegate training
   and compare work to small service layers, and read saved artifacts through
   `ExperimentStore`.
+- `api/jobs`: Persist local job metadata and run train/compare jobs through a
+  small in-process executor for the demo API.
 
 ## Component Flow
 
@@ -61,6 +63,17 @@ API / CLI lookup request
   -> safe experiment_name and run_id validation
   -> resolved path stays under runs root
   -> train results.json, compare results.json, leaderboard.json, or artifacts.json
+```
+
+Local async jobs reuse the same safe execution services:
+
+```text
+POST /jobs/train or /jobs/compare
+  -> JobStore creates runs/jobs/<job_id>/job.json and request_config.json
+  -> JobRunner submits a ThreadPoolExecutor task
+  -> training_service or compare_service overwrites output_dir with runs root
+  -> Trainer or CompareRunner writes normal run artifacts
+  -> JobStore records succeeded, failed, result paths, and errors
 ```
 
 ## Training Flow
@@ -151,12 +164,29 @@ preventing API clients from writing runs to arbitrary paths.
 `CompareConfig` and delegates to `CompareRunner`. The compare endpoint remains
 synchronous for the demo API.
 
+`api/jobs/store.py` owns local job persistence under `runs/jobs`. It validates
+job ids as safe path components, writes each `job.json` and
+`request_config.json` atomically, lists jobs newest first, and raises clear
+errors for missing, unsafe, or corrupt job metadata.
+
+`api/jobs/runner.py` owns in-process asynchronous execution. It uses a
+`ThreadPoolExecutor` with a conservative default of one worker, marks jobs
+queued/running/succeeded/failed, and records result, artifact, leaderboard, and
+error fields. It does not duplicate training or compare logic; it delegates to
+`training_service` and `compare_service`.
+
+`api/routes/jobs.py` exposes submit, list, get, result, logs, and cancel
+endpoints. It maps unsafe job ids to HTTP 400, missing jobs to HTTP 404, and
+not-ready or failed result lookups to HTTP 409.
+
 `api/services/experiment_store.py` owns read-side artifact access for API and
 CLI callers. It validates `experiment_name` and `run_id` as safe path
 components, accepts `latest`, resolves all candidate paths, and rejects any
 resolved path outside the fixed runs root. It can list train, compare, and
 incomplete runs; read train or compare `results.json`; and read compare
 `leaderboard.json`; and read train or compare `artifacts.json`.
+The store skips `runs/jobs/<job_id>` because that tree is internal job metadata,
+not an experiment run.
 
 ## Artifact Manifests
 

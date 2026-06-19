@@ -36,6 +36,8 @@ class ExperimentStore:
 
         summaries: list[dict[str, Any]] = []
         for run_dir in sorted(path for path in self.runs_root.glob("*/*") if path.is_dir()):
+            if run_dir.parent.name == "jobs":
+                continue
             self._assert_inside_root(run_dir)
             results_path = run_dir / "results.json"
             try:
