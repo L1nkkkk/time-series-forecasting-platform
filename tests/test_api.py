@@ -249,6 +249,63 @@ def test_api_get_compare_results(tmp_path, monkeypatch) -> None:
     assert payload["compare_run_id"] == result.compare_run_id
 
 
+def test_api_get_train_artifacts(tmp_path, monkeypatch) -> None:
+    result = Trainer(tiny_config(tmp_path, name="api_train_artifacts")).run()
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_train_artifacts/latest/artifacts")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["run_type"] == "train"
+    assert payload["run_id"] == result.run_id
+    assert any(artifact["name"] == "checkpoint" for artifact in payload["artifacts"])
+
+
+def test_api_get_compare_artifacts(tmp_path, monkeypatch) -> None:
+    result = CompareRunner(_compare_config(tmp_path, name="api_compare_artifacts")).run()
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_compare_artifacts/latest/artifacts")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["run_type"] == "compare"
+    assert payload["compare_run_id"] == result.compare_run_id
+    assert any(artifact["name"] == "leaderboard_json" for artifact in payload["artifacts"])
+
+
+def test_api_get_artifacts_supports_latest(tmp_path, monkeypatch) -> None:
+    Trainer(tiny_config(tmp_path, name="api_latest_artifacts")).run()
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_latest_artifacts/latest/artifacts")
+
+    assert response.status_code == 200
+    assert response.json()["experiment_name"] == "api_latest_artifacts"
+
+
+def test_api_get_artifacts_returns_404_for_missing_run(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/missing/latest/artifacts")
+
+    assert response.status_code == 404
+
+
+def test_api_get_artifacts_rejects_unsafe_path_component(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/bad%20name/latest/artifacts")
+
+    assert response.status_code == 400
+
+
 def test_api_get_results_supports_latest(tmp_path, monkeypatch) -> None:
     Trainer(tiny_config(tmp_path, name="api_latest")).run()
     monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)

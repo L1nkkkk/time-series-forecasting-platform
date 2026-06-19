@@ -57,6 +57,20 @@ def get_experiment_results(experiment_name: str, run_id: str) -> dict[str, Any]:
         _raise_http_error(exc)
 
 
+@router.get("/experiments/{experiment_name}/{run_id}/artifacts")
+def get_experiment_artifacts(experiment_name: str, run_id: str) -> dict[str, Any]:
+    """Read a train or compare run artifact manifest."""
+
+    try:
+        return ExperimentStore(RUNS_ROOT).read_artifacts(experiment_name, run_id)
+    except (
+        UnsafePathComponentError,
+        ExperimentArtifactNotFoundError,
+        CorruptExperimentArtifactError,
+    ) as exc:
+        _raise_http_error(exc)
+
+
 @router.get("/experiments/{experiment_name}/{run_id}/leaderboard")
 def get_experiment_leaderboard(experiment_name: str, run_id: str) -> list[dict[str, Any]]:
     """Read a compare run leaderboard payload."""

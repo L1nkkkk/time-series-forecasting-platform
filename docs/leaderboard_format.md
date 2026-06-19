@@ -5,6 +5,10 @@ the compare run directory. `leaderboard.json` and `leaderboard.csv` both contain
 one row per configured model. The compare-level `results.json` stores summary
 metadata and embeds the same rows as `leaderboard.json`.
 
+Compare runs also write `artifacts.json`, which includes entries for
+`leaderboard_json` and `leaderboard_csv` so leaderboard outputs can be
+discovered through the artifact manifest API or CLI.
+
 ## JSON Schema
 
 `leaderboard.json` is a JSON array. Each row contains:

@@ -56,6 +56,12 @@ class ExperimentStore:
         run_dir = self._resolve_run_dir(experiment_name, run_id)
         return self._read_json_object(run_dir / "results.json")
 
+    def read_artifacts(self, experiment_name: str, run_id: str) -> dict[str, Any]:
+        """Read a train or compare ``artifacts.json`` payload."""
+
+        run_dir = self._resolve_run_dir(experiment_name, run_id)
+        return self._read_json_object(run_dir / "artifacts.json")
+
     def read_leaderboard(self, experiment_name: str, run_id: str) -> list[dict[str, Any]]:
         """Read a compare run ``leaderboard.json`` payload."""
 

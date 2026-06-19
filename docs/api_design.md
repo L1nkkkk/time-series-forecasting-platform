@@ -32,34 +32,34 @@ Response:
 ```json
 {
   "experiments": [
-        {
-          "status": "complete",
-          "run_type": "train",
-          "experiment_name": "csv_forecast",
-          "run_id": "20260620T000000Z_a1b2c3",
-          "created_at": "2026-06-20T00:00:00+00:00",
-          "run_dir": "runs/csv_forecast/latest",
-          "checkpoint_path": "runs/csv_forecast/latest/checkpoint.pt",
-          "test_metrics": {"original": {}}
-        },
-        {
-          "status": "complete",
-          "run_type": "compare",
-          "experiment_name": "compare_forecast",
-          "run_id": "20260620T000000Z_d4e5f6",
-          "compare_run_id": "20260620T000000Z_d4e5f6",
-          "created_at": "2026-06-20T00:00:00+00:00",
-          "run_dir": "runs/compare_forecast/latest",
-          "compare_run_dir": "runs/compare_forecast/latest",
-          "primary_metric": "mae",
-          "success_count": 5,
-          "failed_count": 0,
-          "leaderboard_json_path": "runs/compare_forecast/latest/leaderboard.json",
-          "leaderboard_csv_path": "runs/compare_forecast/latest/leaderboard.csv"
-        }
-      ]
+    {
+      "status": "complete",
+      "run_type": "train",
+      "experiment_name": "csv_forecast",
+      "run_id": "20260620T000000Z_a1b2c3",
+      "created_at": "2026-06-20T00:00:00+00:00",
+      "run_dir": "runs/csv_forecast/latest",
+      "checkpoint_path": "runs/csv_forecast/latest/checkpoint.pt",
+      "test_metrics": {"original": {}}
+    },
+    {
+      "status": "complete",
+      "run_type": "compare",
+      "experiment_name": "compare_forecast",
+      "run_id": "20260620T000000Z_d4e5f6",
+      "compare_run_id": "20260620T000000Z_d4e5f6",
+      "created_at": "2026-06-20T00:00:00+00:00",
+      "run_dir": "runs/compare_forecast/latest",
+      "compare_run_dir": "runs/compare_forecast/latest",
+      "primary_metric": "mae",
+      "success_count": 5,
+      "failed_count": 0,
+      "leaderboard_json_path": "runs/compare_forecast/latest/leaderboard.json",
+      "leaderboard_csv_path": "runs/compare_forecast/latest/leaderboard.csv"
     }
-    ```
+  ]
+}
+```
 
 Runs with missing or damaged `results.json` are returned as
 `status: incomplete` and `run_type: unknown` instead of crashing the endpoint.
@@ -89,6 +89,12 @@ metrics. Compare results include:
 Returns a compare run `leaderboard.json` array. This endpoint is meaningful for
 compare runs; train runs return 404 because they do not have a leaderboard
 artifact. `model_params` is returned as an object in JSON responses.
+
+### GET /experiments/{experiment_name}/{run_id}/artifacts
+
+Returns the stored `artifacts.json` manifest for a train or compare run.
+`run_id` can be `latest` or a recorded `run_id` / `compare_run_id`. This
+endpoint returns only manifest metadata and does not download arbitrary files.
 
 ### POST /experiments/compare
 
@@ -146,10 +152,19 @@ present only when `evaluation.include_scaled_metrics` is true.
 - API training and compare override unsafe output roots instead of returning
   HTTP 400.
 - Invalid `experiment_name` or `run_id` lookup path components return HTTP 400.
-- Missing `results.json` or `leaderboard.json` artifacts return HTTP 404.
-- Damaged result or leaderboard JSON returns HTTP 500.
+- Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
+  return HTTP 404.
+- Damaged result, leaderboard, or artifact manifest JSON returns HTTP 500.
 - Runtime training or compare failures should return clear HTTP 500 responses
   with a concise message and server-side logs.
+
+## Run ID Format
+
+`ExperimentRecorder.run_id` currently uses
+`YYYYMMDDTHHMMSSZ_<6 hex chars>`, for example
+`20260619T120000Z_a1b2c3`. Compare parent ids use the same format and are
+reported as `compare_run_id`. API clients may pass either `latest` or a recorded
+id to lookup endpoints.
 
 ## ExperimentStore
 
@@ -161,3 +176,5 @@ fixed runs root.
 
 The store supports direct directory lookup, `latest`, and lookup by recorded
 `run_id` / `compare_run_id` when the physical directory is `latest`.
+It reads `results.json`, `leaderboard.json`, and `artifacts.json` with the same
+fixed-root safety checks.

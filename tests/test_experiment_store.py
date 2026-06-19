@@ -89,6 +89,17 @@ def test_experiment_store_reads_train_results(tmp_path) -> None:
     assert payload["test_metrics"]["original"]
 
 
+def test_experiment_store_reads_train_artifacts(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="store_train_artifacts")).run()
+    store = ExperimentStore(tmp_path)
+
+    payload = store.read_artifacts("store_train_artifacts", "latest")
+
+    assert payload["run_type"] == "train"
+    assert payload["run_id"] == result.run_id
+    assert any(artifact["name"] == "results" for artifact in payload["artifacts"])
+
+
 def test_experiment_store_reads_compare_results(tmp_path) -> None:
     result = CompareRunner(_compare_config(tmp_path)).run()
     store = ExperimentStore(tmp_path)
@@ -99,6 +110,17 @@ def test_experiment_store_reads_compare_results(tmp_path) -> None:
     assert payload["compare_run_id"] == result.compare_run_id
     assert payload["success_count"] == 2
     assert payload["failed_count"] == 0
+
+
+def test_experiment_store_reads_compare_artifacts(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path, name="store_compare_artifacts")).run()
+    store = ExperimentStore(tmp_path)
+
+    payload = store.read_artifacts("store_compare_artifacts", result.compare_run_id)
+
+    assert payload["run_type"] == "compare"
+    assert payload["compare_run_id"] == result.compare_run_id
+    assert any(artifact["name"] == "leaderboard_json" for artifact in payload["artifacts"])
 
 
 def test_experiment_store_reads_compare_leaderboard(tmp_path) -> None:
@@ -116,3 +138,23 @@ def test_experiment_store_missing_results_is_clear_error(tmp_path) -> None:
 
     with pytest.raises(ExperimentArtifactNotFoundError, match="does not exist"):
         store.read_results("missing", "latest")
+
+
+def test_experiment_store_artifacts_missing_is_clear_error(tmp_path) -> None:
+    run_dir = tmp_path / "missing_artifacts" / "latest"
+    run_dir.mkdir(parents=True)
+    (run_dir / "results.json").write_text(
+        '{"experiment_name": "missing_artifacts", "run_id": "latest"}',
+        encoding="utf-8",
+    )
+    store = ExperimentStore(tmp_path)
+
+    with pytest.raises(ExperimentArtifactNotFoundError, match="artifacts.json"):
+        store.read_artifacts("missing_artifacts", "latest")
+
+
+def test_experiment_store_artifacts_rejects_unsafe_path_component(tmp_path) -> None:
+    store = ExperimentStore(tmp_path)
+
+    with pytest.raises(UnsafePathComponentError, match="experiment_name"):
+        store.read_artifacts("bad name", "latest")

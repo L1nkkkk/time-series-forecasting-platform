@@ -59,6 +59,18 @@ def build_parser() -> argparse.ArgumentParser:
         default="runs",
         help="Runs root to read from",
     )
+
+    show_artifacts_parser = subparsers.add_parser(
+        "show-artifacts",
+        help="Show run artifact manifest JSON",
+    )
+    show_artifacts_parser.add_argument("--experiment", required=True, help="Experiment name")
+    show_artifacts_parser.add_argument("--run", default="latest", help="Run id or latest")
+    show_artifacts_parser.add_argument(
+        "--runs-root",
+        default="runs",
+        help="Runs root to read from",
+    )
     return parser
 
 
@@ -97,6 +109,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.run,
         )
         print(json.dumps(leaderboard_payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "show-artifacts":
+        artifacts_payload = ExperimentStore(Path(args.runs_root)).read_artifacts(
+            args.experiment,
+            args.run,
+        )
+        print(json.dumps(artifacts_payload, indent=2, sort_keys=True))
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2

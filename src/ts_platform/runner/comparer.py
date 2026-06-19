@@ -11,6 +11,7 @@ from typing import Any, Literal
 from ts_platform.config.compare_loader import load_compare_config, save_compare_config_snapshot
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import ExperimentConfig, ModelConfig, PlatformConfig
+from ts_platform.experiment.artifacts import build_compare_artifact_manifest, save_artifact_manifest
 from ts_platform.experiment.recorder import ExperimentRecorder
 from ts_platform.experiment.reproducibility import collect_environment
 from ts_platform.runner.trainer import Trainer, TrainingResult
@@ -132,6 +133,16 @@ class CompareRunner:
             rows=rows,
         )
         recorder.save_results(result.to_dict())
+        save_artifact_manifest(
+            build_compare_artifact_manifest(
+                experiment_name=result.experiment_name,
+                compare_run_id=result.compare_run_id,
+                compare_run_dir=result.compare_run_dir,
+                leaderboard_json_path=result.leaderboard_json_path,
+                leaderboard_csv_path=result.leaderboard_csv_path,
+            ),
+            compare_run_dir / "artifacts.json",
+        )
         return result
 
     def _run_model(

@@ -62,6 +62,30 @@ def test_compare_runner_writes_artifacts(tmp_path) -> None:
     assert len(result.rows) == 2
 
 
+def test_compare_run_writes_artifacts_json(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path)).run()
+
+    assert (result.compare_run_dir / "artifacts.json").exists()
+
+
+def test_compare_artifacts_json_contains_leaderboard_entries(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path)).run()
+    payload = json.loads((result.compare_run_dir / "artifacts.json").read_text(encoding="utf-8"))
+    artifact_names = {artifact["name"] for artifact in payload["artifacts"]}
+
+    assert payload["run_type"] == "compare"
+    assert payload["experiment_name"] == "compare_unit"
+    assert payload["compare_run_id"] == result.compare_run_id
+    assert payload["compare_run_dir"] == str(result.compare_run_dir)
+    assert {
+        "results",
+        "leaderboard_json",
+        "leaderboard_csv",
+        "compare_config_snapshot",
+        "environment",
+    }.issubset(artifact_names)
+
+
 def test_compare_runner_writes_results_json(tmp_path) -> None:
     result = CompareRunner(_compare_config(tmp_path)).run()
 

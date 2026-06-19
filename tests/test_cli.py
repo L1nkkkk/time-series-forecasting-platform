@@ -196,11 +196,50 @@ def test_cli_show_leaderboard(tmp_path, capsys) -> None:
     assert all(isinstance(row["model_params"], dict) for row in payload)
 
 
+def test_cli_show_artifacts(tmp_path, capsys) -> None:
+    config_path = _write_compare_cli_config(tmp_path)
+    main(["compare", "--config", str(config_path)])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "show-artifacts",
+            "--experiment",
+            "cli_compare",
+            "--run",
+            "latest",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["run_type"] == "compare"
+    assert any(artifact["name"] == "leaderboard_json" for artifact in payload["artifacts"])
+
+
 def test_cli_show_results_rejects_unsafe_path_component(tmp_path) -> None:
     with pytest.raises(UnsafePathComponentError, match="experiment_name"):
         main(
             [
                 "show-results",
+                "--experiment",
+                "bad name",
+                "--run",
+                "latest",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+
+
+def test_cli_show_artifacts_rejects_unsafe_path_component(tmp_path) -> None:
+    with pytest.raises(UnsafePathComponentError, match="experiment_name"):
+        main(
+            [
+                "show-artifacts",
                 "--experiment",
                 "bad name",
                 "--run",

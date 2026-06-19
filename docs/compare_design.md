@@ -60,6 +60,7 @@ Aliases are optional and must be safe path components.
 
 ```text
 runs/<compare_name>/<compare_run_id-or-latest>/
+  artifacts.json
   compare_config_snapshot.yaml
   environment.json
   results.json
@@ -92,6 +93,11 @@ The compare parent `results.json` contains the compare-level summary:
 `compare_run_id` and `created_at` come from the parent
 `ExperimentRecorder`. `rows` is the same array written to `leaderboard.json`.
 The file is written even when every model fails and `continue_on_error: true`.
+
+The compare parent `artifacts.json` indexes the parent compare outputs:
+`results.json`, `leaderboard.json`, `leaderboard.csv`,
+`compare_config_snapshot.yaml`, and `environment.json`. Model subdirectories
+are normal train runs and write their own train manifests.
 
 ## Leaderboard
 

@@ -21,6 +21,7 @@ The current MVP focuses on a runnable local training loop:
 - Strict CSV parameter validation, split-local missing-value handling, and
   dataset catalog discovery.
 - Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
+- Artifact manifests that make train and compare outputs discoverable.
 
 No BasicTS code is copied into this project.
 
@@ -43,8 +44,8 @@ py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 ```
 
 The run writes logs, a checkpoint, a config snapshot, environment metadata, and
-`results.json` under `runs/simple_forecast/latest/` because the example config
-sets `overwrite: true`.
+`results.json` plus `artifacts.json` under `runs/simple_forecast/latest/`
+because the example config sets `overwrite: true`.
 
 Run the CSV example:
 
@@ -60,10 +61,10 @@ py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.ya
 
 The compare command writes one normal Trainer run per model under
 `runs/compare_forecast/latest/models/` and produces
-`results.json`, `leaderboard.json`, and `leaderboard.csv` in the compare run
-directory. The compare-level `results.json` summarizes the parent compare run,
-including success/failure counts, leaderboard paths, and the same rows stored in
-`leaderboard.json`.
+`results.json`, `artifacts.json`, `leaderboard.json`, and `leaderboard.csv` in
+the compare run directory. The compare-level `results.json` summarizes the
+parent compare run, including success/failure counts, leaderboard paths, and the
+same rows stored in `leaderboard.json`.
 
 ## Metrics
 
@@ -170,11 +171,12 @@ Read saved train or compare results as JSON:
 ```bash
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
+py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 ```
 
 `show-results` returns a train run `results.json` or a compare parent
 `results.json`. `show-leaderboard` is meaningful for compare runs and reads
-`leaderboard.json`.
+`leaderboard.json`. `show-artifacts` reads the run `artifacts.json` manifest.
 
 ## Compare Runs
 
@@ -240,6 +242,16 @@ skipped and evaluation still runs.
 Every `results.json` includes `run_id`, `created_at`, `run_dir`, and
 `experiment_name`.
 
+`run_id` is formatted as `YYYYMMDDTHHMMSSZ_<6 hex chars>`, for example
+`20260619T120000Z_a1b2c3`. Compare parent ids use the same format and are
+reported as `compare_run_id`.
+
+Every completed train or compare run also writes `artifacts.json`. Train
+manifests include result, checkpoint, config snapshot, environment, and log
+entries when those files exist. Compare manifests include compare results,
+leaderboard JSON/CSV, compare config snapshot, and environment entries. See
+[docs/artifacts.md](docs/artifacts.md).
+
 ## Validation Split
 
 `val_ratio: 0` is allowed. In that case validation is skipped,
@@ -275,6 +287,7 @@ py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
 py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
+py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 ```
 
 ## API Demo
@@ -290,6 +303,7 @@ Available endpoints:
 - `GET /models`
 - `GET /experiments`
 - `GET /experiments/{experiment_name}/{run_id}/results`
+- `GET /experiments/{experiment_name}/{run_id}/artifacts`
 - `GET /experiments/{experiment_name}/{run_id}/leaderboard`
 - `POST /experiments/train`
 - `POST /experiments/compare`
@@ -308,3 +322,5 @@ success/failure counts, and leaderboard paths.
 Result lookup path parameters must be safe path components containing only
 letters, numbers, `_`, `-`, and `.`. `run_id` also accepts `latest`. Path
 separators, whitespace, `..`, absolute paths, and path escapes are rejected.
+The artifacts endpoint returns only the manifest; it does not download arbitrary
+files.
