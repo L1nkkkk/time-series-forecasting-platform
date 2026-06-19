@@ -1,0 +1,37 @@
+experiment:
+  name: simple_forecast
+  output_dir: runs
+  seed: 42
+  overwrite: true
+
+data:
+  name: synthetic
+  input_len: 24
+  output_len: 6
+  batch_size: 16
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  scaler:
+    name: standard
+  params:
+    length: 240
+    num_features: 2
+    noise_std: 0.02
+
+model:
+  name: mlp
+  params:
+    hidden_sizes: [64, 32]
+    dropout: 0.0
+
+training:
+  epochs: 2
+  learning_rate: 0.001
+  device: cpu
+  optimizer: adam
+  loss: mse
+  checkpoint_every: 1
+
+evaluation:
+  metrics: [mae, mse, rmse, mape, wape]
