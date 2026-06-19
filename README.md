@@ -60,7 +60,10 @@ py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.ya
 
 The compare command writes one normal Trainer run per model under
 `runs/compare_forecast/latest/models/` and produces
-`leaderboard.json` plus `leaderboard.csv` in the compare run directory.
+`results.json`, `leaderboard.json`, and `leaderboard.csv` in the compare run
+directory. The compare-level `results.json` summarizes the parent compare run,
+including success/failure counts, leaderboard paths, and the same rows stored in
+`leaderboard.json`.
 
 ## Metrics
 
@@ -162,6 +165,17 @@ py -m ts_platform.cli.main list-datasets
 py -m ts_platform.cli.main list-models
 ```
 
+Read saved train or compare results as JSON:
+
+```bash
+py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
+py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
+```
+
+`show-results` returns a train run `results.json` or a compare parent
+`results.json`. `show-leaderboard` is meaningful for compare runs and reads
+`leaderboard.json`.
+
 ## Compare Runs
 
 Compare configs reuse the existing data, training, and evaluation config
@@ -196,7 +210,9 @@ Baseline model behavior:
   until `output_len` predictions are produced.
 
 See [docs/leaderboard_format.md](docs/leaderboard_format.md) for output
-columns.
+columns. In `leaderboard.json` and API responses, `model_params` is a JSON
+object. In `leaderboard.csv`, `model_params` remains a JSON string so the CSV
+cell is portable.
 
 ## Checkpoints and Resume
 
@@ -256,6 +272,9 @@ ruff format --check .
 mypy src
 py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
+py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
+py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
+py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 ```
 
 ## API Demo
@@ -270,9 +289,22 @@ Available endpoints:
 - `GET /datasets`
 - `GET /models`
 - `GET /experiments`
+- `GET /experiments/{experiment_name}/{run_id}/results`
+- `GET /experiments/{experiment_name}/{run_id}/leaderboard`
 - `POST /experiments/train`
+- `POST /experiments/compare`
 
 The API keeps experiment discovery under the fixed safe `runs` root. For
-`POST /experiments/train`, the API ignores any client-provided
-`experiment.output_dir` and overwrites it with the same safe runs root. CLI
-training still honors `experiment.output_dir` from the config.
+`POST /experiments/train` and `POST /experiments/compare`, the API ignores any
+client-provided `experiment.output_dir` and overwrites it with the same safe
+runs root. CLI training and compare still honor `experiment.output_dir` from
+their configs.
+
+`GET /experiments` lists complete train runs, complete compare runs, and
+incomplete run directories. Train summaries include checkpoint and test metric
+metadata. Compare summaries include the parent compare run id, primary metric,
+success/failure counts, and leaderboard paths.
+
+Result lookup path parameters must be safe path components containing only
+letters, numbers, `_`, `-`, and `.`. `run_id` also accepts `latest`. Path
+separators, whitespace, `..`, absolute paths, and path escapes are rejected.

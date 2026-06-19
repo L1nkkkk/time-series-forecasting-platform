@@ -23,8 +23,9 @@ code, no third-party notice is required beyond documenting the design reference.
 - `experiment`: Create run directories, write logs, save configs, collect
   reproducibility metadata, and record results.
 - `cli`: Parse command-line input and delegate to the runner.
-- `api`: Expose platform endpoints, load discovery metadata, and delegate
-  training work to a small service layer.
+- `api`: Expose platform endpoints, load discovery metadata, delegate training
+  and compare work to small service layers, and read saved artifacts through
+  `ExperimentStore`.
 
 ## Component Flow
 
@@ -49,7 +50,17 @@ Compare YAML/JSON config
   -> CompareRunner parent run directory
   -> One PlatformConfig per model
   -> Existing Trainer for each model
-  -> leaderboard.json + leaderboard.csv
+  -> parent results.json + leaderboard.json + leaderboard.csv
+```
+
+Result lookup uses one fixed root:
+
+```text
+API / CLI lookup request
+  -> ExperimentStore
+  -> safe experiment_name and run_id validation
+  -> resolved path stays under runs root
+  -> train results.json, compare results.json, or compare leaderboard.json
 ```
 
 ## Training Flow
@@ -135,6 +146,17 @@ the validated `PlatformConfig`, overwrites `experiment.output_dir` with the
 safe API runs root, and then calls `Trainer`. This preserves CLI behavior while
 preventing API clients from writing runs to arbitrary paths.
 
+`api/services/compare_service.py` applies the same output-root policy to
+`CompareConfig` and delegates to `CompareRunner`. The compare endpoint remains
+synchronous for the demo API.
+
+`api/services/experiment_store.py` owns read-side artifact access for API and
+CLI callers. It validates `experiment_name` and `run_id` as safe path
+components, accepts `latest`, resolves all candidate paths, and rejects any
+resolved path outside the fixed runs root. It can list train, compare, and
+incomplete runs; read train or compare `results.json`; and read compare
+`leaderboard.json`.
+
 ## Experiment Name Safety
 
 `ExperimentConfig.name` is validated as a single safe path component: letters,
@@ -165,6 +187,11 @@ Successful rows are ranked ascending by `primary_metric`. Failed rows are kept
 with `status: failed`, `rank: null`, and `error`, then appended after successful
 rows. With `continue_on_error: false`, the first model failure aborts the compare
 run with a clear exception.
+
+After writing the leaderboard, `CompareRunner` writes parent `results.json` with
+the compare run id, created timestamp, leaderboard paths, success/failure
+counts, primary metric, and the same rows as `leaderboard.json`. JSON rows keep
+`model_params` as an object; only CSV serializes that column to a JSON string.
 
 ## Registry Mechanism
 

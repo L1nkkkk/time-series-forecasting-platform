@@ -38,20 +38,31 @@ class CompareModelResult:
 class CompareResult:
     """Serializable compare result summary."""
 
+    experiment_name: str
     compare_run_dir: Path
     compare_run_id: str
+    created_at: str
     leaderboard_json_path: Path
     leaderboard_csv_path: Path
+    primary_metric: str
+    success_count: int
+    failed_count: int
     rows: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable result."""
 
         return {
+            "run_type": "compare",
+            "experiment_name": self.experiment_name,
             "compare_run_dir": str(self.compare_run_dir),
             "compare_run_id": self.compare_run_id,
+            "created_at": self.created_at,
             "leaderboard_json_path": str(self.leaderboard_json_path),
             "leaderboard_csv_path": str(self.leaderboard_csv_path),
+            "primary_metric": self.primary_metric,
+            "success_count": self.success_count,
+            "failed_count": self.failed_count,
             "rows": self.rows,
         }
 
@@ -108,13 +119,20 @@ class CompareRunner:
         leaderboard_csv_path = compare_run_dir / "leaderboard.csv"
         self._write_leaderboard_json(leaderboard_json_path, rows)
         self._write_leaderboard_csv(leaderboard_csv_path, rows)
-        return CompareResult(
+        result = CompareResult(
+            experiment_name=self.config.experiment.name,
             compare_run_dir=compare_run_dir,
             compare_run_id=recorder.run_id,
+            created_at=recorder.created_at,
             leaderboard_json_path=leaderboard_json_path,
             leaderboard_csv_path=leaderboard_csv_path,
+            primary_metric=self.config.primary_metric or self.config.evaluation.metrics[0],
+            success_count=sum(row["status"] == "success" for row in rows),
+            failed_count=sum(row["status"] == "failed" for row in rows),
             rows=rows,
         )
+        recorder.save_results(result.to_dict())
+        return result
 
     def _run_model(
         self,
@@ -180,7 +198,7 @@ class CompareRunner:
             "status": result.status,
             "model_name": result.model_name,
             "model_alias": result.model_alias,
-            "model_params": json.dumps(result.model_params, sort_keys=True),
+            "model_params": dict(result.model_params),
             "run_id": result.run_id,
             "run_dir": str(result.run_dir) if result.run_dir is not None else None,
             "checkpoint_path": (
@@ -204,7 +222,13 @@ class CompareRunner:
             writer = csv.DictWriter(handle, fieldnames=fieldnames)
             writer.writeheader()
             for row in rows:
-                writer.writerow({field: row.get(field) for field in fieldnames})
+                csv_row = {field: row.get(field) for field in fieldnames}
+                if isinstance(csv_row.get("model_params"), dict):
+                    csv_row["model_params"] = json.dumps(
+                        csv_row["model_params"],
+                        sort_keys=True,
+                    )
+                writer.writerow(csv_row)
 
     def _leaderboard_fieldnames(self) -> list[str]:
         return [

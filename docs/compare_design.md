@@ -62,6 +62,7 @@ Aliases are optional and must be safe path components.
 runs/<compare_name>/<compare_run_id-or-latest>/
   compare_config_snapshot.yaml
   environment.json
+  results.json
   leaderboard.csv
   leaderboard.json
   models/
@@ -73,6 +74,24 @@ runs/<compare_name>/<compare_run_id-or-latest>/
 
 Each model run should still contain the existing config snapshot, checkpoint,
 environment metadata, logs, and `results.json`.
+
+The compare parent `results.json` contains the compare-level summary:
+
+- `run_type: compare`
+- `experiment_name`
+- `compare_run_id`
+- `compare_run_dir`
+- `created_at`
+- `leaderboard_json_path`
+- `leaderboard_csv_path`
+- `primary_metric`
+- `success_count`
+- `failed_count`
+- `rows`
+
+`compare_run_id` and `created_at` come from the parent
+`ExperimentRecorder`. `rows` is the same array written to `leaderboard.json`.
+The file is written even when every model fails and `continue_on_error: true`.
 
 ## Leaderboard
 
@@ -95,12 +114,22 @@ environment metadata, logs, and `results.json`.
 Successful rows are sorted ascending by `primary_metric`. Failed rows have
 `rank: null`, no metric values, and an error message.
 
+`leaderboard.json` keeps `model_params` as a JSON object. `leaderboard.csv`
+serializes only that column as a JSON string so the CSV remains a flat table.
+
 ## Reusing Trainer
 
 `CompareRunner` constructs one normal `PlatformConfig` per model entry and calls
 the existing `Trainer`. It only coordinates config expansion, output directory
 layout, result collection, and leaderboard writing. It does not duplicate
 training, evaluation, checkpoint, or scaler logic.
+
+## API Compare Endpoint
+
+`POST /experiments/compare` accepts `CompareConfig`, forces
+`experiment.output_dir` to the API safe runs root, and then delegates to
+`CompareRunner`. It is synchronous for the demo API and intentionally does not
+introduce an async queue or distributed training layer.
 
 ## Failure Strategy
 
