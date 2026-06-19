@@ -79,7 +79,7 @@ class EvaluationConfig(StrictConfigModel):
     """Evaluation metric settings."""
 
     metrics: list[str] = Field(default_factory=lambda: ["mae", "mse", "rmse", "mape", "wape"])
-    include_scaled_metrics: bool = True
+    include_scaled_metrics: bool = False
 
     @field_validator("metrics")
     @classmethod

@@ -19,7 +19,30 @@ Returns registered model names.
 
 ### GET /experiments
 
-Returns local experiment summaries discovered under the configured run root.
+Returns local experiment summaries discovered under the fixed safe `runs` root.
+The endpoint no longer accepts an arbitrary `root` query parameter for local
+directory listing.
+
+Response:
+
+```json
+{
+  "experiments": [
+    {
+      "status": "complete",
+      "experiment_name": "csv_forecast",
+      "run_id": "20260620T000000Z_a1b2c3",
+      "created_at": "2026-06-20T00:00:00+00:00",
+      "run_dir": "runs/csv_forecast/latest",
+      "checkpoint_path": "runs/csv_forecast/latest/checkpoint.pt",
+      "test_metrics": {"original": {}}
+    }
+  ]
+}
+```
+
+Runs with missing or damaged `results.json` are returned as
+`status: incomplete` instead of crashing the endpoint.
 
 ### POST /experiments/train
 

@@ -1,0 +1,37 @@
+experiment:
+  name: csv_forecast
+  output_dir: runs
+  seed: 42
+  overwrite: true
+
+data:
+  name: csv
+  input_len: 8
+  output_len: 2
+  batch_size: 8
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  scaler:
+    name: standard
+  params:
+    path: tests/fixtures/tiny_series.csv
+    timestamp_col: timestamp
+    target_cols: [value]
+    missing_policy: error
+    sort_by_time: true
+
+model:
+  name: linear
+
+training:
+  epochs: 2
+  learning_rate: 0.01
+  device: cpu
+  optimizer: adam
+  loss: mse
+  checkpoint_every: 1
+
+evaluation:
+  metrics: [mae, mse, rmse, wape]
+  include_scaled_metrics: true

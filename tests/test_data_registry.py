@@ -7,6 +7,7 @@ from ts_platform.data.registry import DATASET_REGISTRY
 
 def test_dataset_registry_contains_synthetic() -> None:
     assert "synthetic" in DATASET_REGISTRY.names()
+    assert "csv" in DATASET_REGISTRY.names()
 
 
 def test_synthetic_dataset_split_and_batch_shape() -> None:

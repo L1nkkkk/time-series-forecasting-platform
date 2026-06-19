@@ -72,3 +72,13 @@ def test_training_reproducible_with_same_seed(tmp_path) -> None:
     second = Trainer(tiny_config(tmp_path, name="repro_b", seed=123)).run()
 
     assert first.test_metrics["original"] == pytest.approx(second.test_metrics["original"])
+
+
+def test_include_scaled_metrics_default(tmp_path) -> None:
+    default_result = Trainer(tiny_config(tmp_path, name="scaled_default")).run()
+    explicit_config = tiny_config(tmp_path, name="scaled_enabled")
+    explicit_config.evaluation.include_scaled_metrics = True
+    explicit_result = Trainer(explicit_config).run()
+
+    assert "scaled" not in default_result.test_metrics
+    assert "scaled" in explicit_result.test_metrics

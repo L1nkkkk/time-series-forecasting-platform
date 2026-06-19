@@ -9,6 +9,7 @@ points.
 The current MVP focuses on a runnable local training loop:
 
 - Synthetic forecasting dataset.
+- Local CSV forecasting dataset with time-based splits.
 - Naive last-value, linear, and MLP forecasting models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
@@ -41,11 +42,18 @@ The run writes logs, a checkpoint, a config snapshot, environment metadata, and
 `results.json` under `runs/simple_forecast/latest/` because the example config
 sets `overwrite: true`.
 
+Run the CSV example:
+
+```bash
+py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
+```
+
 ## Metrics
 
 Validation and test metrics are reported on the original data scale by default.
-When `evaluation.include_scaled_metrics: true` is set, `results.json` also
-stores scaled-space metrics:
+Scaled-space metrics are not saved by default. When
+`evaluation.include_scaled_metrics: true` is set, `results.json` also stores
+scaled-space metrics:
 
 ```json
 {
@@ -61,13 +69,58 @@ stores scaled-space metrics:
 Training is driven by YAML or JSON. The example config declares:
 
 - `experiment`: run name, output directory, seed, overwrite behavior.
-- `data`: dataset name, split ratios, sequence lengths, scaler, and synthetic
-  dataset parameters.
+- `data`: dataset name, split ratios, sequence lengths, scaler, and dataset
+  parameters.
 - `model`: registered model name and model-specific parameters.
 - `training`: epochs, learning rate, optimizer, device, and checkpoint policy.
 - `evaluation`: metric names and whether to include scaled-space metrics.
 
-See [configs/examples/simple_forecast.yaml](configs/examples/simple_forecast.yaml).
+See [configs/examples/simple_forecast.yaml](configs/examples/simple_forecast.yaml)
+and [configs/examples/csv_forecast.yaml](configs/examples/csv_forecast.yaml).
+
+## CSV Datasets
+
+Use `data.name: csv` to train on a local CSV file:
+
+```yaml
+data:
+  name: csv
+  input_len: 8
+  output_len: 2
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  params:
+    path: tests/fixtures/tiny_series.csv
+    timestamp_col: timestamp
+    target_cols: [value]
+    missing_policy: error
+    sort_by_time: true
+```
+
+CSV parameters:
+
+- `path`: local CSV path.
+- `timestamp_col`: optional timestamp column. When present it is parsed as
+  datetime, duplicate timestamps are rejected, and `sort_by_time: true` sorts
+  rows before splitting.
+- `target_cols`: one or more numeric target columns. Models receive only these
+  columns in this phase.
+- `missing_policy`: `error`, `drop`, `forward_fill`, or `zero_fill`.
+- `sort_by_time`: sort rows by timestamp before splitting.
+
+CSV data uses time-based splitting: raw rows are split into train, validation,
+and test periods first, then sliding windows are generated within each split.
+This prevents validation/test rows from entering training windows. Scalers are
+fit only from the training split via `train_dataset.scaler_fit_values()`.
+
+Exogenous `feature_cols` are intentionally not supported yet; passing them
+raises a clear error. That scope is deferred to a later phase.
+
+Dataset catalog files such as
+[configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
+local datasets for discovery. They are metadata only; training still uses an
+explicit experiment config.
 
 ## Checkpoints and Resume
 
@@ -126,6 +179,7 @@ ruff check .
 ruff format --check .
 mypy src
 py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
+py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
 ```
 
 ## API Demo

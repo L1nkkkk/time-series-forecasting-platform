@@ -44,6 +44,11 @@ coverage, config validation, and reproducibility.
 - CLI tests call `ts_platform.cli.main.main([...])` with a temporary config.
 - API tests cover health/list endpoints and synchronous `POST
   /experiments/train`.
+- CSV dataset tests cover local file loading, time-based split boundaries,
+  missing target columns, missing value policies, and train-only scaler fitting.
+- Catalog tests cover local YAML dataset metadata loading and registration.
+- API experiment listing tests verify the endpoint uses a fixed runs root and
+  returns run metadata from `results.json`.
 
 ## CI Strategy
 

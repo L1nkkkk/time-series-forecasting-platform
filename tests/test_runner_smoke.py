@@ -14,4 +14,4 @@ def test_runner_smoke(tmp_path) -> None:
     assert (result.run_dir / "environment.json").exists()
     assert (result.run_dir / "results.json").exists()
     assert set(result.test_metrics["original"]) == {"mae", "mse", "rmse", "mape", "wape"}
-    assert "scaled" in result.test_metrics
+    assert "scaled" not in result.test_metrics

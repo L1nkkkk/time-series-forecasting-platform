@@ -1,0 +1,10 @@
+datasets:
+  - name: tiny_csv
+    dataset_type: csv
+    domain: demo
+    description: Tiny local CSV fixture for tests and examples.
+    path: tests/fixtures/tiny_series.csv
+    timestamp_col: timestamp
+    target_cols: [value]
+    frequency: D
+    license: test-fixture

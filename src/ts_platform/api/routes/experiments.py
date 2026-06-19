@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +12,16 @@ from ts_platform.config.schema import PlatformConfig
 from ts_platform.runner.trainer import Trainer
 
 router = APIRouter()
+RUNS_ROOT = Path("runs")
 
 
 @router.get("/experiments")
-def list_experiments(root: str = "runs") -> dict[str, list[str]]:
-    """List local experiment run directories."""
+def list_experiments() -> dict[str, list[dict[str, Any]]]:
+    """List local experiment metadata from the fixed runs root."""
 
-    root_path = Path(root)
-    if not root_path.exists():
+    if not RUNS_ROOT.exists():
         return {"experiments": []}
-    experiments = [path.name for path in root_path.iterdir() if path.is_dir()]
-    return {"experiments": sorted(experiments)}
+    return {"experiments": _discover_experiments(RUNS_ROOT)}
 
 
 @router.post("/experiments/train")
@@ -30,3 +30,41 @@ def train_experiment(config: PlatformConfig) -> dict[str, Any]:
 
     result = Trainer(config).run()
     return result.to_dict()
+
+
+def _discover_experiments(root: Path) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for run_dir in sorted(path for path in root.glob("*/*") if path.is_dir()):
+        results_path = run_dir / "results.json"
+        if not results_path.exists():
+            summaries.append(
+                {
+                    "status": "incomplete",
+                    "run_dir": str(run_dir),
+                    "experiment_name": run_dir.parent.name,
+                }
+            )
+            continue
+        try:
+            payload = json.loads(results_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            summaries.append(
+                {
+                    "status": "incomplete",
+                    "run_dir": str(run_dir),
+                    "experiment_name": run_dir.parent.name,
+                }
+            )
+            continue
+        summaries.append(
+            {
+                "status": "complete",
+                "experiment_name": payload.get("experiment_name"),
+                "run_id": payload.get("run_id"),
+                "created_at": payload.get("created_at"),
+                "run_dir": payload.get("run_dir", str(run_dir)),
+                "checkpoint_path": payload.get("checkpoint_path"),
+                "test_metrics": payload.get("test_metrics"),
+            }
+        )
+    return summaries

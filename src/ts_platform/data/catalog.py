@@ -13,7 +13,13 @@ class DatasetMetadata:
     domain: str
     description: str
     source: str
+    dataset_type: str = "unknown"
     frequency: str | None = None
+    path: str | None = None
+    license: str | None = None
+    citation: str | None = None
+    target_cols: list[str] | None = None
+    timestamp_col: str | None = None
 
 
 class DatasetCatalog:

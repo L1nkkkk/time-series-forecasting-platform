@@ -10,6 +10,7 @@ import torch
 from ts_platform.config.schema import DataConfig
 from ts_platform.data.base import ForecastBatch, ForecastingDataset
 from ts_platform.data.catalog import DATASET_CATALOG, DatasetMetadata
+from ts_platform.data.csv_dataset import CSVForecastDataset
 from ts_platform.data.registry import DATASET_REGISTRY
 from ts_platform.data.splits import compute_split_indices
 
@@ -110,7 +111,19 @@ def register_builtin_datasets() -> None:
                 domain="demo",
                 description="Deterministic sine-wave dataset for smoke tests and examples.",
                 source="generated",
+                dataset_type="synthetic",
                 frequency="synthetic",
+            )
+        )
+    if "csv" not in DATASET_REGISTRY.names():
+        DATASET_REGISTRY.register("csv", CSVForecastDataset)
+        DATASET_CATALOG.register(
+            DatasetMetadata(
+                name="csv",
+                domain="local",
+                description="Local CSV time series dataset with time-based splits.",
+                source="local-file",
+                dataset_type="csv",
             )
         )
 
