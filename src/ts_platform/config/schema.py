@@ -2,10 +2,35 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+SAFE_PATH_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
+SAFE_PATH_COMPONENT_ERROR = "experiment.name must be a safe path component"
+
+
+def validate_safe_path_component(value: str, *, field_name: str = "experiment.name") -> str:
+    """Validate a user-controlled value intended to become one path component."""
+
+    message = (
+        SAFE_PATH_COMPONENT_ERROR
+        if field_name == "experiment.name"
+        else f"{field_name} must be a safe path component"
+    )
+    if not isinstance(value, str):
+        raise ValueError(message)
+    if not SAFE_PATH_COMPONENT_RE.fullmatch(value):
+        raise ValueError(message)
+    if value in {".", ".."} or ".." in value:
+        raise ValueError(message)
+    if "/" in value or "\\" in value:
+        raise ValueError(message)
+    if Path(value).is_absolute():
+        raise ValueError(message)
+    return value
 
 
 class StrictConfigModel(BaseModel):
@@ -17,10 +42,17 @@ class StrictConfigModel(BaseModel):
 class ExperimentConfig(StrictConfigModel):
     """Experiment output and reproducibility settings."""
 
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=80)
     output_dir: Path = Path("runs")
     seed: int = 42
     overwrite: bool = False
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        """Require experiment names to be safe filesystem path components."""
+
+        return validate_safe_path_component(value)
 
 
 class ScalerConfig(StrictConfigModel):

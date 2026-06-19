@@ -56,3 +56,63 @@ model:
 
     with pytest.raises(ValidationError, match="must equal 1.0"):
         load_config(path)
+
+
+def test_experiment_name_rejects_path_separator(tmp_path) -> None:
+    path = tmp_path / "bad_name.yaml"
+    path.write_text(
+        """
+experiment:
+  name: bad/name
+data:
+  name: synthetic
+  input_len: 4
+  output_len: 2
+model:
+  name: linear
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="experiment.name must be a safe path component"):
+        load_config(path)
+
+
+def test_experiment_name_rejects_parent_reference(tmp_path) -> None:
+    path = tmp_path / "bad_parent.yaml"
+    path.write_text(
+        """
+experiment:
+  name: bad..name
+data:
+  name: synthetic
+  input_len: 4
+  output_len: 2
+model:
+  name: linear
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="experiment.name must be a safe path component"):
+        load_config(path)
+
+
+def test_experiment_name_rejects_absolute_path(tmp_path) -> None:
+    path = tmp_path / "bad_absolute.yaml"
+    path.write_text(
+        """
+experiment:
+  name: /tmp/bad
+data:
+  name: synthetic
+  input_len: 4
+  output_len: 2
+model:
+  name: linear
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValidationError, match="experiment.name must be a safe path component"):
+        load_config(path)

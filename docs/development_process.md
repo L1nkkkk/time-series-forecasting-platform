@@ -41,6 +41,8 @@ coverage, config validation, and reproducibility.
   metadata.
 - Evaluator tests verify original-scale and scaled-space metrics.
 - Run directory tests verify unique runs and stale artifact cleanup.
+- Experiment name safety tests reject path separators, parent references,
+  absolute paths, and direct `ExperimentRecorder` run directory escape attempts.
 - CLI tests call `ts_platform.cli.main.main([...])` with a temporary config.
 - API tests cover health/list endpoints and synchronous `POST
   /experiments/train`.
@@ -53,8 +55,15 @@ coverage, config validation, and reproducibility.
   returns run metadata from `results.json`.
 - API training tests verify client-provided output directories are overwritten
   with the safe runs root.
-- CLI tests cover `train`, `list-datasets`, `list-datasets --catalog`, and
-  `list-models`.
+- Baseline model tests cover moving-average and seasonal-naive shapes, values,
+  parameter validation, and registry entries.
+- Compare config tests cover model count, primary metric validation, alias
+  safety, and extra-field rejection.
+- Compare runner tests cover artifact writing, one Trainer run per model,
+  shared config preservation, leaderboard ranking, CSV/JSON consistency,
+  failure recording, and stop-on-failure behavior.
+- CLI tests cover `train`, `compare`, `list-datasets`,
+  `list-datasets --catalog`, and `list-models`.
 
 ## CI Strategy
 

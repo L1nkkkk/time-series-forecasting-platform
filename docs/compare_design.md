@@ -1,90 +1,122 @@
-# Compare Experiment Design
+# Compare Experiments
 
-## Why Compare Is Needed
+## Why Compare Exists
 
-Phase 3 needs repeatable multi-model evaluation on the same dataset, split,
-scaler, metrics, and seed. A compare workflow should prevent ad hoc runs from
-using slightly different configs and should produce machine-readable summaries
-for model selection.
+Compare provides repeatable multi-model evaluation on the same dataset, split,
+scaler, metrics, and seed. It prevents ad hoc runs from using slightly different
+configs and writes machine-readable leaderboards for model selection.
 
-## Config Draft
+## Config
 
 ```yaml
 experiment:
-  name: csv_compare
+  name: compare_forecast
   output_dir: runs
   seed: 42
+  overwrite: true
 
 data:
   name: csv
   input_len: 8
   output_len: 2
+  batch_size: 8
   params:
     path: tests/fixtures/tiny_series.csv
     timestamp_col: timestamp
     target_cols: [value]
+    missing_policy: error
+    sort_by_time: true
 
 models:
   - name: naive
+  - name: moving_average
+    params:
+      window_size: 4
+  - name: seasonal_naive
+    params:
+      season_length: 7
   - name: linear
   - name: mlp
     params:
-      hidden_sizes: [64, 32]
+      hidden_sizes: [16]
+      dropout: 0.0
 
 training:
-  epochs: 2
+  epochs: 1
 
 evaluation:
   metrics: [mae, mse, rmse, wape]
+  include_scaled_metrics: false
+
+primary_metric: mae
+continue_on_error: true
 ```
 
-The compare config should share one data/training/evaluation section and allow
-per-model parameter overrides.
+`models` must contain at least two entries. `primary_metric` must exist in
+`evaluation.metrics`; when omitted it defaults to the first evaluation metric.
+Aliases are optional and must be safe path components.
 
 ## Output Directory Structure
 
 ```text
-runs/<compare_name>/<compare_run_id>/
-  compare_config.yaml
+runs/<compare_name>/<compare_run_id-or-latest>/
+  compare_config_snapshot.yaml
+  environment.json
   leaderboard.csv
   leaderboard.json
   models/
-    naive/<run_id>/
-    linear/<run_id>/
-    mlp/<run_id>/
+    001_naive/latest/
+    002_moving_average/latest/
+    003_seasonal_naive/latest/
+    004_linear/latest/
 ```
 
 Each model run should still contain the existing config snapshot, checkpoint,
 environment metadata, logs, and `results.json`.
 
-## Leaderboard Schema
+## Leaderboard
 
-`leaderboard.csv` and `leaderboard.json` should contain one row per model run:
+`leaderboard.csv` and `leaderboard.json` contain one row per model run:
 
 - `rank`
+- `status`
 - `model_name`
+- `model_alias`
 - `model_params`
 - `run_id`
 - `run_dir`
+- `checkpoint_path`
 - `primary_metric`
 - `primary_metric_value`
-- one column per reported test metric
 - `created_at`
+- `error`
+- one column per reported test metric
 
-The primary metric should default to the first configured evaluation metric and
-sort ascending for error metrics.
+Successful rows are sorted ascending by `primary_metric`. Failed rows have
+`rank: null`, no metric values, and an error message.
 
 ## Reusing Trainer
 
-Compare should construct one normal `PlatformConfig` per model entry and call
-the existing `Trainer`. The compare runner should only coordinate config
-expansion, output directory layout, result collection, and leaderboard writing.
-It should not duplicate training, evaluation, checkpoint, or scaler logic.
+`CompareRunner` constructs one normal `PlatformConfig` per model entry and calls
+the existing `Trainer`. It only coordinates config expansion, output directory
+layout, result collection, and leaderboard writing. It does not duplicate
+training, evaluation, checkpoint, or scaler logic.
 
-## Phase 3 Test List
+## Failure Strategy
+
+When `continue_on_error: true`, a model failure is recorded as a failed
+leaderboard row and later models still run. If every model fails, compare still
+writes an all-failed leaderboard so the user can inspect every error in one
+place.
+
+When `continue_on_error: false`, the first failing model raises a
+`RuntimeError` and compare stops.
+
+## Test Coverage
 
 - Compare config validates at least two model entries.
-- Per-model params override shared defaults.
+- `primary_metric` must be in `evaluation.metrics`.
+- Model aliases must be safe path components.
 - Each model run writes normal Trainer artifacts.
 - Shared data config is preserved across model runs.
 - Leaderboard ranks by the primary metric.

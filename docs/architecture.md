@@ -19,7 +19,7 @@ code, no third-party notice is required beyond documenting the design reference.
 - `models`: Define forecasting models and model registry.
 - `metrics`: Calculate losses and evaluation metrics.
 - `runner`: Orchestrate training, validation, testing, checkpoint save/restore,
-  resume, and evaluator calls.
+  resume, evaluator calls, and multi-model compare runs.
 - `experiment`: Create run directories, write logs, save configs, collect
   reproducibility metadata, and record results.
 - `cli`: Parse command-line input and delegate to the runner.
@@ -39,6 +39,17 @@ YAML/JSON config
   -> Trainer loop
   -> Evaluator inverse-transforms predictions for original-scale metrics
   -> Versioned checkpoint + config snapshot + results
+```
+
+Compare runs add a thin orchestration layer:
+
+```text
+Compare YAML/JSON config
+  -> Compare config loader and schema
+  -> CompareRunner parent run directory
+  -> One PlatformConfig per model
+  -> Existing Trainer for each model
+  -> leaderboard.json + leaderboard.csv
 ```
 
 ## Training Flow
@@ -123,6 +134,37 @@ with the same normalized name.
 the validated `PlatformConfig`, overwrites `experiment.output_dir` with the
 safe API runs root, and then calls `Trainer`. This preserves CLI behavior while
 preventing API clients from writing runs to arbitrary paths.
+
+## Experiment Name Safety
+
+`ExperimentConfig.name` is validated as a single safe path component: letters,
+numbers, `_`, `-`, and `.` only; no path separators, whitespace, `..`, absolute
+paths, empty names, or names longer than 80 characters. `ExperimentRecorder`
+performs defense-in-depth by resolving the computed run directory and verifying
+that it remains under `root_dir`.
+
+This validation applies to CLI, API, Trainer, and CompareRunner-created model
+runs.
+
+## Compare Runner
+
+`runner/comparer.py` owns Phase 3 compare orchestration. It creates a compare
+parent directory, saves the compare config snapshot and environment metadata,
+then expands each `CompareModelConfig` into a normal `PlatformConfig` with:
+
+- shared data/training/evaluation config
+- model-specific name and params
+- safe model run name such as `001_naive`
+- output root under `<compare_run_dir>/models`
+
+Each model is executed through the existing `Trainer`; compare does not copy
+training, scaling, checkpoint, evaluation, or metric logic. The authoritative
+leaderboard metrics come from `TrainingResult.test_metrics["original"]`.
+
+Successful rows are ranked ascending by `primary_metric`. Failed rows are kept
+with `status: failed`, `rank: null`, and `error`, then appended after successful
+rows. With `continue_on_error: false`, the first model failure aborts the compare
+run with a clear exception.
 
 ## Registry Mechanism
 

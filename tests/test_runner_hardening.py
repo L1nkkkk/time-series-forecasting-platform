@@ -36,6 +36,11 @@ def test_run_dir_unique_without_overwrite(tmp_path) -> None:
     assert first.parent == second.parent == tmp_path / "demo"
 
 
+def test_experiment_recorder_rejects_run_dir_escape(tmp_path) -> None:
+    with pytest.raises(ValueError, match="experiment run_dir escapes root_dir"):
+        ExperimentRecorder(tmp_path / "root", "../escape", overwrite=True)
+
+
 def test_overwrite_does_not_leave_stale_artifacts(tmp_path) -> None:
     first = ExperimentRecorder(tmp_path, "demo", overwrite=True).prepare()
     stale = first / "stale.txt"

@@ -10,7 +10,8 @@ The current MVP focuses on a runnable local training loop:
 
 - Synthetic forecasting dataset.
 - Local CSV forecasting dataset with time-based splits.
-- Naive last-value, linear, and MLP forecasting models.
+- Naive last-value, moving-average, seasonal-naive, linear, and MLP forecasting
+  models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
 - Config snapshots, checkpoints, metrics output, and environment metadata.
@@ -19,6 +20,7 @@ The current MVP focuses on a runnable local training loop:
 - Versioned checkpoints that can restore model, scaler, and optimizer state.
 - Strict CSV parameter validation, split-local missing-value handling, and
   dataset catalog discovery.
+- Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
 
 No BasicTS code is copied into this project.
 
@@ -50,6 +52,16 @@ Run the CSV example:
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
 ```
 
+Run a multi-model compare:
+
+```bash
+py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
+```
+
+The compare command writes one normal Trainer run per model under
+`runs/compare_forecast/latest/models/` and produces
+`leaderboard.json` plus `leaderboard.csv` in the compare run directory.
+
 ## Metrics
 
 Validation and test metrics are reported on the original data scale by default.
@@ -79,6 +91,11 @@ Training is driven by YAML or JSON. The example config declares:
 
 See [configs/examples/simple_forecast.yaml](configs/examples/simple_forecast.yaml)
 and [configs/examples/csv_forecast.yaml](configs/examples/csv_forecast.yaml).
+
+`experiment.name` must be a safe path component containing only letters,
+numbers, `_`, `-`, and `.`. Path separators, whitespace, `..`, absolute paths,
+and names longer than 80 characters are rejected. `ExperimentRecorder` also
+checks resolved paths so a run directory cannot escape the configured root.
 
 ## CSV Datasets
 
@@ -144,6 +161,42 @@ List datasets and models as JSON for scripts:
 py -m ts_platform.cli.main list-datasets
 py -m ts_platform.cli.main list-models
 ```
+
+## Compare Runs
+
+Compare configs reuse the existing data, training, and evaluation config
+sections, but replace `model` with a `models` list:
+
+```yaml
+models:
+  - name: naive
+  - name: moving_average
+    params:
+      window_size: 4
+  - name: seasonal_naive
+    params:
+      season_length: 7
+  - name: linear
+
+primary_metric: mae
+continue_on_error: true
+```
+
+`primary_metric` must be one of `evaluation.metrics`; when omitted, the first
+evaluation metric is used. Successful rows are ranked ascending by this metric.
+Failed model rows are preserved with `status: failed`, `rank: null`, and an
+error message, so successful model results are not hidden.
+
+Baseline model behavior:
+
+- `moving_average`: averages the last `window_size` history steps, or all
+  `input_len` steps when `window_size` is omitted, then repeats the average for
+  the forecast horizon.
+- `seasonal_naive`: cycles through the final `season_length` history steps
+  until `output_len` predictions are produced.
+
+See [docs/leaderboard_format.md](docs/leaderboard_format.md) for output
+columns.
 
 ## Checkpoints and Resume
 

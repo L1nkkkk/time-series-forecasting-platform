@@ -68,9 +68,13 @@ class ExperimentRecorder:
 
     def _resolve_run_dir(self) -> Path:
         base = self.root_dir / self.experiment_name
-        if self.overwrite:
-            return base / "latest"
-        return base / self.run_id
+        run_dir = base / "latest" if self.overwrite else base / self.run_id
+        root = self.root_dir.resolve()
+        resolved_run_dir = run_dir.resolve()
+        if not resolved_run_dir.is_relative_to(root):
+            msg = f"experiment run_dir escapes root_dir: {run_dir}"
+            raise ValueError(msg)
+        return run_dir
 
     def _make_run_id(self) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

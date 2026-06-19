@@ -1,0 +1,228 @@
+"""Multi-model compare runner."""
+
+from __future__ import annotations
+
+import csv
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal
+
+from ts_platform.config.compare_loader import load_compare_config, save_compare_config_snapshot
+from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
+from ts_platform.config.schema import ExperimentConfig, ModelConfig, PlatformConfig
+from ts_platform.experiment.recorder import ExperimentRecorder
+from ts_platform.experiment.reproducibility import collect_environment
+from ts_platform.runner.trainer import Trainer, TrainingResult
+
+CompareStatus = Literal["success", "failed"]
+
+
+@dataclass(frozen=True)
+class CompareModelResult:
+    """Result for one model inside a compare run."""
+
+    model_name: str
+    model_alias: str
+    model_params: dict[str, Any]
+    status: CompareStatus
+    run_id: str | None
+    run_dir: Path | None
+    checkpoint_path: Path | None
+    test_metrics: dict[str, float] | None
+    created_at: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CompareResult:
+    """Serializable compare result summary."""
+
+    compare_run_dir: Path
+    compare_run_id: str
+    leaderboard_json_path: Path
+    leaderboard_csv_path: Path
+    rows: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a JSON-serializable result."""
+
+        return {
+            "compare_run_dir": str(self.compare_run_dir),
+            "compare_run_id": self.compare_run_id,
+            "leaderboard_json_path": str(self.leaderboard_json_path),
+            "leaderboard_csv_path": str(self.leaderboard_csv_path),
+            "rows": self.rows,
+        }
+
+
+class CompareRunner:
+    """Run multiple models through the existing Trainer and build a leaderboard."""
+
+    def __init__(self, config: CompareConfig) -> None:
+        self.config = config
+
+    @classmethod
+    def from_config_path(cls, path: str | Path) -> CompareRunner:
+        """Build a compare runner from a YAML or JSON config file."""
+
+        return cls(load_compare_config(path))
+
+    def run(self) -> CompareResult:
+        """Run all configured models and write compare artifacts."""
+
+        recorder = ExperimentRecorder(
+            self.config.experiment.output_dir,
+            self.config.experiment.name,
+            overwrite=self.config.experiment.overwrite,
+        )
+        compare_run_dir = recorder.prepare()
+        save_compare_config_snapshot(self.config, compare_run_dir / "compare_config_snapshot.yaml")
+        recorder.save_environment(collect_environment())
+
+        model_results: list[CompareModelResult] = []
+        for index, model_config in enumerate(self.config.models, start=1):
+            model_alias = self._model_alias(index, model_config)
+            try:
+                model_results.append(self._run_model(model_config, model_alias, compare_run_dir))
+            except Exception as exc:
+                if not self.config.continue_on_error:
+                    msg = f"compare model {model_alias!r} failed: {exc}"
+                    raise RuntimeError(msg) from exc
+                model_results.append(
+                    CompareModelResult(
+                        model_name=model_config.name,
+                        model_alias=model_alias,
+                        model_params=dict(model_config.params),
+                        status="failed",
+                        run_id=None,
+                        run_dir=None,
+                        checkpoint_path=None,
+                        test_metrics=None,
+                        error=str(exc),
+                    )
+                )
+
+        rows = self._leaderboard_rows(model_results)
+        leaderboard_json_path = compare_run_dir / "leaderboard.json"
+        leaderboard_csv_path = compare_run_dir / "leaderboard.csv"
+        self._write_leaderboard_json(leaderboard_json_path, rows)
+        self._write_leaderboard_csv(leaderboard_csv_path, rows)
+        return CompareResult(
+            compare_run_dir=compare_run_dir,
+            compare_run_id=recorder.run_id,
+            leaderboard_json_path=leaderboard_json_path,
+            leaderboard_csv_path=leaderboard_csv_path,
+            rows=rows,
+        )
+
+    def _run_model(
+        self,
+        model_config: CompareModelConfig,
+        model_alias: str,
+        compare_run_dir: Path,
+    ) -> CompareModelResult:
+        platform_config = PlatformConfig(
+            experiment=ExperimentConfig(
+                name=model_alias,
+                output_dir=compare_run_dir / "models",
+                seed=self.config.experiment.seed,
+                overwrite=True,
+            ),
+            data=self.config.data.model_copy(deep=True),
+            model=ModelConfig(name=model_config.name, params=dict(model_config.params)),
+            training=self.config.training.model_copy(deep=True),
+            evaluation=self.config.evaluation.model_copy(deep=True),
+        )
+        result = Trainer(platform_config).run()
+        return self._model_result_from_training(model_config, model_alias, result)
+
+    def _model_result_from_training(
+        self,
+        model_config: CompareModelConfig,
+        model_alias: str,
+        result: TrainingResult,
+    ) -> CompareModelResult:
+        original_metrics = result.test_metrics.get("original")
+        if not isinstance(original_metrics, dict):
+            msg = f"model {model_alias!r} did not produce original-scale test metrics"
+            raise ValueError(msg)
+        return CompareModelResult(
+            model_name=model_config.name,
+            model_alias=model_alias,
+            model_params=dict(model_config.params),
+            status="success",
+            run_id=result.run_id,
+            run_dir=result.run_dir,
+            checkpoint_path=result.checkpoint_path,
+            test_metrics={key: float(value) for key, value in original_metrics.items()},
+            created_at=result.created_at,
+        )
+
+    def _leaderboard_rows(self, model_results: list[CompareModelResult]) -> list[dict[str, Any]]:
+        rows = [self._row_from_result(result) for result in model_results]
+        success_rows = [
+            row
+            for row in rows
+            if row["status"] == "success" and row["primary_metric_value"] is not None
+        ]
+        failed_rows = [row for row in rows if row["status"] != "success"]
+        success_rows.sort(key=lambda row: float(row["primary_metric_value"]))
+        for rank, row in enumerate(success_rows, start=1):
+            row["rank"] = rank
+        return success_rows + failed_rows
+
+    def _row_from_result(self, result: CompareModelResult) -> dict[str, Any]:
+        metrics = result.test_metrics or {}
+        primary_metric = self.config.primary_metric or self.config.evaluation.metrics[0]
+        row: dict[str, Any] = {
+            "rank": None,
+            "status": result.status,
+            "model_name": result.model_name,
+            "model_alias": result.model_alias,
+            "model_params": json.dumps(result.model_params, sort_keys=True),
+            "run_id": result.run_id,
+            "run_dir": str(result.run_dir) if result.run_dir is not None else None,
+            "checkpoint_path": (
+                str(result.checkpoint_path) if result.checkpoint_path is not None else None
+            ),
+            "primary_metric": primary_metric,
+            "primary_metric_value": metrics.get(primary_metric),
+            "created_at": result.created_at,
+            "error": result.error,
+        }
+        for metric in self.config.evaluation.metrics:
+            row[f"test_{metric}"] = metrics.get(metric)
+        return row
+
+    def _write_leaderboard_json(self, path: Path, rows: list[dict[str, Any]]) -> None:
+        path.write_text(json.dumps(rows, indent=2, sort_keys=True), encoding="utf-8")
+
+    def _write_leaderboard_csv(self, path: Path, rows: list[dict[str, Any]]) -> None:
+        fieldnames = self._leaderboard_fieldnames()
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow({field: row.get(field) for field in fieldnames})
+
+    def _leaderboard_fieldnames(self) -> list[str]:
+        return [
+            "rank",
+            "status",
+            "model_name",
+            "model_alias",
+            "model_params",
+            "run_id",
+            "run_dir",
+            "checkpoint_path",
+            "primary_metric",
+            "primary_metric_value",
+            "created_at",
+            "error",
+            *[f"test_{metric}" for metric in self.config.evaluation.metrics],
+        ]
+
+    def _model_alias(self, index: int, model_config: CompareModelConfig) -> str:
+        alias = model_config.alias or model_config.name
+        return f"{index:03d}_{alias}"

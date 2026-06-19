@@ -8,6 +8,7 @@ from collections.abc import Sequence
 
 from ts_platform.data import DATASET_CATALOG, DATASET_REGISTRY, register_dataset_catalog
 from ts_platform.models.registry import registered_model_names
+from ts_platform.runner.comparer import CompareRunner
 from ts_platform.runner.trainer import Trainer
 
 
@@ -18,6 +19,13 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     train_parser = subparsers.add_parser("train", help="Run a training config")
     train_parser.add_argument("--config", required=True, help="Path to YAML or JSON config")
+
+    compare_parser = subparsers.add_parser("compare", help="Run a multi-model compare config")
+    compare_parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to YAML or JSON compare config",
+    )
 
     datasets_parser = subparsers.add_parser("list-datasets", help="List registered datasets")
     datasets_parser.add_argument(
@@ -37,8 +45,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "train":
-        result = Trainer.from_config_path(args.config).run()
-        print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+        training_result = Trainer.from_config_path(args.config).run()
+        print(json.dumps(training_result.to_dict(), indent=2, sort_keys=True))
+        return 0
+    if args.command == "compare":
+        compare_result = CompareRunner.from_config_path(args.config).run()
+        print(json.dumps(compare_result.to_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "list-datasets":
         for catalog_path in args.catalog:

@@ -75,6 +75,19 @@ def test_api_train_uses_safe_runs_root(tmp_path, monkeypatch) -> None:
     assert (safe_root / "api_safe" / "latest" / "checkpoint.pt").exists()
 
 
+def test_api_train_rejects_unsafe_experiment_name(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_safe").model_dump(mode="json")
+    config["experiment"]["name"] = "../escape"
+
+    response = client.post("/experiments/train", json=config)
+
+    assert response.status_code == 422
+    assert "experiment.name must be a safe path component" in response.text
+
+
 def test_api_experiments_still_ignores_root_query(tmp_path, monkeypatch) -> None:
     safe_root = tmp_path / "safe_runs"
     external_root = tmp_path / "external"
