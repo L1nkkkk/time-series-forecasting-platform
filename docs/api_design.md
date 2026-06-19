@@ -11,7 +11,10 @@ Returns service health and version.
 
 ### GET /datasets
 
-Returns registered datasets and catalog metadata.
+Returns registered datasets and catalog metadata. At app startup,
+`configs/datasets/*.yaml` is loaded when present. Missing catalog files are
+ignored. Damaged catalog files are logged as warnings and skipped so the demo
+API can still start.
 
 ### GET /models
 
@@ -48,18 +51,24 @@ Runs with missing or damaged `results.json` are returned as
 
 Accepts a validated config payload and runs a synchronous demo training job.
 Future iterations should move this endpoint to a durable background worker.
+The endpoint does not allow clients to choose arbitrary output directories.
+Any request `experiment.output_dir` value is ignored and overwritten with the
+API safe runs root, currently `runs`. CLI training still honors
+`experiment.output_dir`.
 
 Request body is the same shape as a YAML/JSON training config:
 
 ```json
 {
-  "experiment": {"name": "api_demo", "output_dir": "runs", "overwrite": true},
+  "experiment": {"name": "api_demo", "output_dir": "../../ignored", "overwrite": true},
   "data": {"name": "synthetic", "input_len": 6, "output_len": 2},
   "model": {"name": "linear"},
   "training": {"epochs": 1},
   "evaluation": {"metrics": ["mae", "mse"], "include_scaled_metrics": true}
 }
 ```
+
+The run is still written under `runs/api_demo/...`.
 
 Response includes run metadata, artifact paths, history, and metrics:
 
@@ -81,5 +90,6 @@ present only when `evaluation.include_scaled_metrics` is true.
 ## Error Handling
 
 - Invalid configs return HTTP 422 through Pydantic validation.
+- API training overrides unsafe output roots instead of returning HTTP 400.
 - Runtime training failures should return clear HTTP 500 responses with a
   concise message and server-side logs.

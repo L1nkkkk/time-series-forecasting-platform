@@ -23,7 +23,8 @@ code, no third-party notice is required beyond documenting the design reference.
 - `experiment`: Create run directories, write logs, save configs, collect
   reproducibility metadata, and record results.
 - `cli`: Parse command-line input and delegate to the runner.
-- `api`: Expose platform endpoints without embedding training business logic.
+- `api`: Expose platform endpoints, load discovery metadata, and delegate
+  training work to a small service layer.
 
 ## Component Flow
 
@@ -46,9 +47,10 @@ YAML/JSON config
 2. Set random seed.
 3. Build dataset from registry.
 4. Split into train, validation, and test datasets.
-5. For CSV datasets, validate local data, handle missing values, sort by time
-   when configured, split raw rows into train/validation/test periods, and then
-   generate sliding windows inside each split.
+5. For CSV datasets, strictly parse dataset parameters, validate local data,
+   sort by time when configured, split raw rows into train/validation/test
+   periods, apply missing policies inside the selected split, and then generate
+   sliding windows inside each split.
 6. If `resume_from` is set, load checkpoint, validate compatibility, and
    restore scaler/model/optimizer state. Otherwise fit scaler on the training
    split.
@@ -94,10 +96,15 @@ If `val_ratio` is `0`, validation is skipped and `validation_metrics` is
 
 ## CSV Data Flow
 
-`CSVForecastDataset` loads a local CSV, validates target columns, optionally
-parses and sorts a timestamp column, applies the configured missing value
-policy, and uses raw-row time-based splits. Sliding windows are generated only
-inside the selected split, so train/validation/test targets do not overlap.
+`CSVForecastDataset` parses `DataConfig.params` through `CSVDatasetParams`,
+loads a local CSV, validates target columns, optionally parses and sorts a
+timestamp column, and uses raw-row time-based splits. The configured missing
+value policy runs after selecting the current split, so train/validation/test
+targets do not overlap and fill/drop behavior cannot cross split boundaries.
+
+`split_metadata()` exposes split boundaries, post-policy row count, window
+count, and optional timestamp range for tests, API use, and experiment
+analysis.
 
 The scaler fit path remains unchanged from the trainer perspective:
 `train_dataset.scaler_fit_values()` returns only training-period target values.
@@ -106,6 +113,16 @@ This keeps validation and test periods out of scaler state.
 Local catalog files are metadata documents loaded through
 `data/catalog_loader.py`. They can register entries in `DATASET_CATALOG` for
 discovery and API listing, but they do not replace explicit training configs.
+The API loads `configs/datasets/*.yaml` during app creation and skips damaged
+catalog files with a warning. `DatasetCatalog.register` overwrites metadata
+with the same normalized name.
+
+## API Training Boundary
+
+`api/services/training_service.py` owns API-specific training policy. It copies
+the validated `PlatformConfig`, overwrites `experiment.output_dir` with the
+safe API runs root, and then calls `Trainer`. This preserves CLI behavior while
+preventing API clients from writing runs to arbitrary paths.
 
 ## Registry Mechanism
 

@@ -22,13 +22,16 @@ def test_api_health_datasets_and_models() -> None:
     assert datasets.status_code == 200
     assert "synthetic" in datasets.json()["names"]
     assert "csv" in datasets.json()["names"]
+    assert any(item["name"] == "tiny_csv" for item in datasets.json()["datasets"])
     assert models.status_code == 200
     assert {"naive", "linear", "mlp"}.issubset(set(models.json()["models"]))
 
 
-def test_api_train_endpoint(tmp_path) -> None:
+def test_api_train_endpoint(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
     client = TestClient(create_app())
-    config = tiny_config(tmp_path, name="api").model_dump(mode="json")
+    config = tiny_config(tmp_path / "requested", name="api").model_dump(mode="json")
 
     response = client.post("/experiments/train", json=config)
     payload = response.json()
@@ -38,10 +41,41 @@ def test_api_train_endpoint(tmp_path) -> None:
     assert payload["checkpoint_path"]
     assert payload["test_metrics"]["original"]
     assert Path(payload["checkpoint_path"]).exists()
-    assert (tmp_path / "api" / "latest" / "results.json").exists()
+    assert Path(payload["run_dir"]).is_relative_to(safe_root)
+    assert (safe_root / "api" / "latest" / "results.json").exists()
 
 
-def test_api_experiments_does_not_accept_arbitrary_root(tmp_path, monkeypatch) -> None:
+def test_api_train_rejects_or_overrides_unsafe_output_dir(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    unsafe_root = tmp_path / "unsafe"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
+    client = TestClient(create_app())
+    config = tiny_config(unsafe_root, name="api_unsafe").model_dump(mode="json")
+
+    response = client.post("/experiments/train", json=config)
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert Path(payload["run_dir"]).is_relative_to(safe_root)
+    assert (safe_root / "api_unsafe" / "latest" / "results.json").exists()
+    assert not (unsafe_root / "api_unsafe" / "latest" / "results.json").exists()
+
+
+def test_api_train_uses_safe_runs_root(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_safe").model_dump(mode="json")
+
+    response = client.post("/experiments/train", json=config)
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert Path(payload["checkpoint_path"]).is_relative_to(safe_root)
+    assert (safe_root / "api_safe" / "latest" / "checkpoint.pt").exists()
+
+
+def test_api_experiments_still_ignores_root_query(tmp_path, monkeypatch) -> None:
     safe_root = tmp_path / "safe_runs"
     external_root = tmp_path / "external"
     external_run = external_root / "secret" / "latest"
@@ -57,6 +91,16 @@ def test_api_experiments_does_not_accept_arbitrary_root(tmp_path, monkeypatch) -
 
     assert response.status_code == 200
     assert response.json()["experiments"] == []
+
+
+def test_api_datasets_loads_local_catalog() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/datasets")
+    datasets = response.json()["datasets"]
+
+    assert response.status_code == 200
+    assert any(item["name"] == "tiny_csv" for item in datasets)
 
 
 def test_api_experiments_lists_run_metadata(tmp_path, monkeypatch) -> None:

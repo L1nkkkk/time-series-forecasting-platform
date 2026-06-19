@@ -8,11 +8,12 @@ from typing import Any
 
 from fastapi import APIRouter
 
+from ts_platform.api.services.training_service import train_with_safe_output_dir
+from ts_platform.api.settings import APISettings
 from ts_platform.config.schema import PlatformConfig
-from ts_platform.runner.trainer import Trainer
 
 router = APIRouter()
-RUNS_ROOT = Path("runs")
+RUNS_ROOT = APISettings().runs_root
 
 
 @router.get("/experiments")
@@ -28,8 +29,7 @@ def list_experiments() -> dict[str, list[dict[str, Any]]]:
 def train_experiment(config: PlatformConfig) -> dict[str, Any]:
     """Run a synchronous training demo from a config payload."""
 
-    result = Trainer(config).run()
-    return result.to_dict()
+    return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
 
 
 def _discover_experiments(root: Path) -> list[dict[str, Any]]:

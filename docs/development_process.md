@@ -45,10 +45,16 @@ coverage, config validation, and reproducibility.
 - API tests cover health/list endpoints and synchronous `POST
   /experiments/train`.
 - CSV dataset tests cover local file loading, time-based split boundaries,
-  missing target columns, missing value policies, and train-only scaler fitting.
-- Catalog tests cover local YAML dataset metadata loading and registration.
+  strict parameter validation, split-local missing value policies, split
+  metadata, missing target columns, and train-only scaler fitting.
+- Catalog tests cover local YAML dataset metadata loading, invalid schemas, and
+  duplicate-name overwrite behavior.
 - API experiment listing tests verify the endpoint uses a fixed runs root and
   returns run metadata from `results.json`.
+- API training tests verify client-provided output directories are overwritten
+  with the safe runs root.
+- CLI tests cover `train`, `list-datasets`, `list-datasets --catalog`, and
+  `list-models`.
 
 ## CI Strategy
 

@@ -29,7 +29,7 @@ class DatasetCatalog:
         self._items: dict[str, DatasetMetadata] = {}
 
     def register(self, metadata: DatasetMetadata) -> None:
-        """Register metadata for a dataset."""
+        """Register metadata for a dataset, overwriting existing metadata by name."""
 
         normalized = metadata.name.strip().lower()
         if not normalized:

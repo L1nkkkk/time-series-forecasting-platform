@@ -17,6 +17,8 @@ The current MVP focuses on a runnable local training loop:
 - CLI and a synchronous FastAPI demo API.
 - Original-scale evaluation metrics with optional scaled-space metrics.
 - Versioned checkpoints that can restore model, scaler, and optimizer state.
+- Strict CSV parameter validation, split-local missing-value handling, and
+  dataset catalog discovery.
 
 No BasicTS code is copied into this project.
 
@@ -105,14 +107,18 @@ CSV parameters:
   datetime, duplicate timestamps are rejected, and `sort_by_time: true` sorts
   rows before splitting.
 - `target_cols`: one or more numeric target columns. Models receive only these
-  columns in this phase.
+  columns in this phase. A plain string or empty list is rejected.
 - `missing_policy`: `error`, `drop`, `forward_fill`, or `zero_fill`.
-- `sort_by_time`: sort rows by timestamp before splitting.
+- `sort_by_time`: boolean flag to sort rows by timestamp before splitting.
 
 CSV data uses time-based splitting: raw rows are split into train, validation,
 and test periods first, then sliding windows are generated within each split.
 This prevents validation/test rows from entering training windows. Scalers are
 fit only from the training split via `train_dataset.scaler_fit_values()`.
+Missing-value policies are also applied after the raw-row split and only inside
+the selected split. For example, `forward_fill` cannot propagate the final train
+row into the first validation row, and `drop` cannot change another split's row
+boundaries.
 
 Exogenous `feature_cols` are intentionally not supported yet; passing them
 raises a clear error. That scope is deferred to a later phase.
@@ -120,7 +126,24 @@ raises a clear error. That scope is deferred to a later phase.
 Dataset catalog files such as
 [configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
 local datasets for discovery. They are metadata only; training still uses an
-explicit experiment config.
+explicit experiment config. The API loads `configs/datasets/*.yaml` on startup
+when present. The CLI can load a catalog explicitly:
+
+```bash
+py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
+```
+
+Registering catalog metadata with an existing name overwrites the previous
+metadata entry.
+
+## Discovery Commands
+
+List datasets and models as JSON for scripts:
+
+```bash
+py -m ts_platform.cli.main list-datasets
+py -m ts_platform.cli.main list-models
+```
 
 ## Checkpoints and Resume
 
@@ -195,3 +218,8 @@ Available endpoints:
 - `GET /models`
 - `GET /experiments`
 - `POST /experiments/train`
+
+The API keeps experiment discovery under the fixed safe `runs` root. For
+`POST /experiments/train`, the API ignores any client-provided
+`experiment.output_dir` and overwrites it with the same safe runs root. CLI
+training still honors `experiment.output_dir` from the config.
