@@ -16,6 +16,7 @@ from ts_platform.config.schema import PlatformConfig
 from ts_platform.data.base import ForecastBatch
 from ts_platform.data.loaders import build_dataset
 from ts_platform.data.transforms import ScaledForecastingDataset
+from ts_platform.experiment.artifacts import build_train_artifact_manifest, save_artifact_manifest
 from ts_platform.experiment.logger import setup_experiment_logger
 from ts_platform.experiment.recorder import ExperimentRecorder
 from ts_platform.experiment.reproducibility import (
@@ -225,8 +226,17 @@ class Trainer:
             test_metrics=test_metrics,
             resumed_from=resumed_from,
         )
-        recorder.save_results(result.to_dict())
         logger.info("test=%s", test_metrics)
+        recorder.save_results(result.to_dict())
+        save_artifact_manifest(
+            build_train_artifact_manifest(
+                experiment_name=result.experiment_name,
+                run_id=result.run_id,
+                run_dir=result.run_dir,
+                checkpoint_path=result.checkpoint_path,
+            ),
+            run_dir / "artifacts.json",
+        )
         return result
 
     def _loader(

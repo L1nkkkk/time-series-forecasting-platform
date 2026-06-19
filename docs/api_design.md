@@ -22,7 +22,8 @@ Returns registered model names.
 
 ### GET /experiments
 
-Returns local experiment summaries discovered under the fixed safe `runs` root.
+Returns local experiment summaries discovered through `ExperimentStore` under
+the fixed safe `runs` root.
 The endpoint no longer accepts an arbitrary `root` query parameter for local
 directory listing.
 
@@ -33,19 +34,77 @@ Response:
   "experiments": [
     {
       "status": "complete",
+      "run_type": "train",
       "experiment_name": "csv_forecast",
       "run_id": "20260620T000000Z_a1b2c3",
       "created_at": "2026-06-20T00:00:00+00:00",
       "run_dir": "runs/csv_forecast/latest",
       "checkpoint_path": "runs/csv_forecast/latest/checkpoint.pt",
       "test_metrics": {"original": {}}
+    },
+    {
+      "status": "complete",
+      "run_type": "compare",
+      "experiment_name": "compare_forecast",
+      "run_id": "20260620T000000Z_d4e5f6",
+      "compare_run_id": "20260620T000000Z_d4e5f6",
+      "created_at": "2026-06-20T00:00:00+00:00",
+      "run_dir": "runs/compare_forecast/latest",
+      "compare_run_dir": "runs/compare_forecast/latest",
+      "primary_metric": "mae",
+      "success_count": 5,
+      "failed_count": 0,
+      "leaderboard_json_path": "runs/compare_forecast/latest/leaderboard.json",
+      "leaderboard_csv_path": "runs/compare_forecast/latest/leaderboard.csv"
     }
   ]
 }
 ```
 
 Runs with missing or damaged `results.json` are returned as
-`status: incomplete` instead of crashing the endpoint.
+`status: incomplete` and `run_type: unknown` instead of crashing the endpoint.
+
+### GET /experiments/{experiment_name}/{run_id}/results
+
+Returns the stored `results.json` for a train run or compare parent run.
+`run_id` can be `latest` or a recorded `run_id` / `compare_run_id`.
+
+Train results include checkpoint path, history, validation metrics, and test
+metrics. Compare results include:
+
+- `run_type: compare`
+- `experiment_name`
+- `compare_run_id`
+- `compare_run_dir`
+- `created_at`
+- `leaderboard_json_path`
+- `leaderboard_csv_path`
+- `primary_metric`
+- `success_count`
+- `failed_count`
+- `rows`
+
+### GET /experiments/{experiment_name}/{run_id}/leaderboard
+
+Returns a compare run `leaderboard.json` array. This endpoint is meaningful for
+compare runs; train runs return 404 because they do not have a leaderboard
+artifact. `model_params` is returned as an object in JSON responses.
+
+### GET /experiments/{experiment_name}/{run_id}/artifacts
+
+Returns the stored `artifacts.json` manifest for a train or compare run.
+`run_id` can be `latest` or a recorded `run_id` / `compare_run_id`. This
+endpoint returns only manifest metadata and does not download arbitrary files.
+
+### POST /experiments/compare
+
+Accepts a validated `CompareConfig` payload and runs a synchronous demo compare
+job through `CompareRunner`. Future iterations should move compare execution to
+a durable background worker. The endpoint does not allow clients to choose
+arbitrary output directories. Any request `experiment.output_dir` value is
+ignored and overwritten with the API safe runs root, currently `runs`.
+
+Response is the compare result payload written to the parent `results.json`.
 
 ### POST /experiments/train
 
@@ -90,6 +149,32 @@ present only when `evaluation.include_scaled_metrics` is true.
 ## Error Handling
 
 - Invalid configs return HTTP 422 through Pydantic validation.
-- API training overrides unsafe output roots instead of returning HTTP 400.
-- Runtime training failures should return clear HTTP 500 responses with a
-  concise message and server-side logs.
+- API training and compare override unsafe output roots instead of returning
+  HTTP 400.
+- Invalid `experiment_name` or `run_id` lookup path components return HTTP 400.
+- Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
+  return HTTP 404.
+- Damaged result, leaderboard, or artifact manifest JSON returns HTTP 500.
+- Runtime training or compare failures should return clear HTTP 500 responses
+  with a concise message and server-side logs.
+
+## Run ID Format
+
+`ExperimentRecorder.run_id` currently uses
+`YYYYMMDDTHHMMSSZ_<6 hex chars>`, for example
+`20260619T120000Z_a1b2c3`. Compare parent ids use the same format and are
+reported as `compare_run_id`. API clients may pass either `latest` or a recorded
+id to lookup endpoints.
+
+## ExperimentStore
+
+`api/services/experiment_store.py` centralizes result lookup instead of putting
+filesystem logic in route functions. It validates `experiment_name` and
+`run_id` with the same safe path component rules used by experiment configs,
+resolves every candidate path, and verifies the resolved path remains inside the
+fixed runs root.
+
+The store supports direct directory lookup, `latest`, and lookup by recorded
+`run_id` / `compare_run_id` when the physical directory is `latest`.
+It reads `results.json`, `leaderboard.json`, and `artifacts.json` with the same
+fixed-root safety checks.

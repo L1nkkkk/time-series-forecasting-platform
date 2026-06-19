@@ -63,7 +63,17 @@ coverage, config validation, and reproducibility.
   shared config preservation, leaderboard ranking, CSV/JSON consistency,
   failure recording, and stop-on-failure behavior.
 - CLI tests cover `train`, `compare`, `list-datasets`,
-  `list-datasets --catalog`, and `list-models`.
+  `list-datasets --catalog`, `list-models`, `show-results`, and
+  `show-leaderboard`, and `show-artifacts`.
+- Phase 4 result-layer tests cover compare parent `results.json`, summary
+  counts, all-failed compare persistence, `model_params` as an object in JSON
+  and a string in CSV, `ExperimentStore` safe path handling, train/compare
+  result reads, leaderboard reads, result API 400/404 behavior, synchronous
+  compare API execution, and API output-root overrides.
+- Artifact manifest tests cover train and compare `artifacts.json` writing,
+  expected manifest entries, manifest path containment, `ExperimentStore`
+  artifact reads and errors, artifact API 400/404 behavior, and CLI
+  `show-artifacts`.
 
 ## CI Strategy
 
@@ -74,3 +84,17 @@ and executes pytest.
 
 Use semantic versioning once the MVP stabilizes. Each release should include
 changes, migration notes, and known limitations.
+
+## Publish Workflow
+
+Do not push a feature branch while tests or quality gates are failing. Before
+publishing, inspect `git status` and `git diff --stat`, commit the intended
+changes with a concise conventional message, push the feature branch, and open a
+pull request when GitHub tooling is available. For Phase 4 release branches,
+push `codex/phase4-results-api` and create or update a PR targeting `main`.
+
+## Compatibility Notes
+
+Do not casually change `run_id` formatting. It is visible in `results.json`,
+`artifacts.json`, API responses, CLI output, and lookup routes. If the format
+changes, version the API behavior and document a migration path.

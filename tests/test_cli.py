@@ -8,6 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from tests.helpers import tiny_config
+from ts_platform.api.services.experiment_store import UnsafePathComponentError
 from ts_platform.cli.main import main
 
 
@@ -140,3 +141,110 @@ def test_cli_compare_rejects_bad_config(tmp_path) -> None:
 
     with pytest.raises(ValidationError, match="at least 2"):
         main(["compare", "--config", str(config_path)])
+
+
+def test_cli_show_results(tmp_path, capsys) -> None:
+    config = tiny_config(tmp_path, name="cli_show")
+    config_path = tmp_path / "show_config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(config.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    main(["train", "--config", str(config_path)])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "show-results",
+            "--experiment",
+            "cli_show",
+            "--run",
+            "latest",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["experiment_name"] == "cli_show"
+    assert payload["test_metrics"]["original"]
+
+
+def test_cli_show_leaderboard(tmp_path, capsys) -> None:
+    config_path = _write_compare_cli_config(tmp_path)
+    main(["compare", "--config", str(config_path)])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "show-leaderboard",
+            "--experiment",
+            "cli_compare",
+            "--run",
+            "latest",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert len(payload) == 2
+    assert all(isinstance(row["model_params"], dict) for row in payload)
+
+
+def test_cli_show_artifacts(tmp_path, capsys) -> None:
+    config_path = _write_compare_cli_config(tmp_path)
+    main(["compare", "--config", str(config_path)])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "show-artifacts",
+            "--experiment",
+            "cli_compare",
+            "--run",
+            "latest",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["run_type"] == "compare"
+    assert any(artifact["name"] == "leaderboard_json" for artifact in payload["artifacts"])
+
+
+def test_cli_show_results_rejects_unsafe_path_component(tmp_path) -> None:
+    with pytest.raises(UnsafePathComponentError, match="experiment_name"):
+        main(
+            [
+                "show-results",
+                "--experiment",
+                "bad name",
+                "--run",
+                "latest",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+
+
+def test_cli_show_artifacts_rejects_unsafe_path_component(tmp_path) -> None:
+    with pytest.raises(UnsafePathComponentError, match="experiment_name"):
+        main(
+            [
+                "show-artifacts",
+                "--experiment",
+                "bad name",
+                "--run",
+                "latest",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )

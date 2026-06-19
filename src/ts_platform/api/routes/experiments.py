@@ -2,14 +2,20 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
+from ts_platform.api.services.compare_service import compare_with_safe_output_dir
+from ts_platform.api.services.experiment_store import (
+    CorruptExperimentArtifactError,
+    ExperimentArtifactNotFoundError,
+    ExperimentStore,
+    UnsafePathComponentError,
+)
 from ts_platform.api.services.training_service import train_with_safe_output_dir
 from ts_platform.api.settings import APISettings
+from ts_platform.config.compare_schema import CompareConfig
 from ts_platform.config.schema import PlatformConfig
 
 router = APIRouter()
@@ -20,9 +26,7 @@ RUNS_ROOT = APISettings().runs_root
 def list_experiments() -> dict[str, list[dict[str, Any]]]:
     """List local experiment metadata from the fixed runs root."""
 
-    if not RUNS_ROOT.exists():
-        return {"experiments": []}
-    return {"experiments": _discover_experiments(RUNS_ROOT)}
+    return {"experiments": ExperimentStore(RUNS_ROOT).list_experiments()}
 
 
 @router.post("/experiments/train")
@@ -32,39 +36,62 @@ def train_experiment(config: PlatformConfig) -> dict[str, Any]:
     return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
 
 
-def _discover_experiments(root: Path) -> list[dict[str, Any]]:
-    summaries: list[dict[str, Any]] = []
-    for run_dir in sorted(path for path in root.glob("*/*") if path.is_dir()):
-        results_path = run_dir / "results.json"
-        if not results_path.exists():
-            summaries.append(
-                {
-                    "status": "incomplete",
-                    "run_dir": str(run_dir),
-                    "experiment_name": run_dir.parent.name,
-                }
-            )
-            continue
-        try:
-            payload = json.loads(results_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            summaries.append(
-                {
-                    "status": "incomplete",
-                    "run_dir": str(run_dir),
-                    "experiment_name": run_dir.parent.name,
-                }
-            )
-            continue
-        summaries.append(
-            {
-                "status": "complete",
-                "experiment_name": payload.get("experiment_name"),
-                "run_id": payload.get("run_id"),
-                "created_at": payload.get("created_at"),
-                "run_dir": payload.get("run_dir", str(run_dir)),
-                "checkpoint_path": payload.get("checkpoint_path"),
-                "test_metrics": payload.get("test_metrics"),
-            }
-        )
-    return summaries
+@router.post("/experiments/compare")
+def compare_experiments(config: CompareConfig) -> dict[str, Any]:
+    """Run a synchronous compare demo from a compare config payload."""
+
+    return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+
+
+@router.get("/experiments/{experiment_name}/{run_id}/results")
+def get_experiment_results(experiment_name: str, run_id: str) -> dict[str, Any]:
+    """Read a train or compare run results payload."""
+
+    try:
+        return ExperimentStore(RUNS_ROOT).read_results(experiment_name, run_id)
+    except (
+        UnsafePathComponentError,
+        ExperimentArtifactNotFoundError,
+        CorruptExperimentArtifactError,
+    ) as exc:
+        _raise_http_error(exc)
+
+
+@router.get("/experiments/{experiment_name}/{run_id}/artifacts")
+def get_experiment_artifacts(experiment_name: str, run_id: str) -> dict[str, Any]:
+    """Read a train or compare run artifact manifest."""
+
+    try:
+        return ExperimentStore(RUNS_ROOT).read_artifacts(experiment_name, run_id)
+    except (
+        UnsafePathComponentError,
+        ExperimentArtifactNotFoundError,
+        CorruptExperimentArtifactError,
+    ) as exc:
+        _raise_http_error(exc)
+
+
+@router.get("/experiments/{experiment_name}/{run_id}/leaderboard")
+def get_experiment_leaderboard(experiment_name: str, run_id: str) -> list[dict[str, Any]]:
+    """Read a compare run leaderboard payload."""
+
+    try:
+        return ExperimentStore(RUNS_ROOT).read_leaderboard(experiment_name, run_id)
+    except (
+        UnsafePathComponentError,
+        ExperimentArtifactNotFoundError,
+        CorruptExperimentArtifactError,
+    ) as exc:
+        _raise_http_error(exc)
+
+
+def _raise_http_error(
+    exc: UnsafePathComponentError
+    | ExperimentArtifactNotFoundError
+    | CorruptExperimentArtifactError,
+) -> NoReturn:
+    if isinstance(exc, UnsafePathComponentError):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if isinstance(exc, ExperimentArtifactNotFoundError):
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    raise HTTPException(status_code=500, detail=str(exc)) from exc
