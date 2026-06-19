@@ -7,6 +7,7 @@ import platform
 import random
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,8 @@ def set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
 def collect_environment(cwd: Path | None = None) -> dict[str, Any]:
@@ -54,3 +57,15 @@ def _git_commit(cwd: Path) -> str | None:
     if result.returncode != 0:
         return None
     return result.stdout.strip() or None
+
+
+def build_worker_init_fn(base_seed: int) -> Callable[[int], None]:
+    """Build a deterministic DataLoader worker initializer."""
+
+    def init_worker(worker_id: int) -> None:
+        worker_seed = base_seed + worker_id
+        random.seed(worker_seed)
+        np.random.seed(worker_seed % (2**32))
+        torch.manual_seed(worker_seed)
+
+    return init_worker

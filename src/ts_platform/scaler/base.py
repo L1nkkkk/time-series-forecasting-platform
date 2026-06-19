@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import torch
 
@@ -23,6 +24,14 @@ class BaseScaler(ABC):
     @abstractmethod
     def inverse_transform(self, values: torch.Tensor) -> torch.Tensor:
         """Undo scaling."""
+
+    @abstractmethod
+    def state_dict(self) -> dict[str, Any]:
+        """Return serializable scaler state."""
+
+    @abstractmethod
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore scaler state."""
 
     @staticmethod
     def _validate_values(values: torch.Tensor) -> None:
@@ -55,3 +64,17 @@ class IdentityScaler(BaseScaler):
         """Return values unchanged."""
 
         return values
+
+    def state_dict(self) -> dict[str, Any]:
+        """Return no-op scaler state."""
+
+        return {"fitted": self.fitted}
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Restore no-op scaler state."""
+
+        fitted = state.get("fitted", True)
+        if not isinstance(fitted, bool):
+            msg = "IdentityScaler state field 'fitted' must be a bool"
+            raise ValueError(msg)
+        self.fitted = fitted

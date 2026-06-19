@@ -14,6 +14,8 @@ The current MVP focuses on a runnable local training loop:
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
 - Config snapshots, checkpoints, metrics output, and environment metadata.
 - CLI and a synchronous FastAPI demo API.
+- Original-scale evaluation metrics with optional scaled-space metrics.
+- Versioned checkpoints that can restore model, scaler, and optimizer state.
 
 No BasicTS code is copied into this project.
 
@@ -36,7 +38,23 @@ py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 ```
 
 The run writes logs, a checkpoint, a config snapshot, environment metadata, and
-`results.json` under `runs/`.
+`results.json` under `runs/simple_forecast/latest/` because the example config
+sets `overwrite: true`.
+
+## Metrics
+
+Validation and test metrics are reported on the original data scale by default.
+When `evaluation.include_scaled_metrics: true` is set, `results.json` also
+stores scaled-space metrics:
+
+```json
+{
+  "test_metrics": {
+    "original": {"mae": 0.0},
+    "scaled": {"mae": 0.0}
+  }
+}
+```
 
 ## Configuration
 
@@ -47,9 +65,40 @@ Training is driven by YAML or JSON. The example config declares:
   dataset parameters.
 - `model`: registered model name and model-specific parameters.
 - `training`: epochs, learning rate, optimizer, device, and checkpoint policy.
-- `evaluation`: metric names.
+- `evaluation`: metric names and whether to include scaled-space metrics.
 
 See [configs/examples/simple_forecast.yaml](configs/examples/simple_forecast.yaml).
+
+## Checkpoints and Resume
+
+Checkpoints use schema version `1` and include:
+
+- validated config snapshot
+- model name, params, input/output lengths, feature count, and state dict
+- optimizer name and state dict
+- scaler name, params, and state dict
+- metrics and environment metadata
+
+Resume training by setting `training.resume_from` to a checkpoint path. The
+configured `training.epochs` is the target final epoch, not the number of extra
+epochs. For example, resuming an epoch-1 checkpoint with `epochs: 2` trains only
+epoch 2. If the checkpoint epoch is already at or beyond the target, training is
+skipped and evaluation still runs.
+
+## Run Directory Strategy
+
+- `overwrite: false` creates a unique run directory:
+  `runs/<experiment_name>/<timestamp>_<short_id>/`.
+- `overwrite: true` writes to `runs/<experiment_name>/latest/` and clears stale
+  artifacts before running.
+
+Every `results.json` includes `run_id`, `created_at`, `run_dir`, and
+`experiment_name`.
+
+## Validation Split
+
+`val_ratio: 0` is allowed. In that case validation is skipped,
+`validation_metrics` is `null`, and test metrics are still computed.
 
 ## Add a Dataset
 
@@ -76,6 +125,7 @@ py -m pytest
 ruff check .
 ruff format --check .
 mypy src
+py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 ```
 
 ## API Demo

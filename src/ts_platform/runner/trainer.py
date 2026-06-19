@@ -18,9 +18,22 @@ from ts_platform.data.loaders import build_dataset
 from ts_platform.data.transforms import ScaledForecastingDataset
 from ts_platform.experiment.logger import setup_experiment_logger
 from ts_platform.experiment.recorder import ExperimentRecorder
-from ts_platform.experiment.reproducibility import collect_environment, set_seed
+from ts_platform.experiment.reproducibility import (
+    build_worker_init_fn,
+    collect_environment,
+    set_seed,
+)
+from ts_platform.experiment.result_schema import MetricGroups, OptionalMetricGroups, result_payload
 from ts_platform.models.registry import build_model
-from ts_platform.runner.checkpoint import save_checkpoint
+from ts_platform.runner.checkpoint import (
+    CheckpointPayload,
+    load_checkpoint,
+    load_optimizer_state_from_checkpoint,
+    restore_model_from_checkpoint,
+    restore_scaler_from_checkpoint,
+    save_checkpoint,
+    validate_checkpoint_for_training,
+)
 from ts_platform.runner.evaluator import evaluate
 from ts_platform.scaler.registry import build_scaler
 
@@ -30,21 +43,31 @@ class TrainingResult:
     """Serializable training result summary."""
 
     run_dir: Path
+    run_id: str
+    created_at: str
+    experiment_name: str
     checkpoint_path: Path
-    history: list[dict[str, float]]
-    validation_metrics: dict[str, float]
-    test_metrics: dict[str, float]
+    history: list[dict[str, Any]]
+    validation_metrics: OptionalMetricGroups
+    test_metrics: MetricGroups
+    resumed_from: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable result."""
 
-        return {
-            "run_dir": str(self.run_dir),
-            "checkpoint_path": str(self.checkpoint_path),
-            "history": self.history,
-            "validation_metrics": self.validation_metrics,
-            "test_metrics": self.test_metrics,
-        }
+        return result_payload(
+            run_metadata={
+                "run_id": self.run_id,
+                "created_at": self.created_at,
+                "run_dir": str(self.run_dir),
+                "experiment_name": self.experiment_name,
+            },
+            checkpoint_path=str(self.checkpoint_path),
+            history=self.history,
+            validation_metrics=self.validation_metrics,
+            test_metrics=self.test_metrics,
+            resumed_from=str(self.resumed_from) if self.resumed_from is not None else None,
+        )
 
 
 class Trainer:
@@ -63,6 +86,7 @@ class Trainer:
         """Run training, validation, testing, and artifact recording."""
 
         set_seed(self.config.experiment.seed)
+        resume_checkpoint = self._load_resume_checkpoint()
         recorder = ExperimentRecorder(
             self.config.experiment.output_dir,
             self.config.experiment.name,
@@ -71,7 +95,8 @@ class Trainer:
         run_dir = recorder.prepare()
         logger = setup_experiment_logger(run_dir)
         recorder.save_config(self.config)
-        recorder.save_environment(collect_environment())
+        environment = collect_environment()
+        recorder.save_environment(environment)
 
         device = self._resolve_device()
         logger.info("Using device: %s", device)
@@ -80,35 +105,76 @@ class Trainer:
         val_dataset = build_dataset(self.config.data, "val", self.config.experiment.seed)
         test_dataset = build_dataset(self.config.data, "test", self.config.experiment.seed)
 
-        scaler = build_scaler(self.config.data.scaler)
-        scaler.fit(train_dataset.scaler_fit_values())
-
-        train_loader = self._loader(ScaledForecastingDataset(train_dataset, scaler), shuffle=True)
-        val_loader = self._loader(ScaledForecastingDataset(val_dataset, scaler), shuffle=False)
-        test_loader = self._loader(ScaledForecastingDataset(test_dataset, scaler), shuffle=False)
-
-        model = build_model(
-            self.config.model,
-            input_len=self.config.data.input_len,
-            output_len=self.config.data.output_len,
-            num_features=train_dataset.num_features,
-        ).to(device)
-        optimizer = self._build_optimizer(model)
-
-        history: list[dict[str, float]] = []
-        checkpoint_path = run_dir / "checkpoint.pt"
-        validation_metrics: dict[str, float] = {}
-
-        for epoch in range(1, self.config.training.epochs + 1):
-            train_loss = self._train_one_epoch(model, train_loader, optimizer, device)
-            validation_metrics = evaluate(
-                model,
-                val_loader,
-                self.config.evaluation.metrics,
-                device,
+        if resume_checkpoint is not None:
+            validate_checkpoint_for_training(
+                resume_checkpoint,
+                self.config,
+                num_features=train_dataset.num_features,
             )
-            row = {"epoch": float(epoch), "train_loss": train_loss}
-            row.update({f"val_{name}": value for name, value in validation_metrics.items()})
+            scaler = restore_scaler_from_checkpoint(resume_checkpoint, self.config.data.scaler)
+        else:
+            scaler = build_scaler(self.config.data.scaler)
+            scaler.fit(train_dataset.scaler_fit_values())
+
+        train_loader = self._loader(
+            ScaledForecastingDataset(train_dataset, scaler),
+            shuffle=True,
+            seed_offset=0,
+        )
+        val_loader = None
+        if len(val_dataset) > 0:
+            val_loader = self._loader(
+                ScaledForecastingDataset(val_dataset, scaler),
+                shuffle=False,
+                seed_offset=1,
+            )
+        test_loader = self._loader(
+            ScaledForecastingDataset(test_dataset, scaler),
+            shuffle=False,
+            seed_offset=2,
+        )
+
+        if resume_checkpoint is not None:
+            model = restore_model_from_checkpoint(resume_checkpoint, self.config.model).to(device)
+        else:
+            model = build_model(
+                self.config.model,
+                input_len=self.config.data.input_len,
+                output_len=self.config.data.output_len,
+                num_features=train_dataset.num_features,
+            ).to(device)
+        optimizer = self._build_optimizer(model)
+        start_epoch = 1
+        resumed_from = self.config.training.resume_from
+        if resume_checkpoint is not None:
+            load_optimizer_state_from_checkpoint(resume_checkpoint, optimizer)
+            start_epoch = int(resume_checkpoint["epoch"]) + 1
+            logger.info("Resuming from %s at epoch %s", resumed_from, start_epoch)
+
+        history: list[dict[str, Any]] = []
+        checkpoint_path = run_dir / "checkpoint.pt"
+        validation_metrics: OptionalMetricGroups = None
+
+        if start_epoch > self.config.training.epochs:
+            logger.info(
+                "Checkpoint epoch is already >= target epochs; "
+                "skipping training and evaluating only."
+            )
+
+        for epoch in range(start_epoch, self.config.training.epochs + 1):
+            train_loss = self._train_one_epoch(model, train_loader, optimizer, device)
+            if val_loader is not None:
+                validation_metrics = evaluate(
+                    model,
+                    val_loader,
+                    self.config.evaluation.metrics,
+                    device,
+                    scaler=scaler,
+                    include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
+                )
+            row: dict[str, Any] = {"epoch": epoch, "train_loss": train_loss}
+            if validation_metrics is not None:
+                row["validation_metrics"] = validation_metrics
             history.append(row)
             logger.info("epoch=%s train_loss=%.6f val=%s", epoch, train_loss, validation_metrics)
 
@@ -122,23 +188,42 @@ class Trainer:
                     model=model,
                     optimizer=optimizer,
                     epoch=epoch,
-                    metrics=validation_metrics,
+                    metrics={"validation_metrics": validation_metrics, "train_loss": train_loss},
+                    config=self.config,
+                    scaler=scaler,
+                    environment=environment,
                 )
 
-        test_metrics = evaluate(model, test_loader, self.config.evaluation.metrics, device)
+        test_metrics = evaluate(
+            model,
+            test_loader,
+            self.config.evaluation.metrics,
+            device,
+            scaler=scaler,
+            include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
+        )
+        final_epoch = max(start_epoch - 1, self.config.training.epochs)
         checkpoint_path = save_checkpoint(
             run_dir / "checkpoint.pt",
             model=model,
             optimizer=optimizer,
-            epoch=self.config.training.epochs,
-            metrics=test_metrics,
+            epoch=final_epoch,
+            metrics={"validation_metrics": validation_metrics, "test_metrics": test_metrics},
+            config=self.config,
+            scaler=scaler,
+            environment=environment,
         )
+        metadata = recorder.metadata()
         result = TrainingResult(
             run_dir=run_dir,
+            run_id=metadata["run_id"],
+            created_at=metadata["created_at"],
+            experiment_name=metadata["experiment_name"],
             checkpoint_path=checkpoint_path,
             history=history,
             validation_metrics=validation_metrics,
             test_metrics=test_metrics,
+            resumed_from=resumed_from,
         )
         recorder.save_results(result.to_dict())
         logger.info("test=%s", test_metrics)
@@ -149,12 +234,17 @@ class Trainer:
         dataset: ScaledForecastingDataset,
         *,
         shuffle: bool,
+        seed_offset: int,
     ) -> DataLoader[ForecastBatch]:
+        seed = self.config.experiment.seed + seed_offset
+        generator = torch.Generator().manual_seed(seed)
         return DataLoader(
             dataset,
             batch_size=self.config.data.batch_size,
             shuffle=shuffle,
             num_workers=self.config.training.num_workers,
+            generator=generator,
+            worker_init_fn=build_worker_init_fn(seed),
         )
 
     def _resolve_device(self) -> torch.device:
@@ -207,6 +297,11 @@ class Trainer:
             return torch.mean(torch.abs(y_pred - y_true))
         msg = f"unsupported loss: {self.config.training.loss}"
         raise ValueError(msg)
+
+    def _load_resume_checkpoint(self) -> CheckpointPayload | None:
+        if self.config.training.resume_from is None:
+            return None
+        return load_checkpoint(self.config.training.resume_from)
 
 
 def run_training(config_path: str | Path, logger: logging.Logger | None = None) -> TrainingResult:

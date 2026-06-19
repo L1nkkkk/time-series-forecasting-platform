@@ -35,7 +35,15 @@ coverage, config validation, and reproducibility.
 
 - Unit tests cover config, registries, scalers, metrics, and model shapes.
 - Smoke tests run a tiny synthetic training flow and verify output artifacts.
-- API tests cover basic endpoint behavior.
+- Checkpoint tests cover schema validation, unknown schema rejection, model
+  restore, and scaler restore.
+- Resume tests train from a saved checkpoint and verify final epoch and result
+  metadata.
+- Evaluator tests verify original-scale and scaled-space metrics.
+- Run directory tests verify unique runs and stale artifact cleanup.
+- CLI tests call `ts_platform.cli.main.main([...])` with a temporary config.
+- API tests cover health/list endpoints and synchronous `POST
+  /experiments/train`.
 
 ## CI Strategy
 

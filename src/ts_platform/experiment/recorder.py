@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from ts_platform.config.loader import save_config_snapshot
 from ts_platform.config.schema import PlatformConfig
@@ -18,11 +20,15 @@ class ExperimentRecorder:
         self.root_dir = root_dir
         self.experiment_name = experiment_name
         self.overwrite = overwrite
+        self.created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        self.run_id = self._make_run_id()
         self.run_dir = self._resolve_run_dir()
 
     def prepare(self) -> Path:
         """Create and return the run directory."""
 
+        if self.overwrite and self.run_dir.exists():
+            shutil.rmtree(self.run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         return self.run_dir
 
@@ -50,9 +56,22 @@ class ExperimentRecorder:
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
         return path
 
+    def metadata(self) -> dict[str, str]:
+        """Return run metadata for result payloads."""
+
+        return {
+            "run_id": self.run_id,
+            "created_at": self.created_at,
+            "run_dir": str(self.run_dir),
+            "experiment_name": self.experiment_name,
+        }
+
     def _resolve_run_dir(self) -> Path:
         base = self.root_dir / self.experiment_name
-        if self.overwrite or not base.exists():
-            return base
+        if self.overwrite:
+            return base / "latest"
+        return base / self.run_id
+
+    def _make_run_id(self) -> str:
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        return self.root_dir / f"{self.experiment_name}_{timestamp}"
+        return f"{timestamp}_{uuid4().hex[:6]}"
