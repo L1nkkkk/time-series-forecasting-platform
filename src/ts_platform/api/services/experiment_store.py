@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -21,12 +22,49 @@ class CorruptExperimentArtifactError(ValueError):
     """Raised when an experiment artifact cannot be decoded."""
 
 
+@dataclass(frozen=True)
+class ResolvedRun:
+    """A safely resolved physical run directory and its standard artifact paths."""
+
+    experiment_name: str
+    run_id: str
+    run_dir: Path
+    results_path: Path
+    artifacts_path: Path
+
+
 class ExperimentStore:
     """Read experiment artifacts from one fixed runs root."""
 
     def __init__(self, runs_root: Path) -> None:
         self.runs_root = Path(runs_root)
         self._resolved_root = self.runs_root.resolve()
+
+    def resolve_run(self, experiment_name: str, run_id: str) -> ResolvedRun:
+        """Resolve a requested run to a safe physical directory under ``runs_root``."""
+
+        safe_experiment_name = self._validate_component(
+            experiment_name,
+            field_name="experiment_name",
+        )
+        safe_run_id = self._validate_component(run_id, field_name="run_id")
+        run_dir = self._resolve_run_dir_from_safe_components(
+            safe_experiment_name,
+            safe_run_id,
+        )
+        resolved_run_dir = run_dir.resolve()
+        results_path = (run_dir / "results.json").resolve()
+        artifacts_path = (run_dir / "artifacts.json").resolve()
+        self._assert_inside_root(resolved_run_dir)
+        self._assert_inside_root(results_path)
+        self._assert_inside_root(artifacts_path)
+        return ResolvedRun(
+            experiment_name=safe_experiment_name,
+            run_id=safe_run_id,
+            run_dir=resolved_run_dir,
+            results_path=results_path,
+            artifacts_path=artifacts_path,
+        )
 
     def list_experiments(self) -> list[dict[str, Any]]:
         """List train, compare, and incomplete runs under the fixed runs root."""
@@ -55,37 +93,37 @@ class ExperimentStore:
     def read_results(self, experiment_name: str, run_id: str) -> dict[str, Any]:
         """Read a train or compare ``results.json`` payload."""
 
-        run_dir = self._resolve_run_dir(experiment_name, run_id)
-        return self._read_json_object(run_dir / "results.json")
+        resolved_run = self.resolve_run(experiment_name, run_id)
+        return self._read_json_object(resolved_run.results_path)
 
     def read_artifacts(self, experiment_name: str, run_id: str) -> dict[str, Any]:
         """Read a train or compare ``artifacts.json`` payload."""
 
-        run_dir = self._resolve_run_dir(experiment_name, run_id)
-        return self._read_json_object(run_dir / "artifacts.json")
+        resolved_run = self.resolve_run(experiment_name, run_id)
+        return self._read_json_object(resolved_run.artifacts_path)
 
     def read_leaderboard(self, experiment_name: str, run_id: str) -> list[dict[str, Any]]:
         """Read a compare run ``leaderboard.json`` payload."""
 
-        run_dir = self._resolve_run_dir(experiment_name, run_id)
-        payload = self._read_json(run_dir / "leaderboard.json")
+        resolved_run = self.resolve_run(experiment_name, run_id)
+        leaderboard_path = resolved_run.run_dir / "leaderboard.json"
+        payload = self._read_json(leaderboard_path)
         if not isinstance(payload, list):
-            msg = f"leaderboard artifact is not a JSON array: {run_dir / 'leaderboard.json'}"
+            msg = f"leaderboard artifact is not a JSON array: {leaderboard_path}"
             raise CorruptExperimentArtifactError(msg)
         rows: list[dict[str, Any]] = []
         for row in payload:
             if not isinstance(row, dict):
-                msg = f"leaderboard row is not a JSON object: {run_dir / 'leaderboard.json'}"
+                msg = f"leaderboard row is not a JSON object: {leaderboard_path}"
                 raise CorruptExperimentArtifactError(msg)
             rows.append(cast(dict[str, Any], row))
         return rows
 
-    def _resolve_run_dir(self, experiment_name: str, run_id: str) -> Path:
-        safe_experiment_name = self._validate_component(
-            experiment_name,
-            field_name="experiment_name",
-        )
-        safe_run_id = self._validate_component(run_id, field_name="run_id")
+    def _resolve_run_dir_from_safe_components(
+        self,
+        safe_experiment_name: str,
+        safe_run_id: str,
+    ) -> Path:
         experiment_dir = self.runs_root / safe_experiment_name
         self._assert_inside_root(experiment_dir)
 

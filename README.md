@@ -262,7 +262,9 @@ Every completed train or compare run also writes `artifacts.json`. Train
 manifests include result, checkpoint, config snapshot, environment, and log
 entries when those files exist. Compare manifests include compare results,
 leaderboard JSON/CSV, compare config snapshot, and environment entries. See
-[docs/artifacts.md](docs/artifacts.md).
+[docs/artifacts.md](docs/artifacts.md). Manifest `run_dir` and
+`compare_run_dir` values are compatibility metadata; artifact download
+authorization uses the physical run directory resolved by `ExperimentStore`.
 
 ## Validation Split
 
@@ -350,14 +352,16 @@ separators, whitespace, `..`, absolute paths, and path escapes are rejected.
 The artifacts endpoint returns only the manifest. The artifact download
 endpoint accepts an `artifact_name`, not a path, and serves only files registered
 in `artifacts.json`. The resolved file must stay inside both the fixed API runs
-root and the current run directory recorded in the manifest (`run_dir` for
-train runs, `compare_run_dir` for compare runs), so a manifest cannot point to
-another run's file. The API allows JSON, YAML, CSV, and log artifacts by
-default, rejects checkpoints unless explicitly enabled through `APISettings`,
-and rejects files larger than `APISettings.artifact_max_bytes` before returning
-a `FileResponse`. `APISettings.artifact_allowed_kinds` controls the API
-downloadable kinds; the CLI keeps its default safe policy and does not expose a
-checkpoint download switch.
+root and the physical run directory resolved by `ExperimentStore` for the
+requested `experiment_name` and `run_id`. Manifest `run_dir` and
+`compare_run_dir` values remain metadata only and cannot widen the download
+boundary, so a tampered manifest cannot point to another run's file. The API
+allows JSON, YAML, CSV, and log artifacts by default, rejects checkpoints
+unless explicitly enabled through `APISettings`, and rejects files larger than
+`APISettings.artifact_max_bytes` before returning a `FileResponse`.
+`APISettings.artifact_allowed_kinds` controls the API downloadable kinds; the
+CLI keeps its default safe policy and does not expose a checkpoint download
+switch.
 
 The `/jobs/*` endpoints add a lightweight local async layer on top of the same
 safe train and compare services. A submitted job immediately returns a

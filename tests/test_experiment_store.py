@@ -78,6 +78,66 @@ def test_experiment_store_prevents_path_escape(tmp_path) -> None:
         store.read_results("safe_experiment", "linked")
 
 
+def test_experiment_store_resolve_run_latest(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="store_resolve_latest")).run()
+    store = ExperimentStore(tmp_path)
+
+    resolved_run = store.resolve_run("store_resolve_latest", "latest")
+
+    assert resolved_run.experiment_name == "store_resolve_latest"
+    assert resolved_run.run_id == "latest"
+    assert resolved_run.run_dir == result.run_dir.resolve()
+    assert resolved_run.results_path == (result.run_dir / "results.json").resolve()
+    assert resolved_run.artifacts_path == (result.run_dir / "artifacts.json").resolve()
+
+
+def test_experiment_store_resolve_run_by_recorded_run_id(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="store_resolve_recorded")).run()
+    store = ExperimentStore(tmp_path)
+
+    resolved_run = store.resolve_run("store_resolve_recorded", result.run_id)
+
+    assert resolved_run.run_id == result.run_id
+    assert resolved_run.run_dir == result.run_dir.resolve()
+
+
+def test_experiment_store_resolve_run_by_compare_run_id(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path, name="store_resolve_compare")).run()
+    store = ExperimentStore(tmp_path)
+
+    resolved_run = store.resolve_run("store_resolve_compare", result.compare_run_id)
+
+    assert resolved_run.run_id == result.compare_run_id
+    assert resolved_run.run_dir == result.compare_run_dir.resolve()
+
+
+def test_experiment_store_resolve_run_rejects_unsafe_component(tmp_path) -> None:
+    store = ExperimentStore(tmp_path)
+
+    with pytest.raises(UnsafePathComponentError, match="experiment_name"):
+        store.resolve_run("bad name", "latest")
+    with pytest.raises(UnsafePathComponentError, match="run_id"):
+        store.resolve_run("safe_experiment", "../escape")
+
+
+def test_experiment_store_resolve_run_prevents_path_escape(tmp_path) -> None:
+    runs_root = tmp_path / "runs"
+    experiment_dir = runs_root / "safe_experiment"
+    outside_dir = tmp_path / "outside"
+    experiment_dir.mkdir(parents=True)
+    outside_dir.mkdir()
+    link_path = experiment_dir / "linked"
+    try:
+        link_path.symlink_to(outside_dir, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable in this environment")
+
+    store = ExperimentStore(runs_root)
+
+    with pytest.raises(UnsafePathComponentError, match="escapes runs root"):
+        store.resolve_run("safe_experiment", "linked")
+
+
 def test_experiment_store_reads_train_results(tmp_path) -> None:
     result = Trainer(tiny_config(tmp_path, name="store_train")).run()
     store = ExperimentStore(tmp_path)

@@ -106,11 +106,13 @@ Downloads one file registered in the run `artifacts.json` manifest.
 `leaderboard_json`, `leaderboard_csv`, or `train_log`; it is not a file path.
 The endpoint looks up the matching manifest entry by exact `name`, resolves the
 manifest path under the fixed runs root, then verifies the path also remains
-inside the current manifest run directory: `run_dir` for train runs and
-`compare_run_dir` for compare parent runs. A manifest entry that points to
-another run under the same runs root is rejected. After path checks, the
-endpoint checks kind policy and file size, and returns a `FileResponse` with the
-artifact media type and filename.
+inside the physical run directory resolved by `ExperimentStore` for the
+requested `experiment_name` and `run_id`. Manifest `run_dir` and
+`compare_run_dir` fields are returned as metadata but are not trusted as the
+authorization boundary. A manifest entry that points to another run under the
+same runs root is rejected even if the manifest directory metadata was
+tampered. After path checks, the endpoint checks kind policy and file size, and
+returns a `FileResponse` with the artifact media type and filename.
 
 Default downloadable kinds are:
 
@@ -300,8 +302,9 @@ fixed runs root.
 
 The store supports direct directory lookup, `latest`, and lookup by recorded
 `run_id` / `compare_run_id` when the physical directory is `latest`.
-It reads `results.json`, `leaderboard.json`, and `artifacts.json` with the same
-fixed-root safety checks.
+`resolve_run()` exposes the same physical run directory resolution to callers
+that need a stable boundary. It reads `results.json`, `leaderboard.json`, and
+`artifacts.json` with the same fixed-root safety checks.
 
 `runs/jobs/<job_id>` is internal job metadata and is skipped by experiment
 listing so job records do not appear as incomplete experiment runs.
