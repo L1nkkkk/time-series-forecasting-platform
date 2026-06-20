@@ -78,6 +78,9 @@ coverage, config validation, and reproducibility.
   artifact names, path escapes, kind policy, checkpoint denial, file size
   limits, media types, API file responses and error codes, ignored path query
   parameters, and CLI `show-artifact` stdout/output-file behavior.
+- Artifact download hardening tests cover current run directory containment,
+  cross-run artifact path rejection, APISettings max-size enforcement,
+  APISettings allowed-kind enforcement, and explicit API checkpoint enablement.
 - Job tests cover `JobRecord` serialization, safe job ids, `JobStore`
   persistence and cancellation transitions, `JobRunner` success/failure/safe
   root behavior, non-blocking submission, Jobs API submit/status/result/cancel
@@ -104,6 +107,8 @@ work, push `codex/phase5-job-hardening` and create or update a PR targeting
 `main`.
 For Phase 6 safe artifact download work, push
 `codex/phase6-artifact-download` and create or update a PR targeting `main`.
+For Phase 6.1 artifact hardening work, push
+`codex/phase6-artifact-hardening` and create or update a PR targeting `main`.
 
 ## Compatibility Notes
 

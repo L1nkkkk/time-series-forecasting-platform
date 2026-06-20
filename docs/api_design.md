@@ -105,8 +105,12 @@ Downloads one file registered in the run `artifacts.json` manifest.
 `artifact_name` is a safe path component such as `results`,
 `leaderboard_json`, `leaderboard_csv`, or `train_log`; it is not a file path.
 The endpoint looks up the matching manifest entry by exact `name`, resolves the
-manifest path under the fixed runs root, checks kind policy and file size, and
-returns a `FileResponse` with the artifact media type and filename.
+manifest path under the fixed runs root, then verifies the path also remains
+inside the current manifest run directory: `run_dir` for train runs and
+`compare_run_dir` for compare parent runs. A manifest entry that points to
+another run under the same runs root is rejected. After path checks, the
+endpoint checks kind policy and file size, and returns a `FileResponse` with the
+artifact media type and filename.
 
 Default downloadable kinds are:
 
@@ -117,9 +121,12 @@ Default downloadable kinds are:
 
 Checkpoint artifacts are blocked by default. They are model-state binaries and
 may be much larger or more sensitive than result metadata, so enabling them
-requires an explicit service policy change. Files larger than 5 MiB are
-rejected before response creation. The endpoint ignores arbitrary path query
-parameters; clients can only request a manifest `artifact_name`.
+requires an explicit `APISettings.allow_checkpoint_download` change.
+`APISettings.artifact_allowed_kinds` controls downloadable non-checkpoint kinds,
+and `APISettings.artifact_max_bytes` controls the size limit. Files larger than
+the configured limit are rejected before response creation. The endpoint ignores
+arbitrary path query parameters; clients can only request a manifest
+`artifact_name`.
 
 ### POST /experiments/compare
 
@@ -256,6 +263,8 @@ runner, but interrupted running jobs are not recovered.
   HTTP 400.
 - Invalid `experiment_name` or `run_id` lookup path components return HTTP 400.
 - Invalid artifact download `artifact_name` path components return HTTP 400.
+- Artifact download paths that escape the current run directory return HTTP
+  400.
 - Invalid `job_id` path components return HTTP 400.
 - Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
   return HTTP 404.

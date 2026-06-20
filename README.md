@@ -185,7 +185,7 @@ py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 `show-artifact` reads one named artifact that is registered in that manifest.
 It prints JSON, YAML, CSV, and log artifacts to stdout by default, or writes
 them to `--output` when provided. Checkpoints are intentionally blocked by
-default, and artifact files larger than 5 MiB are rejected.
+default in the CLI, and artifact files larger than 5 MiB are rejected.
 `list-jobs` and `show-job` inspect local API job metadata under `runs/jobs`.
 CLI job submission is intentionally not provided because a one-shot CLI process
 cannot keep an in-process background executor alive after exit.
@@ -349,9 +349,15 @@ letters, numbers, `_`, `-`, and `.`. `run_id` also accepts `latest`. Path
 separators, whitespace, `..`, absolute paths, and path escapes are rejected.
 The artifacts endpoint returns only the manifest. The artifact download
 endpoint accepts an `artifact_name`, not a path, and serves only files registered
-in `artifacts.json`. The API allows JSON, YAML, CSV, and log artifacts by
-default, rejects checkpoints unless explicitly enabled in service policy, and
-rejects files larger than 5 MiB before returning a `FileResponse`.
+in `artifacts.json`. The resolved file must stay inside both the fixed API runs
+root and the current run directory recorded in the manifest (`run_dir` for
+train runs, `compare_run_dir` for compare runs), so a manifest cannot point to
+another run's file. The API allows JSON, YAML, CSV, and log artifacts by
+default, rejects checkpoints unless explicitly enabled through `APISettings`,
+and rejects files larger than `APISettings.artifact_max_bytes` before returning
+a `FileResponse`. `APISettings.artifact_allowed_kinds` controls the API
+downloadable kinds; the CLI keeps its default safe policy and does not expose a
+checkpoint download switch.
 
 The `/jobs/*` endpoints add a lightweight local async layer on top of the same
 safe train and compare services. A submitted job immediately returns a

@@ -80,9 +80,13 @@ class ArtifactService:
         artifact = self._find_manifest_artifact(manifest, safe_artifact_name)
         kind = self._read_required_str(artifact, "kind")
         path_value = self._read_required_str(artifact, "path")
+        run_dir = self._resolve_manifest_run_dir(manifest)
 
         self._assert_allowed_kind(kind)
         artifact_path = self._resolve_manifest_path(path_value)
+        if not artifact_path.is_relative_to(run_dir):
+            msg = f"artifact path escapes run directory: {path_value}"
+            raise UnsafePathComponentError(msg)
         if not artifact_path.is_file():
             msg = f"artifact file does not exist: {artifact_path}"
             raise ExperimentArtifactNotFoundError(msg)
@@ -135,6 +139,14 @@ class ArtifactService:
             msg = f"artifact manifest field is invalid: {field_name}"
             raise CorruptExperimentArtifactError(msg)
         return value
+
+    def _resolve_manifest_run_dir(self, manifest: dict[str, Any]) -> Path:
+        field_name = "compare_run_dir" if manifest.get("run_type") == "compare" else "run_dir"
+        value = manifest.get(field_name)
+        if not isinstance(value, str) or not value:
+            msg = f"artifact manifest field is invalid: {field_name}"
+            raise CorruptExperimentArtifactError(msg)
+        return self._resolve_manifest_path(value)
 
     def _assert_allowed_kind(self, kind: str) -> None:
         if kind == "checkpoint":

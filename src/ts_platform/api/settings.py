@@ -12,3 +12,6 @@ class APISettings:
 
     runs_root: Path = Path("runs")
     dataset_catalog_glob: str = "configs/datasets/*.yaml"
+    artifact_max_bytes: int = 5 * 1024 * 1024
+    allow_checkpoint_download: bool = False
+    artifact_allowed_kinds: tuple[str, ...] = ("json", "yaml", "csv", "log")
