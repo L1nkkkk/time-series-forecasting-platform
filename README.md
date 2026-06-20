@@ -10,8 +10,8 @@ The current MVP focuses on a runnable local training loop:
 
 - Synthetic forecasting dataset.
 - Local CSV forecasting dataset with time-based splits.
-- Naive last-value, moving-average, seasonal-naive, linear, and MLP forecasting
-  models.
+- Naive last-value, moving-average, seasonal-naive, linear, MLP, RNN, GRU,
+  LSTM, and TCN forecasting models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
 - Config snapshots, checkpoints, metrics output, and environment metadata.
@@ -71,6 +71,12 @@ The compare command writes one normal Trainer run per model under
 the compare run directory. The compare-level `results.json` summarizes the
 parent compare run, including success/failure counts, leaderboard paths, and the
 same rows stored in `leaderboard.json`.
+
+Run the lightweight model zoo compare:
+
+```bash
+py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
+```
 
 ## Metrics
 
@@ -243,6 +249,10 @@ Baseline model behavior:
   the forecast horizon.
 - `seasonal_naive`: cycles through the final `season_length` history steps
   until `output_len` predictions are produced.
+- `rnn`, `gru`, and `lstm`: encode the input sequence and project the final
+  hidden state directly to the full forecast horizon.
+- `tcn`: applies a lightweight causal-ish Conv1d stack and projects the final
+  hidden time step directly to the full forecast horizon.
 
 See [docs/leaderboard_format.md](docs/leaderboard_format.md) for output
 columns. In `leaderboard.json` and API responses, `model_params` is a JSON
@@ -310,6 +320,9 @@ See [examples/custom_dataset.py](examples/custom_dataset.py).
 3. Return predictions shaped `[batch, output_len, num_features]`.
 4. Register the model with `MODEL_REGISTRY.register("name", ModelClass)`.
 
+See [docs/model_zoo.md](docs/model_zoo.md) for built-in model parameters and
+model extension notes.
+
 ## Run Tests
 
 ```bash
@@ -323,6 +336,7 @@ py -m ts_platform.cli.main list-datasets
 py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
 py -m ts_platform.cli.main list-models
 py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
+py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest

@@ -16,7 +16,9 @@ code, no third-party notice is required beyond documenting the design reference.
   catalog loading, split helpers, and transforms.
 - `scaler`: Normalize and inverse-normalize tensors, and serialize scaler state
   for checkpoints.
-- `models`: Define forecasting models and model registry.
+- `models`: Define forecasting models and model registry. Built-in models use
+  the same `BaseForecastModel` contract, including naive/statistical baselines,
+  linear/MLP baselines, recurrent baselines, and the lightweight TCN baseline.
 - `metrics`: Calculate losses and evaluation metrics.
 - `runner`: Orchestrate training, validation, testing, checkpoint save/restore,
   resume, evaluator calls, and multi-model compare runs.
@@ -39,7 +41,7 @@ YAML/JSON config
   -> Dataset registry + catalog
   -> Split datasets by window policy for synthetic data or time policy for CSV
   -> Scaler fit on train split or restore from checkpoint
-  -> Model registry
+  -> Model registry builds a BaseForecastModel
   -> Model/optimizer restore when resume_from is configured
   -> Trainer loop
   -> Evaluator inverse-transforms predictions for original-scale metrics
@@ -162,7 +164,12 @@ DataLoader batches become:
 - `x`: `[batch, input_len, num_features]`
 - `y`: `[batch, output_len, num_features]`
 
-Models must return predictions shaped like `y`.
+Models must return predictions shaped like `y`. Built-in models produce direct
+multi-step forecasts: one forward pass returns the whole output horizon shaped
+`[batch, output_len, num_features]`. The recurrent models encode the input
+history and project the final hidden state to the horizon; the TCN encodes the
+history with causal-ish temporal convolutions and projects the final hidden time
+step. Neither path uses autoregressive decoding in the current model zoo.
 
 Evaluation receives scaled model outputs and scaled targets. It computes
 original-scale metrics by inverse-transforming both predictions and targets
@@ -369,6 +376,14 @@ counts, primary metric, and the same rows as `leaderboard.json`. JSON rows keep
 Registries map string names to implementation classes or callables. This keeps
 configuration files stable and prevents the trainer from importing every custom
 implementation directly.
+
+The model registry currently includes classical baselines (`naive`,
+`moving_average`, `seasonal_naive`), simple trainable baselines (`linear`,
+`mlp`), recurrent baselines (`rnn`, `gru`, `lstm`), and `tcn`. New model modules
+register themselves on import, and `ts_platform.models.__init__` imports the
+built-ins so CLI discovery and config-driven training see the same registry.
+All registered forecasting models still inherit `BaseForecastModel` and expose
+the same input/output shape boundary to `Trainer` and `CompareRunner`.
 
 ## Configuration-Driven Mechanism
 

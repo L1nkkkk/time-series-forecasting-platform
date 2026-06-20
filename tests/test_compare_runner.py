@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ts_platform.config.compare_loader import load_compare_config
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -235,3 +236,30 @@ def test_compare_rejects_unknown_model_clearly(tmp_path) -> None:
 
     assert all(row["status"] == "failed" for row in result.rows)
     assert all("unknown registry item" in row["error"] for row in result.rows)
+
+
+def test_compare_model_zoo_config_runs(tmp_path) -> None:
+    config = load_compare_config("configs/examples/compare_model_zoo.yaml")
+    config = config.model_copy(
+        update={
+            "experiment": config.experiment.model_copy(
+                update={"name": "compare_model_zoo_test", "output_dir": tmp_path}
+            )
+        }
+    )
+
+    result = CompareRunner(config).run()
+
+    assert result.success_count == 9
+    assert result.failed_count == 0
+    assert {row["model_name"] for row in result.rows} == {
+        "naive",
+        "moving_average",
+        "seasonal_naive",
+        "linear",
+        "mlp",
+        "rnn",
+        "gru",
+        "lstm",
+        "tcn",
+    }
