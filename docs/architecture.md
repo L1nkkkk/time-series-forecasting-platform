@@ -71,10 +71,11 @@ Artifact downloads add one policy layer:
 ```text
 API / CLI artifact request
   -> ArtifactService
+  -> ExperimentStore resolves physical run directory
   -> ExperimentStore reads artifacts.json
   -> safe artifact_name exact match in manifest
   -> manifest path resolves under runs root
-  -> manifest path resolves under current run_dir or compare_run_dir
+  -> manifest path resolves under resolved physical run directory
   -> kind, checkpoint, file existence, and size checks
   -> FileResponse or CLI text output
 ```
@@ -202,19 +203,22 @@ running jobs are not recovered.
 `api/services/experiment_store.py` owns read-side metadata access for API and
 CLI callers. It validates `experiment_name` and `run_id` as safe path
 components, accepts `latest`, resolves all candidate paths, and rejects any
-resolved path outside the fixed runs root. It can list train, compare, and
+resolved path outside the fixed runs root. Its public `resolve_run()` method
+returns the physical run directory plus standard result and artifact paths for
+callers that need an authorization boundary. It can list train, compare, and
 incomplete runs; read train or compare `results.json`; read compare
 `leaderboard.json`; and read train or compare `artifacts.json`. The store skips
 `runs/jobs/<job_id>` because that tree is internal job metadata, not an
 experiment run.
 
 `api/services/artifact_service.py` owns safe file download lookup. It reuses
-`ExperimentStore.read_artifacts()` so experiment and run id validation stay in
-one place, then requires `artifact_name` to be a safe path component and an
-exact manifest entry name. It never accepts a client path. The manifest path is
-resolved and checked against the fixed runs root, then checked against the
-current run boundary recorded in the same manifest: `run_dir` for train runs or
-`compare_run_dir` for compare parent runs. This double check rejects both
+`ExperimentStore.resolve_run()` and `ExperimentStore.read_artifacts()` so
+experiment and run id validation stay in one place, then requires
+`artifact_name` to be a safe path component and an exact manifest entry name. It
+never accepts a client path. The manifest path is resolved and checked against
+the fixed runs root, then checked against the physical run directory returned by
+`ExperimentStore`. Manifest `run_dir` and `compare_run_dir` values remain
+metadata and cannot widen the boundary. This double check rejects both
 outside-root paths and cross-run paths under the same root. The file must exist
 before kind policy and size policy allow access. JSON, YAML, CSV, and log files
 are downloadable by default. Checkpoints are denied unless policy explicitly
@@ -231,7 +235,8 @@ default safe policy, so the CLI continues to reject checkpoint downloads.
 manifest construction, compare manifest construction, and manifest writing. It
 keeps manifest path rules close to artifact creation and verifies every
 artifact path resolves inside the current run directory before a manifest is
-written.
+written. Manifest directory fields are retained for compatibility and discovery,
+but download authorization uses `ExperimentStore.resolve_run()`.
 
 `Trainer.run()` writes train `artifacts.json` after `results.json` and the
 final checkpoint exist. The train manifest includes result, checkpoint, config

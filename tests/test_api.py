@@ -509,6 +509,41 @@ def test_api_download_rejects_cross_run_artifact_path(tmp_path, monkeypatch) -> 
     assert "escapes run directory" in response.text
 
 
+def test_api_download_rejects_tampered_manifest_run_dir(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_tampered" / "latest"
+    other_run_dir = tmp_path / "api_download_tampered_other" / "latest"
+    run_dir.mkdir(parents=True)
+    other_run_dir.mkdir(parents=True)
+    other_artifact_path = other_run_dir / "secret.json"
+    other_artifact_path.write_text('{"secret": true}', encoding="utf-8")
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "train",
+                "experiment_name": "api_download_tampered",
+                "run_id": "latest",
+                "run_dir": str(other_run_dir),
+                "artifacts": [
+                    {
+                        "name": "secret",
+                        "kind": "json",
+                        "path": str(other_artifact_path),
+                        "description": "Tampered run_dir artifact",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_tampered/latest/artifacts/secret")
+
+    assert response.status_code == 400
+    assert "escapes run directory" in response.text
+
+
 def test_api_download_uses_settings_max_bytes(tmp_path, monkeypatch) -> None:
     run_dir = tmp_path / "api_download_settings_size" / "latest"
     run_dir.mkdir(parents=True)

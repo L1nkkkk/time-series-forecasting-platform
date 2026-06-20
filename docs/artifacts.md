@@ -107,9 +107,13 @@ under `models/<model_alias>/latest/` also write their own train manifests.
 ## Safety
 
 Manifest builders verify each artifact path resolves inside the current run
-directory before writing. `ExperimentStore` also validates `experiment_name` and
-`run_id`, supports `latest`, and verifies resolved lookup paths remain under the
-fixed runs root.
+directory before writing. The manifest declares artifact names, kinds, paths,
+and compatibility metadata such as `run_dir` or `compare_run_dir`; those
+directory fields are not used as the download authorization boundary.
+
+`ExperimentStore` validates `experiment_name` and `run_id`, supports `latest`
+and recorded `run_id` / `compare_run_id` lookup, and resolves the physical run
+directory under the fixed runs root.
 
 `ArtifactService` adds download-time checks on top of the manifest:
 
@@ -117,9 +121,10 @@ fixed runs root.
 - The requested name must match one `artifacts.json` entry exactly.
 - Clients never pass artifact paths.
 - The manifest path must resolve inside the fixed runs root.
-- The manifest path must also resolve inside the current run directory recorded
-  in the manifest: `run_dir` for train runs or `compare_run_dir` for compare
-  runs.
+- The manifest path must also resolve inside the physical run directory returned
+  by `ExperimentStore.resolve_run()`.
+- Tampered manifest `run_dir` or `compare_run_dir` metadata cannot widen the
+  allowed download scope.
 - Cross-run manifest paths are rejected even when they stay under the same
   runs root.
 - The file must exist and be a regular file.

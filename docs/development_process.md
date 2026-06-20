@@ -81,6 +81,11 @@ coverage, config validation, and reproducibility.
 - Artifact download hardening tests cover current run directory containment,
   cross-run artifact path rejection, APISettings max-size enforcement,
   APISettings allowed-kind enforcement, and explicit API checkpoint enablement.
+- Artifact boundary hardening tests cover public `ExperimentStore.resolve_run`
+  lookup for `latest`, recorded `run_id`, and `compare_run_id`; unsafe
+  component and symlink escape rejection; and tampered manifest `run_dir` /
+  `compare_run_dir` cases across `ArtifactService`, API download, and CLI
+  `show-artifact`.
 - Job tests cover `JobRecord` serialization, safe job ids, `JobStore`
   persistence and cancellation transitions, `JobRunner` success/failure/safe
   root behavior, non-blocking submission, Jobs API submit/status/result/cancel
@@ -109,6 +114,8 @@ For Phase 6 safe artifact download work, push
 `codex/phase6-artifact-download` and create or update a PR targeting `main`.
 For Phase 6.1 artifact hardening work, push
 `codex/phase6-artifact-hardening` and create or update a PR targeting `main`.
+For Phase 6.2 artifact boundary hardening work, push
+`codex/phase6-artifact-boundary` and create or update a PR targeting `main`.
 
 ## Compatibility Notes
 

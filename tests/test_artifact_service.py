@@ -124,6 +124,73 @@ def test_artifact_service_rejects_cross_run_artifact_path(tmp_path) -> None:
         ArtifactService(tmp_path).resolve_artifact("service_artifacts", "latest", "results")
 
 
+def test_artifact_service_rejects_tampered_manifest_run_dir(tmp_path) -> None:
+    run_dir = tmp_path / "service_artifacts" / "latest"
+    other_run_dir = tmp_path / "other_artifacts" / "latest"
+    run_dir.mkdir(parents=True)
+    other_run_dir.mkdir(parents=True)
+    other_artifact_path = other_run_dir / "secret.json"
+    other_artifact_path.write_text('{"secret": true}', encoding="utf-8")
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "train",
+                "experiment_name": "service_artifacts",
+                "run_id": "latest",
+                "run_dir": str(other_run_dir),
+                "artifacts": [
+                    {
+                        "name": "secret",
+                        "kind": "json",
+                        "path": str(other_artifact_path),
+                        "description": "Tampered run_dir artifact",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UnsafePathComponentError, match="escapes run directory"):
+        ArtifactService(tmp_path).resolve_artifact("service_artifacts", "latest", "secret")
+
+
+def test_artifact_service_uses_store_resolved_run_dir_for_boundary(tmp_path) -> None:
+    run_dir = tmp_path / "service_artifacts" / "latest"
+    other_run_dir = tmp_path / "other_artifacts" / "latest"
+    run_dir.mkdir(parents=True)
+    other_run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "results.json"
+    artifact_path.write_text('{"ok": true}', encoding="utf-8")
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "train",
+                "experiment_name": "service_artifacts",
+                "run_id": "latest",
+                "run_dir": str(other_run_dir),
+                "artifacts": [
+                    {
+                        "name": "results",
+                        "kind": "json",
+                        "path": str(artifact_path),
+                        "description": "Result payload",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    artifact = ArtifactService(tmp_path).resolve_artifact(
+        "service_artifacts",
+        "latest",
+        "results",
+    )
+
+    assert artifact.path == artifact_path.resolve()
+
+
 def test_artifact_service_allows_artifact_inside_current_run_dir(tmp_path) -> None:
     run_dir = _write_manifest(
         tmp_path,
