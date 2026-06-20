@@ -31,6 +31,15 @@ data:
     sort_by_time: true
 ```
 
+Feature-aware training example:
+
+```bash
+py -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml
+```
+
+That example uses `tests/fixtures/tiny_series_with_features.csv` with
+`target_cols: [value]` and `feature_cols: [temperature, holiday]`.
+
 ## Fields
 
 - `path`: CSV file path. Missing files raise `FileNotFoundError`.
@@ -196,10 +205,10 @@ Catalog entries with the same normalized name overwrite previous metadata when
 registered. This keeps local catalog files easy to override while making the
 behavior explicit.
 
-## Future Exogenous Feature Columns
+## Exogenous Feature Columns
 
-Phase 12B CSV support distinguishes forecast targets from input-only
-exogenous features at the dataset and batch layer:
+CSV support distinguishes forecast targets from input-only exogenous features
+at the dataset, batch, training, evaluation, and checkpoint layers:
 
 - `target_cols`: columns predicted by the model.
 - `feature_cols`: columns used only as model inputs.
@@ -207,14 +216,14 @@ exogenous features at the dataset and batch layer:
 - `x`: target history concatenated with feature history.
 
 Metrics, inverse transforms, and original-scale result reporting remain
-target-only in the planned end state. Feature columns do not enter `y`, target
-scaler inverse transforms, or target metrics.
+target-only. Feature columns do not enter `y`, target scaler inverse
+transforms, or target metrics.
 
-Models can now be constructed and called directly with feature-aware tensors
-for shape tests, but full feature-aware training is intentionally still
-blocked. Trainer rejects feature-aware CSV configs with `feature-aware training
-is not implemented until Phase 12E` until Trainer, evaluator, and checkpoint
-integration are migrated.
+Feature-aware training fits separate target and feature scalers from the same
+`data.scaler` config. The target scaler transforms `target_x` and `y`; the
+feature scaler transforms `feature_x`; evaluation receives only the target
+scaler for inverse transforms. Nested target/features scaler configuration is a
+future enhancement.
 
 See [exogenous_features_design.md](exogenous_features_design.md) for the full
 interface, scaler, checkpoint, and migration plan.
@@ -223,9 +232,9 @@ interface, scaler, checkpoint, and migration plan.
 
 Feature-aware CSV datasets can be constructed, inspected, and scaled directly
 with split target/feature scalers. Model forwards can consume the resulting
-`input_dim` and return `target_dim`, but full training with `feature_cols`
-remains blocked until Trainer, evaluator, and checkpoint integration are
-migrated.
+`input_dim` and return `target_dim`, and Trainer can run feature-aware CSV
+training. Feature-aware compare/model-zoo smoke coverage remains a later Phase
+12F task.
 
 Profiling currently supports local CSV files only. Remote URLs and parquet
 files are not supported.

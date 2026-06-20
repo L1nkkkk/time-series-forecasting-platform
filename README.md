@@ -61,6 +61,12 @@ Run the CSV example:
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
 ```
 
+Run the feature-aware CSV example:
+
+```bash
+py -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml
+```
+
 Run a multi-model compare:
 
 ```bash
@@ -109,6 +115,8 @@ Training is driven by YAML or JSON. The example config declares:
 
 See [configs/examples/simple_forecast.yaml](configs/examples/simple_forecast.yaml)
 and [configs/examples/csv_forecast.yaml](configs/examples/csv_forecast.yaml).
+Feature-aware CSV training is shown in
+[configs/examples/csv_feature_forecast.yaml](configs/examples/csv_feature_forecast.yaml).
 
 `experiment.name` must be a safe path component containing only letters,
 numbers, `_`, `-`, and `.`. Path separators, whitespace, `..`, absolute paths,
@@ -160,9 +168,10 @@ boundaries.
 
 Feature-aware CSV batches can be scaled directly with
 `FeatureAwareScalerBundle`, which keeps target and feature scaler state
-separate at the dataset wrapper layer. The model layer can forward
-`input_dim`/`target_dim` tensors directly, but full feature-aware training is
-still blocked until the Trainer, evaluator, and checkpoint paths migrate.
+separate at the dataset wrapper layer. Trainer now builds separate fitted
+target and feature scalers from the same `data.scaler` config, trains models on
+`input_dim` tensors, and evaluates target-only forecasts on the original target
+scale.
 
 Dataset catalog files such as
 [configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
@@ -197,17 +206,17 @@ py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/l
 
 The generated config is a normal training YAML. It is not run automatically.
 
-## Future: Exogenous Features
+## Exogenous Features
 
-Current CSV dataset construction supports `feature_cols` at the batch layer, but
-full feature-aware training is still deferred. The planned end-to-end interface
-is documented in
+Current CSV dataset construction supports `feature_cols` at the batch and
+training layer. The end-to-end interface is documented in
 [docs/exogenous_features_design.md](docs/exogenous_features_design.md), and
 implementation is intentionally split into Phase 12 steps. Phase 12A adds
 schema and compatibility infrastructure; Phase 12B adds CSV data-layer
 `feature_cols` support; Phase 12C adds split target/feature scaler support;
-Phase 12D adds feature-aware model forward support; Phase 12E will handle
-Trainer, evaluator, and checkpoint integration.
+Phase 12D adds feature-aware model forward support; Phase 12E adds Trainer,
+evaluator, checkpoint, and results integration. Phase 12F remains the next
+feature-aware compare/model-zoo smoke stage.
 
 ## Discovery Commands
 
@@ -301,13 +310,18 @@ cell is portable.
 
 ## Checkpoints and Resume
 
-Checkpoints use schema version `1` and include:
+Checkpoints use schema version `2` and include:
 
 - validated config snapshot
-- model name, params, input/output lengths, feature count, and state dict
+- model name, params, input/output lengths, input/target dimensions, feature
+  count, and state dict
+- data target/feature column metadata and dimensions
 - optimizer name and state dict
-- scaler name, params, and state dict
+- target scaler name, params, and state dict
+- feature scaler name, params, and state dict for feature-aware runs
 - metrics and environment metadata
+
+Schema version `1` target-only checkpoints remain loadable for compatibility.
 
 Resume training by setting `training.resume_from` to a checkpoint path. The
 configured `training.epochs` is the target final epoch, not the number of extra
@@ -346,8 +360,8 @@ authorization uses the physical run directory resolved by `ExperimentStore`.
 
 1. Implement a `torch.utils.data.Dataset` compatible with
    `ForecastingDataset`.
-2. Return batches with `x` shaped `[input_len, num_features]` and `y` shaped
-   `[output_len, num_features]`.
+2. Return batches with `x` shaped `[input_len, input_dim]` and `y` shaped
+   `[output_len, target_dim]`.
 3. Register the dataset with `DATASET_REGISTRY.register("name", DatasetClass)`.
 4. Add catalog metadata through `DATASET_CATALOG.register(...)`.
 
@@ -356,8 +370,8 @@ See [examples/custom_dataset.py](examples/custom_dataset.py).
 ## Add a Model
 
 1. Subclass `BaseForecastModel`.
-2. Implement `forward(x)` for `x` shaped `[batch, input_len, num_features]`.
-3. Return predictions shaped `[batch, output_len, num_features]`.
+2. Implement `forward(x)` for `x` shaped `[batch, input_len, input_dim]`.
+3. Return predictions shaped `[batch, output_len, target_dim]`.
 4. Register the model with `MODEL_REGISTRY.register("name", ModelClass)`.
 
 See [docs/model_zoo.md](docs/model_zoo.md) for built-in model parameters and
@@ -372,6 +386,7 @@ ruff format --check .
 mypy src
 py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
+py -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml
 py -m ts_platform.cli.main list-datasets
 py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
 py -m ts_platform.cli.main profile-dataset --path tests/fixtures/tiny_series.csv --target-cols value --timestamp-col timestamp --input-len 8 --output-len 2

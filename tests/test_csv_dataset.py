@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import torch
 
-from tests.helpers import tiny_config
+from tests.helpers import tiny_config, tiny_feature_config
 from ts_platform.data.csv_dataset import CSVForecastDataset
 from ts_platform.data.transforms import FeatureAwareScalerBundle, ScaledForecastingDataset
 from ts_platform.runner.trainer import Trainer
@@ -359,34 +359,86 @@ def test_scaled_dataset_feature_aware_preserves_metadata() -> None:
     assert scaled[0]["metadata"] == dataset[0]["metadata"]
 
 
-def test_trainer_rejects_feature_aware_csv_until_phase12e(tmp_path) -> None:
-    config = tiny_config(tmp_path, name="feature_csv_blocked")
-    data = config.data.model_copy(
-        update={
-            "name": "csv",
-            "input_len": 2,
-            "output_len": 1,
-            "batch_size": 4,
-            "train_ratio": 0.5,
-            "val_ratio": 0.25,
-            "test_ratio": 0.25,
-            "params": {
-                "path": str(FEATURE_FIXTURE),
-                "timestamp_col": "timestamp",
-                "target_cols": ["value"],
-                "feature_cols": ["temperature"],
-                "missing_policy": "error",
-                "sort_by_time": True,
-            },
-        }
-    )
-    config = config.model_copy(update={"data": data})
+def test_trainer_builds_feature_aware_scaler_bundle(tmp_path) -> None:
+    dataset = _feature_dataset()
+    scaler = Trainer(tiny_feature_config(tmp_path))._build_scalers(dataset)
 
-    with pytest.raises(
-        NotImplementedError,
-        match="feature-aware training is not implemented until Phase 12E",
-    ):
-        Trainer(config).run()
+    assert isinstance(scaler, FeatureAwareScalerBundle)
+    assert scaler.features is not None
+    assert scaler.target.state_dict()["mean"].shape[-1] == dataset.target_dim
+    assert scaler.features.state_dict()["mean"].shape[-1] == dataset.feature_dim
+
+
+def test_trainer_target_only_scaler_path_unchanged(tmp_path) -> None:
+    dataset = _dataset()
+    scaler = Trainer(tiny_config(tmp_path))._build_scalers(dataset)
+
+    assert not isinstance(scaler, FeatureAwareScalerBundle)
+    assert scaler.state_dict()["mean"].shape[-1] == dataset.target_dim
+
+
+def test_trainer_feature_aware_linear_smoke(tmp_path) -> None:
+    result = Trainer(tiny_feature_config(tmp_path, name="feature_linear")).run()
+
+    assert result.checkpoint_path.exists()
+    assert result.data_metadata["feature_aware"] is True
+    assert result.data_metadata["input_dim"] == 3
+    assert result.data_metadata["target_dim"] == 1
+    assert "original" in result.test_metrics
+
+
+def test_trainer_feature_aware_mlp_smoke(tmp_path) -> None:
+    config = tiny_feature_config(
+        tmp_path,
+        name="feature_mlp",
+        model_name="mlp",
+        model_params={"hidden_sizes": [8]},
+    )
+
+    result = Trainer(config).run()
+
+    assert result.checkpoint_path.exists()
+    assert "original" in result.test_metrics
+
+
+def test_trainer_feature_aware_tcn_smoke(tmp_path) -> None:
+    config = tiny_feature_config(
+        tmp_path,
+        name="feature_tcn",
+        model_name="tcn",
+        model_params={"hidden_channels": 8, "num_layers": 2},
+    )
+
+    result = Trainer(config).run()
+
+    assert result.checkpoint_path.exists()
+    assert "original" in result.test_metrics
+
+
+def test_trainer_feature_aware_statistical_baseline_smoke(tmp_path) -> None:
+    result = Trainer(tiny_feature_config(tmp_path, name="feature_naive", model_name="naive")).run()
+
+    assert result.checkpoint_path.exists()
+    assert "original" in result.test_metrics
+
+
+def test_trainer_target_only_smoke_still_works(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="target_only_smoke")).run()
+
+    assert result.checkpoint_path.exists()
+    assert result.data_metadata["feature_aware"] is False
+    assert "original" in result.test_metrics
+
+
+def test_trainer_feature_aware_metrics_are_target_only(tmp_path) -> None:
+    config = tiny_feature_config(tmp_path, name="feature_target_metrics")
+    config.evaluation.include_scaled_metrics = True
+
+    result = Trainer(config).run()
+
+    assert set(result.test_metrics) == {"original", "scaled"}
+    assert result.data_metadata["target_dim"] == 1
+    assert result.data_metadata["feature_dim"] == 2
 
 
 def test_scaled_dataset_target_only_still_works() -> None:

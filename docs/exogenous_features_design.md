@@ -7,13 +7,13 @@ holiday flags, prices, promotions, sensor context, load indicators, and other
 auxiliary variables can explain future target movement even when they are not
 themselves forecast targets.
 
-The current trainable platform supports CSV `target_cols` only. That is enough
-for target-only baselines and early model comparison, but full training still
-cannot represent datasets where the model should learn from exogenous columns
-without predicting those columns. Phase 12B adds the CSV dataset/batch layer for
-those columns, and Phase 12C adds dataset-level split target/feature scaling
-while Phase 12D migrates the model forward interface. Trainer, evaluator, and
-checkpoint migration remain later phases.
+The trainable platform started with CSV `target_cols` only. That was enough for
+target-only baselines and early model comparison, but not enough for datasets
+where the model should learn from exogenous columns without predicting those
+columns. Phase 12B adds the CSV dataset/batch layer for those columns, Phase
+12C adds dataset-level split target/feature scaling, Phase 12D migrates the
+model forward interface, and Phase 12E wires those pieces through Trainer,
+Evaluator, checkpoints, and results.
 
 ## Current State
 
@@ -50,13 +50,17 @@ the scaled slices.
 
 Phase 12D enables model construction and forward passes for `input_dim !=
 target_dim`. Trainable models consume the full `input_dim`, while statistical
-baselines use `target_slice()` and ignore feature columns. Trainer still fails
-clearly with `feature-aware training is not implemented until Phase 12E`, so
-full Trainer, evaluator, and checkpoint integration remain later phases.
+baselines use `target_slice()` and ignore feature columns.
+
+Phase 12E enables feature-aware CSV training. Trainer fits separate target and
+feature scalers from the same `data.scaler` config, wraps datasets with
+`FeatureAwareScalerBundle`, builds models with `input_dim`/`target_dim`, passes
+only the target scaler to evaluation, saves checkpoint schema version `2`, and
+records feature metadata in `results.json`.
 
 ## Proposed Semantics
 
-Future CSV support should separate forecast targets from input-only features:
+CSV support separates forecast targets from input-only features:
 
 - `target_cols`: columns that the platform predicts.
 - `feature_cols`: exogenous columns used only as model inputs.
@@ -158,13 +162,13 @@ Proposed future config shape:
 ```yaml
 data:
   scaler:
-    target:
-      name: standard
-      params: {}
-    features:
-      name: standard
-      params: {}
+    name: standard
+    params: {}
 ```
+
+In Phase 12E the target and feature scalers are both built from the same
+`data.scaler` config. A nested `target`/`features` scaler config remains a
+future enhancement.
 
 Backward-compatible config shape:
 
@@ -248,9 +252,8 @@ data:
 Backward compatibility rules:
 
 - Configs without `feature_cols` keep current behavior.
-- CSV datasets can validate and batch `feature_cols`, but Trainer keeps
-  feature-aware configs blocked until the Trainer/evaluator/checkpoint
-  integration phase.
+- CSV datasets can validate, batch, scale, train, evaluate, checkpoint, and
+  resume feature-aware configs.
 - Old `data.scaler.name` configs remain valid.
 - New nested scaler configs should be introduced with schema migration tests.
 
@@ -260,8 +263,8 @@ training or remote downloads.
 
 ## Checkpoint and Results Impact
 
-Future checkpoints must record enough shape and column metadata to make resume
-safe:
+Checkpoint schema version `2` records enough shape and column metadata to make
+resume safe:
 
 - `input_dim`
 - `target_dim`
@@ -273,12 +276,14 @@ safe:
 Resume validation must reject checkpoint/config mismatches in target columns,
 feature columns, dimensions, model config, and scaler config.
 
-Future `results.json` should record:
+`results.json` records `data_metadata` with:
 
 - `target_cols`
 - `feature_cols`
-- metric target columns
-- whether feature columns were used
+- `input_dim`
+- `target_dim`
+- `feature_dim`
+- `feature_aware`
 
 Metrics remain target-only. Leaderboards continue to rank by target metrics.
 
@@ -317,14 +322,16 @@ Phase 12D: Model interface migration
 - Add `input_dim` and `target_dim` to the model boundary.
 - Migrate trainable models to consume `input_dim` and output `target_dim`.
 - Make statistical baselines target-slice only.
-- Keep Trainer blocked until Phase 12E despite model-level feature-aware
-  forwards working in tests.
+- At this stage, end-to-end training was deferred to the next integration
+  phase despite model-level feature-aware forwards working in tests.
 
 Phase 12E: Trainer/Evaluator/checkpoint integration
 
 - Thread dimensions, column metadata, and split scaler states through training.
 - Update checkpoint save, restore, and compatibility validation.
 - Record result metadata for target and feature columns.
+- Keep target-only configs and schema version `1` checkpoint restores
+  compatible.
 
 Phase 12F: Compare/model zoo exogenous smoke tests
 
@@ -356,15 +363,13 @@ Model shape tests:
 
 Training smoke tests:
 
-- A tiny CSV with target and feature columns is rejected by Trainer until the
-  model/evaluator/checkpoint phases are complete.
+- A tiny CSV with target and feature columns trains through Trainer.
 - Original-scale metrics are target-only.
 - Checkpoint resume validates dimensions and column metadata.
 
 Compare smoke tests:
 
-- Feature-aware compare config succeeds for trainable models after
-  Trainer/Evaluator/checkpoint integration.
+- Feature-aware compare config succeeds for trainable models in Phase 12F.
 - Target-only baselines remain available and ignore features.
 - Leaderboard metrics remain target-only.
 

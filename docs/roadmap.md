@@ -252,8 +252,70 @@ Non-goals:
 - Feature-aware model forward logic.
 - Trainer, evaluator, results, or checkpoint schema migration.
 
-Notes: `num_features` remains the active target-only runtime path for
-`Trainer`, `CompareRunner`, jobs, artifacts, and checkpoint schema version `1`.
+Notes: At the end of Phase 12A, `num_features` remained the active target-only
+runtime path for `Trainer`, `CompareRunner`, jobs, artifacts, and checkpoint
+schema version `1`.
+
+### Phase 12B: CSVForecastDataset Feature Columns
+
+Goal: Add CSV `feature_cols` support at the dataset and batch layer.
+
+Delivered:
+
+- Numeric `feature_cols` validation.
+- Feature-aware `x = target history + feature history` batches.
+- Target-only `y`.
+- `target_x`, `feature_x`, and metadata for feature-aware samples.
+- Split-local feature missing-value validation.
+
+Notes: This phase did not enable feature-aware training.
+
+### Phase 12C: Split Target/Feature Scaler Support
+
+Goal: Scale target and feature slices separately without leaking feature state
+into target metrics.
+
+Delivered:
+
+- `FeatureAwareScalerBundle`.
+- `ScaledForecastingDataset` support for feature-aware samples.
+- Separate target and feature scaler fit values.
+- Reconstruction of scaled `x` from scaled target and feature slices.
+
+Notes: Trainer remained blocked for feature-aware configs until later
+integration.
+
+### Phase 12D: Model Input/Target Dimension Migration
+
+Goal: Let the model layer consume `input_dim` and forecast `target_dim`.
+
+Delivered:
+
+- `BaseForecastModel.validate_input()` and `target_slice()`.
+- `build_model` support for `input_dim != target_dim`.
+- Trainable models consume full `input_dim`.
+- Statistical baselines ignore feature slices and forecast target history only.
+
+Notes: This phase proved model forwards, not end-to-end training.
+
+### Phase 12E: Trainer/Evaluator/Checkpoint Integration
+
+Goal: Enable feature-aware CSV training while preserving target-only behavior.
+
+Delivered:
+
+- Trainer builds separate target and feature scalers from `data.scaler`.
+- Feature-aware datasets flow through `FeatureAwareScalerBundle`.
+- Models are constructed with `input_dim` and `target_dim`.
+- Evaluator receives only the target scaler, so metrics remain target-only.
+- Checkpoint schema version `2` stores dimensions, columns, and target/feature
+  scaler states.
+- Resume validates dimensions and target/feature column metadata.
+- `results.json` records `data_metadata`.
+- `csv_feature_forecast.yaml` example config and smoke coverage.
+
+Notes: Phase 12F remains responsible for feature-aware compare/model-zoo smoke
+configs.
 
 ## Recommended Next Phases
 
@@ -266,11 +328,11 @@ Staged plan:
 
 - Phase 12A: Data schema and ForecastBatch migration. Completed as a
   compatibility-only layer.
-- Phase 12B: `CSVForecastDataset` feature_cols support.
-- Phase 12C: Scaler split support.
-- Phase 12D: Model interface migration.
-- Phase 12E: Trainer/Evaluator/checkpoint integration.
-- Phase 12F: Compare/model zoo exogenous smoke tests.
+- Phase 12B: `CSVForecastDataset` feature_cols support. Completed.
+- Phase 12C: Scaler split support. Completed.
+- Phase 12D: Model interface migration. Completed.
+- Phase 12E: Trainer/Evaluator/checkpoint integration. Completed.
+- Phase 12F: Compare/model zoo exogenous smoke tests. Next.
 
 Deliverables:
 

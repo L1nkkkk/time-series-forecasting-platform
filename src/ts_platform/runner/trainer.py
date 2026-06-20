@@ -13,9 +13,9 @@ from torch.utils.data import DataLoader
 
 from ts_platform.config.loader import load_config
 from ts_platform.config.schema import PlatformConfig
-from ts_platform.data.base import ForecastBatch
+from ts_platform.data.base import ForecastBatch, ForecastingDataset
 from ts_platform.data.loaders import build_dataset
-from ts_platform.data.transforms import ScaledForecastingDataset
+from ts_platform.data.transforms import FeatureAwareScalerBundle, ScaledForecastingDataset
 from ts_platform.experiment.artifacts import build_train_artifact_manifest, save_artifact_manifest
 from ts_platform.experiment.logger import setup_experiment_logger
 from ts_platform.experiment.recorder import ExperimentRecorder
@@ -28,14 +28,16 @@ from ts_platform.experiment.result_schema import MetricGroups, OptionalMetricGro
 from ts_platform.models.registry import build_model
 from ts_platform.runner.checkpoint import (
     CheckpointPayload,
+    ScalerOrBundle,
     load_checkpoint,
     load_optimizer_state_from_checkpoint,
     restore_model_from_checkpoint,
-    restore_scaler_from_checkpoint,
+    restore_scalers_from_checkpoint,
     save_checkpoint,
     validate_checkpoint_for_training,
 )
 from ts_platform.runner.evaluator import evaluate
+from ts_platform.scaler.base import BaseScaler
 from ts_platform.scaler.registry import build_scaler
 
 
@@ -51,6 +53,7 @@ class TrainingResult:
     history: list[dict[str, Any]]
     validation_metrics: OptionalMetricGroups
     test_metrics: MetricGroups
+    data_metadata: dict[str, Any]
     resumed_from: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -67,6 +70,7 @@ class TrainingResult:
             history=self.history,
             validation_metrics=self.validation_metrics,
             test_metrics=self.test_metrics,
+            data_metadata=self.data_metadata,
             resumed_from=str(self.resumed_from) if self.resumed_from is not None else None,
         )
 
@@ -105,20 +109,19 @@ class Trainer:
         train_dataset = build_dataset(self.config.data, "train", self.config.experiment.seed)
         val_dataset = build_dataset(self.config.data, "val", self.config.experiment.seed)
         test_dataset = build_dataset(self.config.data, "test", self.config.experiment.seed)
-        if train_dataset.input_dim != train_dataset.target_dim:
-            msg = "feature-aware training is not implemented until Phase 12E"
-            raise NotImplementedError(msg)
 
         if resume_checkpoint is not None:
             validate_checkpoint_for_training(
                 resume_checkpoint,
                 self.config,
-                num_features=train_dataset.num_features,
+                input_dim=train_dataset.input_dim,
+                target_dim=train_dataset.target_dim,
+                target_cols=_dataset_columns(train_dataset, "target_cols"),
+                feature_cols=_dataset_columns(train_dataset, "feature_cols"),
             )
-            scaler = restore_scaler_from_checkpoint(resume_checkpoint, self.config.data.scaler)
+            scaler = restore_scalers_from_checkpoint(resume_checkpoint, self.config.data.scaler)
         else:
-            scaler = build_scaler(self.config.data.scaler)
-            scaler.fit(train_dataset.scaler_fit_values())
+            scaler = self._build_scalers(train_dataset)
 
         train_loader = self._loader(
             ScaledForecastingDataset(train_dataset, scaler),
@@ -145,7 +148,8 @@ class Trainer:
                 self.config.model,
                 input_len=self.config.data.input_len,
                 output_len=self.config.data.output_len,
-                num_features=train_dataset.num_features,
+                input_dim=train_dataset.input_dim,
+                target_dim=train_dataset.target_dim,
             ).to(device)
         optimizer = self._build_optimizer(model)
         start_epoch = 1
@@ -173,7 +177,7 @@ class Trainer:
                     val_loader,
                     self.config.evaluation.metrics,
                     device,
-                    scaler=scaler,
+                    scaler=_target_scaler(scaler),
                     include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
                 )
             row: dict[str, Any] = {"epoch": epoch, "train_loss": train_loss}
@@ -203,7 +207,7 @@ class Trainer:
             test_loader,
             self.config.evaluation.metrics,
             device,
-            scaler=scaler,
+            scaler=_target_scaler(scaler),
             include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
         )
         final_epoch = max(start_epoch - 1, self.config.training.epochs)
@@ -227,6 +231,7 @@ class Trainer:
             history=history,
             validation_metrics=validation_metrics,
             test_metrics=test_metrics,
+            data_metadata=_data_metadata(train_dataset),
             resumed_from=resumed_from,
         )
         logger.info("test=%s", test_metrics)
@@ -259,6 +264,18 @@ class Trainer:
             generator=generator,
             worker_init_fn=build_worker_init_fn(seed),
         )
+
+    def _build_scalers(self, train_dataset: ForecastingDataset) -> ScalerOrBundle:
+        """Build fitted target-only or feature-aware scalers for a training dataset."""
+
+        target_scaler = build_scaler(self.config.data.scaler)
+        target_scaler.fit(train_dataset.target_scaler_fit_values())
+        if train_dataset.input_dim == train_dataset.target_dim:
+            return target_scaler
+
+        feature_scaler = build_scaler(self.config.data.scaler)
+        feature_scaler.fit(train_dataset.feature_scaler_fit_values())
+        return FeatureAwareScalerBundle(target=target_scaler, features=feature_scaler)
 
     def _resolve_device(self) -> torch.device:
         device = torch.device(self.config.training.device)
@@ -315,6 +332,30 @@ class Trainer:
         if self.config.training.resume_from is None:
             return None
         return load_checkpoint(self.config.training.resume_from)
+
+
+def _target_scaler(scaler: ScalerOrBundle) -> BaseScaler:
+    if isinstance(scaler, FeatureAwareScalerBundle):
+        return scaler.target
+    return scaler
+
+
+def _dataset_columns(dataset: ForecastingDataset, name: str) -> list[str]:
+    value = getattr(dataset, name, [])
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _data_metadata(dataset: ForecastingDataset) -> dict[str, Any]:
+    return {
+        "input_dim": dataset.input_dim,
+        "target_dim": dataset.target_dim,
+        "feature_dim": dataset.feature_dim,
+        "target_cols": _dataset_columns(dataset, "target_cols"),
+        "feature_cols": _dataset_columns(dataset, "feature_cols"),
+        "feature_aware": dataset.input_dim != dataset.target_dim,
+    }
 
 
 def run_training(config_path: str | Path, logger: logging.Logger | None = None) -> TrainingResult:

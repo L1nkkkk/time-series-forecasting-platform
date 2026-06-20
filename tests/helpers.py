@@ -50,3 +50,51 @@ def tiny_config(
             resume_from=resume_from,
         ),
     )
+
+
+def tiny_feature_config(
+    output_dir: Path,
+    *,
+    name: str = "feature_tiny",
+    model_name: str = "linear",
+    model_params: dict[str, object] | None = None,
+    epochs: int = 1,
+    overwrite: bool = True,
+    seed: int = 7,
+    resume_from: Path | None = None,
+    target_cols: list[str] | None = None,
+    feature_cols: list[str] | None = None,
+) -> PlatformConfig:
+    return PlatformConfig(
+        experiment=ExperimentConfig(
+            name=name,
+            output_dir=output_dir,
+            seed=seed,
+            overwrite=overwrite,
+        ),
+        data=DataConfig(
+            name="csv",
+            input_len=4,
+            output_len=2,
+            batch_size=4,
+            train_ratio=0.5,
+            val_ratio=0.25,
+            test_ratio=0.25,
+            scaler=ScalerConfig(name="standard"),
+            params={
+                "path": "tests/fixtures/tiny_series_with_features.csv",
+                "timestamp_col": "timestamp",
+                "target_cols": target_cols or ["value"],
+                "feature_cols": feature_cols or ["temperature", "holiday"],
+                "missing_policy": "error",
+                "sort_by_time": True,
+            },
+        ),
+        model=ModelConfig(name=model_name, params=model_params or {}),
+        training=TrainingConfig(
+            epochs=epochs,
+            learning_rate=0.01,
+            device="cpu",
+            resume_from=resume_from,
+        ),
+    )
