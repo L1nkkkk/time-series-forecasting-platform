@@ -138,8 +138,10 @@ Recommended local CSV fields:
 - `description`: human-readable description.
 - `path`: local CSV path. Required for CSV entries.
 - `timestamp_col`: optional timestamp column name.
-- `target_cols`: optional list of target column names. It must be a list when
-  present; a plain string is rejected.
+- `target_cols`: optional list of target column names for discovery-only
+  metadata. It must be a list when present; a plain string is rejected.
+  `profile-catalog` and `make-config-from-catalog` require it for CSV entries;
+  missing targets produce a profile warning or a config-generation error.
 - `frequency`: optional documented frequency.
 - `license`: optional license label.
 

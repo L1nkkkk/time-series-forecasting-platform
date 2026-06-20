@@ -91,7 +91,7 @@ def profile_csv_dataset(
             duplicate_timestamp_count=None,
             inferred_frequency=None,
             min_required_rows=min_required_rows,
-            can_build_windows=min_required_rows is None,
+            can_build_windows=False,
             warnings=warnings,
         )
 

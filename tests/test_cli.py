@@ -102,6 +102,7 @@ def test_cli_profile_dataset_missing_file(tmp_path, capsys) -> None:
 
     assert exit_code == 0
     assert payload["exists"] is False
+    assert payload["can_build_windows"] is False
     assert "missing file" in payload["warnings"]
 
 

@@ -51,6 +51,18 @@ def test_profile_csv_dataset_missing_file(tmp_path) -> None:
     assert "missing file" in profile.warnings
 
 
+def test_profile_csv_dataset_missing_file_without_lengths_cannot_build_windows(tmp_path) -> None:
+    profile = profile_csv_dataset(
+        path=tmp_path / "missing.csv",
+        target_cols=["value"],
+        timestamp_col="timestamp",
+    )
+
+    assert profile.exists is False
+    assert profile.can_build_windows is False
+    assert "missing file" in profile.warnings
+
+
 def test_profile_csv_dataset_missing_target_column() -> None:
     profile = profile_csv_dataset(path=FIXTURE, target_cols=["missing"], timestamp_col="timestamp")
 
