@@ -106,6 +106,17 @@ def test_build_model_target_only_dimensions_alias() -> None:
     assert model.num_features == 3
 
 
+def test_build_model_rejects_feature_aware_dimensions_until_model_migration() -> None:
+    with pytest.raises(ValueError, match="feature-aware model construction is not enabled"):
+        build_model(
+            ModelConfig(name="linear"),
+            input_len=8,
+            output_len=2,
+            input_dim=5,
+            target_dim=3,
+        )
+
+
 def test_existing_models_have_input_and_target_dim_attributes() -> None:
     models = [
         NaiveLastValueModel(input_len=6, output_len=2, num_features=2),

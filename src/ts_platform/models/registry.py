@@ -53,13 +53,8 @@ def build_model(
             num_features=dimensions.num_features,
             **params,
         )
-    return model_cls(
-        input_len=input_len,
-        output_len=output_len,
-        input_dim=dimensions.input_dim,
-        target_dim=dimensions.target_dim,
-        **params,
-    )
+    msg = "feature-aware model construction is not enabled in Phase 12A"
+    raise ValueError(msg)
 
 
 def registered_model_names() -> list[str]:
