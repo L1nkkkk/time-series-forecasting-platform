@@ -3,14 +3,22 @@ from __future__ import annotations
 import pytest
 import torch
 
+from ts_platform.config.schema import ModelConfig
 from ts_platform.models import MODEL_REGISTRY
+from ts_platform.models.base import BaseForecastModel
 from ts_platform.models.linear import LinearForecastModel
 from ts_platform.models.mlp import MLPForecastModel
 from ts_platform.models.moving_average import MovingAverageForecastModel
 from ts_platform.models.naive import NaiveLastValueModel
 from ts_platform.models.recurrent import GRUForecastModel, LSTMForecastModel, RNNForecastModel
+from ts_platform.models.registry import build_model
 from ts_platform.models.seasonal_naive import SeasonalNaiveForecastModel
 from ts_platform.models.tcn import TCNForecastModel
+
+
+class _DummyForecastModel(BaseForecastModel):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.zeros(x.shape[0], self.output_len, self.target_dim)
 
 
 def test_model_forward_shapes() -> None:
@@ -29,6 +37,110 @@ def test_model_forward_shapes() -> None:
 
 def test_model_registry() -> None:
     assert {"naive", "linear", "mlp"}.issubset(set(MODEL_REGISTRY.names()))
+
+
+def test_base_model_old_num_features_constructor() -> None:
+    model = _DummyForecastModel(input_len=8, output_len=2, num_features=3)
+
+    assert model.input_dim == 3
+    assert model.target_dim == 3
+    assert model.num_features == 3
+
+
+def test_base_model_new_input_target_dim_constructor() -> None:
+    model = _DummyForecastModel(input_len=8, output_len=2, input_dim=5, target_dim=3)
+
+    assert model.input_dim == 5
+    assert model.target_dim == 3
+    assert model.num_features == 3
+    assert model(torch.randn(4, 8, 5)).shape == (4, 2, 3)
+
+
+def test_base_model_rejects_mixed_dimension_arguments() -> None:
+    with pytest.raises(ValueError, match="Pass either num_features or input_dim/target_dim"):
+        _DummyForecastModel(input_len=8, output_len=2, num_features=3, input_dim=3, target_dim=3)
+
+
+def test_base_model_rejects_input_dim_less_than_target_dim() -> None:
+    with pytest.raises(ValueError, match="input_dim must be greater than or equal to target_dim"):
+        _DummyForecastModel(input_len=8, output_len=2, input_dim=1, target_dim=2)
+
+
+def test_base_model_num_features_aliases_target_dim() -> None:
+    model = _DummyForecastModel(input_len=8, output_len=2, input_dim=4, target_dim=2)
+
+    assert model.num_features == model.target_dim
+
+
+def test_build_model_with_num_features_still_works() -> None:
+    model = build_model(
+        ModelConfig(name="linear"),
+        input_len=8,
+        output_len=2,
+        num_features=3,
+    )
+
+    assert isinstance(model, LinearForecastModel)
+    assert model.input_dim == 3
+    assert model.target_dim == 3
+    assert model.num_features == 3
+
+
+def test_build_model_rejects_missing_dimension_arguments() -> None:
+    with pytest.raises(ValueError, match="Pass num_features or both input_dim and target_dim"):
+        build_model(ModelConfig(name="linear"), input_len=8, output_len=2)
+
+
+def test_build_model_target_only_dimensions_alias() -> None:
+    model = build_model(
+        ModelConfig(name="linear"),
+        input_len=8,
+        output_len=2,
+        input_dim=3,
+        target_dim=3,
+    )
+
+    assert isinstance(model, LinearForecastModel)
+    assert model.input_dim == 3
+    assert model.target_dim == 3
+    assert model.num_features == 3
+
+
+def test_existing_models_have_input_and_target_dim_attributes() -> None:
+    models = [
+        NaiveLastValueModel(input_len=6, output_len=2, num_features=2),
+        MovingAverageForecastModel(input_len=6, output_len=2, num_features=2),
+        SeasonalNaiveForecastModel(input_len=6, output_len=2, num_features=2, season_length=3),
+        LinearForecastModel(input_len=6, output_len=2, num_features=2),
+        MLPForecastModel(input_len=6, output_len=2, num_features=2, hidden_sizes=[8]),
+        RNNForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        GRUForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        LSTMForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        TCNForecastModel(input_len=6, output_len=2, num_features=2, hidden_channels=8),
+    ]
+
+    for model in models:
+        assert model.input_dim == 2
+        assert model.target_dim == 2
+        assert model.num_features == 2
+
+
+def test_model_forward_shapes_still_target_only() -> None:
+    x = torch.randn(4, 6, 2)
+    models = [
+        NaiveLastValueModel(input_len=6, output_len=2, num_features=2),
+        MovingAverageForecastModel(input_len=6, output_len=2, num_features=2),
+        SeasonalNaiveForecastModel(input_len=6, output_len=2, num_features=2, season_length=3),
+        LinearForecastModel(input_len=6, output_len=2, num_features=2),
+        MLPForecastModel(input_len=6, output_len=2, num_features=2, hidden_sizes=[8]),
+        RNNForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        GRUForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        LSTMForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
+        TCNForecastModel(input_len=6, output_len=2, num_features=2, hidden_channels=8),
+    ]
+
+    for model in models:
+        assert model(x).shape == (4, 2, 2)
 
 
 def test_moving_average_model_shape() -> None:

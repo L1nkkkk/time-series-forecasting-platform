@@ -43,6 +43,8 @@ class SyntheticForecastDataset(ForecastingDataset):
 
         self.input_len = input_len
         self.output_len = output_len
+        self.input_dim = num_features
+        self.target_dim = num_features
         self.num_features = num_features
         self.mode = mode
         self._values = self._generate_values(length, num_features, noise_std, seed)

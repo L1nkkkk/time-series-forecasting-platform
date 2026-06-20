@@ -196,7 +196,9 @@ The generated config is a normal training YAML. It is not run automatically.
 Current CSV training supports `target_cols` only. The planned `feature_cols`
 interface is documented in
 [docs/exogenous_features_design.md](docs/exogenous_features_design.md), and
-implementation is intentionally split into later Phase 12 steps. Passing
+implementation is intentionally split into Phase 12 steps. Phase 12A adds only
+schema and compatibility infrastructure: `input_dim`/`target_dim` attributes,
+`ForecastDimensions`, and optional future `ForecastBatch` fields. Passing
 non-empty `feature_cols` still raises a validation error today.
 
 ## Discovery Commands

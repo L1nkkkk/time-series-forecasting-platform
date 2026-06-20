@@ -16,6 +16,8 @@ class ScaledForecastingDataset(ForecastingDataset):
         self.scaler = scaler
         self.input_len = dataset.input_len
         self.output_len = dataset.output_len
+        self.input_dim = dataset.input_dim
+        self.target_dim = dataset.target_dim
         self.num_features = dataset.num_features
 
     def __len__(self) -> int:

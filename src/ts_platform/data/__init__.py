@@ -1,6 +1,6 @@
 """Dataset abstractions and built-in dataset registrations."""
 
-from ts_platform.data.base import ForecastBatch, ForecastingDataset
+from ts_platform.data.base import ForecastBatch, ForecastDimensions, ForecastingDataset
 from ts_platform.data.catalog import DATASET_CATALOG, DatasetMetadata
 from ts_platform.data.catalog_loader import load_dataset_catalog, register_dataset_catalog
 from ts_platform.data.loaders import build_dataset
@@ -13,6 +13,7 @@ __all__ = [
     "DatasetMetadata",
     "DatasetProfile",
     "ForecastBatch",
+    "ForecastDimensions",
     "ForecastingDataset",
     "build_dataset",
     "load_dataset_catalog",

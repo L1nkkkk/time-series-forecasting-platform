@@ -49,6 +49,25 @@ data:
 `feature_cols` are rejected with `exogenous feature_cols are not supported yet`
 when non-empty.
 
+## ForecastBatch and Dimensions
+
+Datasets return `ForecastBatch` dictionaries. The current required runtime
+fields are:
+
+- `x`: history tensor shaped `[input_len, num_features]`
+- `y`: target tensor shaped `[output_len, num_features]`
+
+Phase 12A reserves optional batch fields for later exogenous support:
+
+- `target_x`: target-history slice.
+- `feature_x`: exogenous feature-history slice.
+- `metadata`: sample-level metadata.
+
+Current datasets still return only `x` and `y`. They also expose
+`dataset.dimensions` with `input_len`, `output_len`, `input_dim`, and
+`target_dim`. For target-only CSV and synthetic datasets,
+`input_dim == target_dim == num_features`.
+
 ## Missing Values
 
 - `error`: fail if any target value is missing in the selected split.
