@@ -39,6 +39,6 @@ def test_phase11_exogenous_feature_links_are_documented() -> None:
     data_format = (ROOT / "docs/data_format.md").read_text(encoding="utf-8")
     model_zoo = (ROOT / "docs/model_zoo.md").read_text(encoding="utf-8")
 
-    assert "## Future: Exogenous Features" in readme
-    assert "## Future Exogenous Feature Columns" in data_format
-    assert "## Future Exogenous Feature Support" in model_zoo
+    assert "## Exogenous Features" in readme
+    assert "## Exogenous Feature Columns" in data_format
+    assert "## Exogenous Feature Support" in model_zoo

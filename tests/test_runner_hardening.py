@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tests.helpers import tiny_config
+from tests.helpers import tiny_config, tiny_feature_config
 from ts_platform.experiment.recorder import ExperimentRecorder
 from ts_platform.runner.checkpoint import load_checkpoint
 from ts_platform.runner.trainer import Trainer
@@ -60,6 +60,46 @@ def test_results_include_run_metadata(tmp_path) -> None:
     assert results["created_at"] == result.created_at
     assert results["experiment_name"] == "metadata"
     assert results["run_dir"] == str(result.run_dir)
+
+
+def test_feature_aware_results_include_data_metadata(tmp_path) -> None:
+    result = Trainer(tiny_feature_config(tmp_path, name="feature_results")).run()
+
+    assert result.data_metadata == {
+        "input_dim": 3,
+        "target_dim": 1,
+        "feature_dim": 2,
+        "target_cols": ["value"],
+        "feature_cols": ["temperature", "holiday"],
+        "feature_aware": True,
+    }
+
+
+def test_target_only_results_include_data_metadata_or_remain_compatible(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="target_results")).run()
+    results = json.loads((result.run_dir / "results.json").read_text(encoding="utf-8"))
+
+    assert results["data_metadata"] == {
+        "input_dim": 1,
+        "target_dim": 1,
+        "feature_dim": 0,
+        "target_cols": [],
+        "feature_cols": [],
+        "feature_aware": False,
+    }
+    assert results["test_metrics"] == result.test_metrics
+
+
+def test_results_json_feature_aware_metadata(tmp_path) -> None:
+    result = Trainer(tiny_feature_config(tmp_path, name="feature_results_json")).run()
+    results = json.loads((result.run_dir / "results.json").read_text(encoding="utf-8"))
+
+    assert results["data_metadata"]["input_dim"] == 3
+    assert results["data_metadata"]["target_dim"] == 1
+    assert results["data_metadata"]["feature_dim"] == 2
+    assert results["data_metadata"]["target_cols"] == ["value"]
+    assert results["data_metadata"]["feature_cols"] == ["temperature", "holiday"]
+    assert results["data_metadata"]["feature_aware"] is True
 
 
 def test_zero_validation_split(tmp_path) -> None:

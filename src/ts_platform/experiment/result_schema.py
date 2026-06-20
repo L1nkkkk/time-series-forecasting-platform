@@ -17,6 +17,7 @@ def result_payload(
     validation_metrics: OptionalMetricGroups,
     test_metrics: MetricGroups,
     resumed_from: str | None,
+    data_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical serializable training result payload."""
 
@@ -27,6 +28,8 @@ def result_payload(
         "validation_metrics": validation_metrics,
         "test_metrics": test_metrics,
     }
+    if data_metadata is not None:
+        payload["data_metadata"] = data_metadata
     if resumed_from is not None:
         payload["resumed_from"] = resumed_from
     return payload

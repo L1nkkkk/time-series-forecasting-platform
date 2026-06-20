@@ -82,10 +82,10 @@ The example config uses one epoch, small hidden sizes, `primary_metric: mae`,
 `continue_on_error: true`, and `include_scaled_metrics: false` so it can act as
 a quick CPU smoke test for model registration and compare output.
 
-## Future Exogenous Feature Support
+## Exogenous Feature Support
 
-The planned exogenous feature interface separates model input width from target
-output width:
+The exogenous feature interface separates model input width from target output
+width:
 
 - `input_dim = len(target_cols) + len(feature_cols)`
 - `target_dim = len(target_cols)`
@@ -113,17 +113,15 @@ Statistical baselines remain target-only by default:
 - `seasonal_naive`
 
 When features are present, these baselines ignore the feature slice and
-forecast only from target history. Full feature-aware training remains blocked
-until Trainer, evaluator, and checkpoint integration lands. See
+forecast only from target history. Trainer can run feature-aware CSV configs
+with these models; metrics remain target-only. See
 [exogenous_features_design.md](exogenous_features_design.md) for the detailed
 design.
 
 ## Current Limitations
 
 - Probabilistic forecasting is not supported.
-- Full feature-aware training is not supported yet; model forwards can consume
-  `input_dim != target_dim`, but Trainer, evaluator, and checkpoint integration
-  remain deferred.
+- Feature-aware compare/model-zoo smoke coverage remains a Phase 12F task.
 - Recurrent models use direct projection, not an autoregressive decoder.
 - TCN is a lightweight baseline, not a complex SOTA implementation.
 - The model zoo is designed for local CPU smoke tests and simple comparisons;
