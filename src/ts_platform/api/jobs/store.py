@@ -76,17 +76,27 @@ class JobStore:
                 raise JobNotFoundError(msg)
             return self._read_job(path)
 
-    def list_jobs(self) -> list[JobRecord]:
-        """List jobs newest first by ``created_at``."""
+    def list_jobs(self, *, skip_corrupt: bool = True) -> list[JobRecord]:
+        """List jobs newest first by ``created_at``.
+
+        Corrupt job metadata is skipped by default so one damaged job does not
+        prevent API callers from seeing other jobs. Set ``skip_corrupt=False``
+        for strict debugging behavior.
+        """
 
         with self._lock:
             if not self.jobs_root.exists():
                 return []
-            jobs = [
-                self._read_job(path / "job.json")
-                for path in self.jobs_root.iterdir()
-                if path.is_dir() and (path / "job.json").exists()
-            ]
+            jobs: list[JobRecord] = []
+            for path in self.jobs_root.iterdir():
+                job_path = path / "job.json"
+                if not path.is_dir() or not job_path.exists():
+                    continue
+                try:
+                    jobs.append(self._read_job(job_path))
+                except JobStoreError:
+                    if not skip_corrupt:
+                        raise
             return sorted(jobs, key=lambda job: job.created_at, reverse=True)
 
     def update_job(self, job: JobRecord, *, touch: bool = True) -> JobRecord:

@@ -77,7 +77,8 @@ coverage, config validation, and reproducibility.
 - Job tests cover `JobRecord` serialization, safe job ids, `JobStore`
   persistence and cancellation transitions, `JobRunner` success/failure/safe
   root behavior, non-blocking submission, Jobs API submit/status/result/cancel
-  behavior, unsafe job id handling, and read-only CLI `list-jobs` / `show-job`.
+  behavior, unsafe job id handling, app shutdown cleanup, corrupt job metadata
+  list/get behavior, and read-only CLI `list-jobs` / `show-job`.
 
 ## CI Strategy
 
@@ -94,8 +95,9 @@ changes, migration notes, and known limitations.
 Do not push a feature branch while tests or quality gates are failing. Before
 publishing, inspect `git status` and `git diff --stat`, commit the intended
 changes with a concise conventional message, push the feature branch, and open a
-pull request when GitHub tooling is available. For Phase 5 job runner work,
-push `codex/phase5-job-runner` and create or update a PR targeting `main`.
+pull request when GitHub tooling is available. For Phase 5.1 job hardening
+work, push `codex/phase5-job-hardening` and create or update a PR targeting
+`main`.
 
 ## Compatibility Notes
 
@@ -112,6 +114,9 @@ need the same compatibility care.
 The Phase 5 runner is for local demos and tests. It uses an in-process
 `ThreadPoolExecutor`, so jobs stop when the API process stops, and running
 Python threads are not force-killed on cancel. API cancellation marks queued
-jobs `cancelled` and running jobs `cancel_requested`. A future durable worker
-phase should move execution to a process or queue boundary with explicit retry,
-resume, and cancellation semantics.
+jobs `cancelled` and running jobs `cancel_requested`. FastAPI shutdown closes
+the local executor and clears the lazy runner singleton, but interrupted running
+jobs are not recovered. Corrupt job metadata is skipped by list operations and
+reported as an error for direct reads so it can be cleaned manually. A future
+durable worker phase should move execution to a process or queue boundary with
+explicit retry, resume, and cancellation semantics.

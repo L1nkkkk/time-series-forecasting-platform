@@ -126,6 +126,16 @@ def get_job_runner() -> JobRunner:
         return _JOB_RUNNER
 
 
+def shutdown_job_runner() -> None:
+    """Shut down and clear the app-level local job runner if it exists."""
+
+    global _JOB_RUNNER
+    with _JOB_RUNNER_LOCK:
+        if _JOB_RUNNER is not None:
+            _JOB_RUNNER.shutdown(wait=False)
+            _JOB_RUNNER = None
+
+
 def _read_json_file(path: Path, *, runs_root: Path) -> dict[str, Any]:
     _assert_inside_root(path, runs_root)
     if not path.exists():

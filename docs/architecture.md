@@ -166,8 +166,9 @@ synchronous for the demo API.
 
 `api/jobs/store.py` owns local job persistence under `runs/jobs`. It validates
 job ids as safe path components, writes each `job.json` and
-`request_config.json` atomically, lists jobs newest first, and raises clear
-errors for missing, unsafe, or corrupt job metadata.
+`request_config.json` atomically, lists jobs newest first, skips corrupt job
+metadata during normal listing, and raises clear errors for missing, unsafe, or
+directly-read corrupt job metadata.
 
 `api/jobs/runner.py` owns in-process asynchronous execution. It uses a
 `ThreadPoolExecutor` with a conservative default of one worker, marks jobs
@@ -178,6 +179,11 @@ error fields. It does not duplicate training or compare logic; it delegates to
 `api/routes/jobs.py` exposes submit, list, get, result, logs, and cancel
 endpoints. It maps unsafe job ids to HTTP 400, missing jobs to HTTP 404, and
 not-ready or failed result lookups to HTTP 409.
+
+`api/app.py` registers a FastAPI lifespan hook that shuts down the local
+JobRunner executor and clears the lazy singleton during app shutdown. The next
+jobs request can create a fresh runner. This is cleanup only; interrupted
+running jobs are not recovered.
 
 `api/services/experiment_store.py` owns read-side artifact access for API and
 CLI callers. It validates `experiment_name` and `run_id` as safe path

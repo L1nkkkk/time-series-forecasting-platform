@@ -111,6 +111,16 @@ the actual execution to:
 Both services overwrite `experiment.output_dir` with the safe API runs root,
 so API callers cannot choose arbitrary output locations.
 
+## Lifecycle
+
+The FastAPI app registers a lifespan shutdown hook that calls
+`shutdown_job_runner()`. Shutdown closes the local executor with `wait=False`
+and resets the module-level runner singleton to `None`. A later jobs request can
+create a fresh `JobRunner`.
+
+This cleanup is process-local. If the API process stops while a job is running,
+the platform does not recover or resume that interrupted job on restart.
+
 ## API Endpoints
 
 ```text
@@ -136,6 +146,11 @@ runs may not have a parent log.
 
 Unsafe job ids return HTTP 400. Missing jobs return HTTP 404.
 
+Corrupt `job.json` metadata is skipped by `GET /jobs` so one damaged record
+does not hide other jobs. Reading the corrupt job directly with
+`GET /jobs/{job_id}` returns HTTP 500 and the metadata should be cleaned up
+manually.
+
 ## CLI
 
 The CLI supports read-only job inspection:
@@ -155,6 +170,8 @@ running after the command exits.
 - Jobs are not recovered if the process stops mid-run.
 - There is no retry scheduler.
 - Running threads are not force-killed by cancellation.
+- Shutdown closes the local executor but does not resume interrupted running
+  work.
 - Job metadata is JSON on local disk, not a database.
 
 Future production hardening should move execution to a durable worker or queue,
