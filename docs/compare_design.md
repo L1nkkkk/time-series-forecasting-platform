@@ -63,6 +63,18 @@ classical baselines, linear/MLP baselines, recurrent baselines, and TCN through
 the same `Trainer` path. This makes it useful as a quick registry, config, and
 leaderboard smoke test rather than a model-quality benchmark.
 
+## Feature-aware Compare
+
+`configs/examples/compare_feature_forecast.yaml` runs the same model zoo shape
+on `tests/fixtures/tiny_series_with_features.csv` with `target_cols: [value]`
+and `feature_cols: [temperature, holiday]`. Trainable models consume
+`input_dim = 3` and forecast `target_dim = 1`. Statistical baselines remain
+target-only by using the target-history slice and ignoring the feature columns.
+
+Feature-aware compare does not add a separate training path. `CompareRunner`
+still expands each model entry into a normal `PlatformConfig` and delegates to
+`Trainer`, which owns scaler, evaluator, checkpoint, and result metadata logic.
+
 ## Output Directory Structure
 
 ```text
@@ -115,6 +127,12 @@ are normal train runs and write their own train manifests.
 - `model_name`
 - `model_alias`
 - `model_params`
+- `feature_aware`
+- `input_dim`
+- `target_dim`
+- `feature_dim`
+- `target_cols`
+- `feature_cols`
 - `run_id`
 - `run_dir`
 - `checkpoint_path`
@@ -124,11 +142,16 @@ are normal train runs and write their own train manifests.
 - `error`
 - one column per reported test metric
 
+The metadata columns are copied from each child Trainer `data_metadata` payload
+when available. Target-only rows normally report `feature_aware: false` and
+`feature_dim: 0`; failed rows with no child result leave these fields null.
+
 Successful rows are sorted ascending by `primary_metric`. Failed rows have
 `rank: null`, no metric values, and an error message.
 
-`leaderboard.json` keeps `model_params` as a JSON object. `leaderboard.csv`
-serializes only that column as a JSON string so the CSV remains a flat table.
+`leaderboard.json` keeps `model_params` as a JSON object and
+`target_cols`/`feature_cols` as JSON arrays. `leaderboard.csv` serializes those
+structured columns as JSON strings so the CSV remains a flat table.
 
 ## Reusing Trainer
 
@@ -168,5 +191,6 @@ When `continue_on_error: false`, the first failing model raises a
 - Shared data config is preserved across model runs.
 - Leaderboard ranks by the primary metric.
 - Leaderboard CSV and JSON contain the same rows.
+- Feature-aware leaderboard rows include dimensions and column metadata.
 - Failed model runs are recorded without hiding successful runs.
 - CLI compare command rejects unsupported dataset/model names clearly.

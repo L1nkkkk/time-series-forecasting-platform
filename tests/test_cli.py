@@ -374,6 +374,24 @@ def _write_compare_cli_config(tmp_path, *, bad: bool = False) -> Path:
     return config_path
 
 
+def _write_feature_compare_cli_config(
+    tmp_path: Path,
+    *,
+    name: str = "cli_feature_compare",
+    models: list[dict[str, object]] | None = None,
+) -> Path:
+    payload = yaml.safe_load(
+        Path("configs/examples/compare_feature_forecast.yaml").read_text(encoding="utf-8")
+    )
+    payload["experiment"]["name"] = name
+    payload["experiment"]["output_dir"] = str(tmp_path)
+    if models is not None:
+        payload["models"] = models
+    config_path = tmp_path / f"{name}.yaml"
+    config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return config_path
+
+
 def _write_cli_artifact_run(tmp_path) -> Path:
     run_dir = tmp_path / "cli_artifact" / "latest"
     run_dir.mkdir(parents=True)
@@ -434,6 +452,22 @@ def test_cli_compare_outputs_leaderboard_paths(tmp_path, capsys) -> None:
     assert Path(payload["compare_run_dir"]).is_dir()
 
 
+def test_cli_compare_feature_forecast_smoke(tmp_path, capsys) -> None:
+    config_path = _write_feature_compare_cli_config(tmp_path)
+
+    exit_code = main(["compare", "--config", str(config_path)])
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["success_count"] == 9
+    assert payload["failed_count"] == 0
+    assert all(row["feature_aware"] is True for row in payload["rows"])
+    assert all(row["input_dim"] == 3 for row in payload["rows"])
+    assert all(row["target_dim"] == 1 for row in payload["rows"])
+    assert all(row["feature_dim"] == 2 for row in payload["rows"])
+
+
 def test_cli_compare_rejects_bad_config(tmp_path) -> None:
     config_path = _write_compare_cli_config(tmp_path, bad=True)
 
@@ -492,6 +526,36 @@ def test_cli_show_leaderboard(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert len(payload) == 2
     assert all(isinstance(row["model_params"], dict) for row in payload)
+
+
+def test_cli_show_feature_compare_leaderboard(tmp_path, capsys) -> None:
+    config_path = _write_feature_compare_cli_config(
+        tmp_path,
+        name="cli_feature_compare_show",
+        models=[{"name": "naive"}, {"name": "linear"}],
+    )
+    main(["compare", "--config", str(config_path)])
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "show-leaderboard",
+            "--experiment",
+            "cli_feature_compare_show",
+            "--run",
+            "latest",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert len(payload) == 2
+    assert all(row["feature_aware"] is True for row in payload)
+    assert all(row["target_cols"] == ["value"] for row in payload)
+    assert all(row["feature_cols"] == ["temperature", "holiday"] for row in payload)
 
 
 def test_cli_show_artifacts(tmp_path, capsys) -> None:

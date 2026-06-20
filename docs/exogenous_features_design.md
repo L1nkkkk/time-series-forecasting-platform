@@ -58,6 +58,11 @@ feature scalers from the same `data.scaler` config, wraps datasets with
 only the target scaler to evaluation, saves checkpoint schema version `2`, and
 records feature metadata in `results.json`.
 
+Phase 12F enables feature-aware compare/model zoo smoke coverage. Compare rows
+carry the child run `data_metadata`, including dimensions and target/feature
+column lists, so feature-aware model selection can be inspected from
+leaderboards.
+
 ## Proposed Semantics
 
 CSV support separates forecast targets from input-only features:
@@ -338,6 +343,7 @@ Phase 12F: Compare/model zoo exogenous smoke tests
 - Add feature-aware smoke configs.
 - Verify compare works with feature-aware and target-only model classes.
 - Keep target-only compare configs green.
+- Write leaderboard metadata for dimensions and target/feature columns.
 
 ## Testing Plan
 
@@ -369,9 +375,10 @@ Training smoke tests:
 
 Compare smoke tests:
 
-- Feature-aware compare config succeeds for trainable models in Phase 12F.
+- Feature-aware compare config succeeds for trainable models.
 - Target-only baselines remain available and ignore features.
 - Leaderboard metrics remain target-only.
+- Leaderboards expose feature-aware metadata for model selection.
 
 Backward compatibility tests:
 

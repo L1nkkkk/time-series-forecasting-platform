@@ -18,6 +18,15 @@ discovered through the artifact manifest API or CLI.
 - `model_name`: registry model name.
 - `model_alias`: safe run alias such as `001_naive`.
 - `model_params`: object containing model parameters.
+- `feature_aware`: boolean copied from child training data metadata when
+  available, otherwise `null`.
+- `input_dim`: model input width when available, otherwise `null`.
+- `target_dim`: forecast target width when available, otherwise `null`.
+- `feature_dim`: input-only feature width when available, otherwise `null`.
+- `target_cols`: target column names as an array when available, otherwise
+  `null`.
+- `feature_cols`: input-only feature column names as an array when available,
+  otherwise `null`.
 - `run_id`: Trainer run id for successful rows, `null` for failed rows.
 - `run_dir`: Trainer run directory for successful rows, `null` for failed rows.
 - `checkpoint_path`: final checkpoint path for successful rows, `null` for
@@ -36,16 +45,22 @@ discovered through the artifact manifest API or CLI.
 `leaderboard.csv` uses the same fields in this order:
 
 ```text
-rank,status,model_name,model_alias,model_params,run_id,run_dir,
-checkpoint_path,primary_metric,primary_metric_value,created_at,error,
-test_<metric>...
+rank,status,model_name,model_alias,model_params,feature_aware,input_dim,
+target_dim,feature_dim,target_cols,feature_cols,run_id,run_dir,checkpoint_path,
+primary_metric,primary_metric_value,created_at,error,test_<metric>...
 ```
 
 CSV empty cells correspond to JSON `null` values.
 
-`model_params` is the intentional exception to the JSON shape: CSV stores it as
-a JSON string such as `{"window_size": 4}`, while `leaderboard.json`, API
-responses, and `results.json` rows store it as an object.
+Structured cells are the intentional exception to the JSON shape:
+
+- `model_params` is a JSON string such as `{"window_size": 4}` in CSV and an
+  object in JSON.
+- `target_cols` and `feature_cols` are JSON strings such as `["value"]` in CSV
+  and arrays in JSON.
+
+API responses, `leaderboard.json`, and compare `results.json` rows keep the
+native JSON object and array forms.
 
 ## Rank Rules
 

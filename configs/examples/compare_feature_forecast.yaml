@@ -1,0 +1,64 @@
+experiment:
+  name: compare_feature_forecast
+  output_dir: runs
+  seed: 42
+  overwrite: true
+
+data:
+  name: csv
+  input_len: 4
+  output_len: 2
+  batch_size: 4
+  train_ratio: 0.5
+  val_ratio: 0.25
+  test_ratio: 0.25
+  scaler:
+    name: standard
+  params:
+    path: tests/fixtures/tiny_series_with_features.csv
+    timestamp_col: timestamp
+    target_cols: [value]
+    feature_cols: [temperature, holiday]
+    missing_policy: error
+    sort_by_time: true
+
+models:
+  - name: naive
+  - name: moving_average
+    params:
+      window_size: 2
+  - name: seasonal_naive
+    params:
+      season_length: 2
+  - name: linear
+  - name: mlp
+    params:
+      hidden_sizes: [8]
+  - name: rnn
+    params:
+      hidden_size: 8
+  - name: gru
+    params:
+      hidden_size: 8
+  - name: lstm
+    params:
+      hidden_size: 8
+  - name: tcn
+    params:
+      hidden_channels: 8
+      num_layers: 2
+
+training:
+  epochs: 1
+  learning_rate: 0.01
+  device: cpu
+  optimizer: adam
+  loss: mse
+  checkpoint_every: 1
+
+evaluation:
+  metrics: [mae, mse, rmse, wape]
+  include_scaled_metrics: false
+
+primary_metric: mae
+continue_on_error: true

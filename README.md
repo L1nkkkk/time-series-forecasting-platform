@@ -86,6 +86,16 @@ Run the lightweight model zoo compare:
 py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
 ```
 
+Run the feature-aware compare smoke:
+
+```bash
+py -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
+```
+
+The feature-aware compare config uses target and feature columns together. The
+trainable models consume the full target-plus-feature history, while the
+statistical baselines stay target-only and ignore the feature slice.
+
 ## Metrics
 
 Validation and test metrics are reported on the original data scale by default.
@@ -215,8 +225,8 @@ implementation is intentionally split into Phase 12 steps. Phase 12A adds
 schema and compatibility infrastructure; Phase 12B adds CSV data-layer
 `feature_cols` support; Phase 12C adds split target/feature scaler support;
 Phase 12D adds feature-aware model forward support; Phase 12E adds Trainer,
-evaluator, checkpoint, and results integration. Phase 12F remains the next
-feature-aware compare/model-zoo smoke stage.
+evaluator, checkpoint, and results integration. Phase 12F adds feature-aware
+compare/model-zoo smoke coverage.
 
 ## Discovery Commands
 
@@ -305,8 +315,9 @@ Baseline model behavior:
 
 See [docs/leaderboard_format.md](docs/leaderboard_format.md) for output
 columns. In `leaderboard.json` and API responses, `model_params` is a JSON
-object. In `leaderboard.csv`, `model_params` remains a JSON string so the CSV
-cell is portable.
+object, and `target_cols`/`feature_cols` remain JSON arrays. In
+`leaderboard.csv`, `model_params`, `target_cols`, and `feature_cols` are JSON
+strings so the CSV cells remain portable.
 
 ## Checkpoints and Resume
 
@@ -395,6 +406,11 @@ py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/l
 py -m ts_platform.cli.main list-models
 py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
 py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
+py -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
+py -m ts_platform.cli.main show-results --experiment compare_feature_forecast --run latest
+py -m ts_platform.cli.main show-leaderboard --experiment compare_feature_forecast --run latest
+py -m ts_platform.cli.main show-artifacts --experiment compare_feature_forecast --run latest
+py -m ts_platform.cli.main show-artifact --experiment compare_feature_forecast --run latest --artifact leaderboard_json
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
