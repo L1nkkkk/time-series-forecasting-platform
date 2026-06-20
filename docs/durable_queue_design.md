@@ -199,16 +199,23 @@ Implementation notes:
 Goal: Define and test local retry, timeout, and stale heartbeat behavior before
 introducing an external queue backend.
 
+Status: implemented as an explicit local prototype for SQLite jobs.
+
 Deliverables:
 
-- Retry policy fields and defaults.
-- Timeout policy fields and defaults.
-- Explicit stale job transition rules.
-- Idempotency notes for result and artifact writes.
-- Tests for retry exhaustion and timeout classification.
+- `RetryPolicy` with `max_attempts` and `stale_after_seconds`.
+- `timed_out` and `retrying` job states.
+- Explicit stale job timeout marking through API, CLI, and store methods.
+- Explicit retry for `failed`, `timed_out`, and `cancelled` jobs.
+- Conflict behavior for non-retryable status and max-attempt exhaustion.
+- Tests for retry exhaustion, timeout classification, API, and CLI behavior.
 
 Non-goals:
 
+- Automatic retry scheduler.
+- Retry backoff.
+- Worker supervision.
+- Periodic heartbeat threads.
 - Multi-host scheduling.
 - Kubernetes-native orchestration.
 - User permission model.
@@ -219,6 +226,9 @@ Acceptance criteria:
 - A stale or timed-out job can be classified without guessing.
 - Retryable and terminal failures have clear state transitions.
 - Existing API clients still receive compatible `JobRecord` payloads.
+- `worker-once` and `worker-loop` can claim explicitly retried jobs.
+- No background process mutates jobs without an explicit API, CLI, or store
+  call.
 
 ### Phase 8E: Redis/RQ or Celery backend
 
@@ -328,9 +338,9 @@ Transitions:
 - `queued` -> `cancelled` when cancellation is requested before execution.
 - `running` -> `succeeded` when result and artifact links are written.
 - `running` -> `failed` when execution fails and no retry remains.
-- `running` -> `retrying` when execution fails and retry policy allows another
-  attempt.
-- `retrying` -> `queued` when the next attempt is ready.
+- `failed` -> `retrying` -> `queued` when an explicit retry is accepted.
+- `timed_out` -> `retrying` -> `queued` when an explicit retry is accepted.
+- `cancelled` -> `retrying` -> `queued` when an explicit retry is accepted.
 - `running` -> `cancel_requested` when the API records a cooperative
   cancellation request.
 - `cancel_requested` -> `cancelled` when the worker observes the request before
@@ -338,10 +348,10 @@ Transitions:
 - `cancel_requested` -> `succeeded` when the underlying training call finishes
   before cancellation can be applied.
 - `running` -> `timed_out` when heartbeat or timeout rules expire.
-- `timed_out` -> `retrying` when retry policy allows another attempt.
 
-Terminal states are `succeeded`, `failed`, and `cancelled`. `timed_out` may be
-terminal or may move to `retrying`, depending on retry policy.
+Terminal states are `succeeded`, `failed`, `cancelled`, and `timed_out`.
+`failed`, `cancelled`, and `timed_out` may move to `retrying` only through an
+explicit retry operation.
 
 ## API Compatibility
 
@@ -367,5 +377,7 @@ frontend, user management, distributed training, or new model work. Phase 8A
 implements SQLite metadata and events. Phase 8B adds local worker claiming and
 attempts. Phase 8C adds SQLite observability endpoints, CLI inspection,
 minimal heartbeat recording, finite `worker-loop`, and read-only stale
-inspection. Retry, timeout, automatic stale heartbeat handling, and crash
-recovery hardening remain future work.
+inspection. Phase 8D adds explicit timeout and retry policy operations.
+Automatic retry scheduling, retry backoff, worker supervision, periodic
+heartbeat, automatic stale heartbeat handling, and crash recovery hardening
+remain future work.

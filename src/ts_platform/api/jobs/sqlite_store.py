@@ -13,7 +13,13 @@ from threading import RLock
 from typing import Any, cast
 
 from ts_platform.api.jobs.models import JobRecord, JobType, make_job_id, utc_now, validate_job_id
-from ts_platform.api.jobs.store import JobNotFoundError, JobStoreError, UnsafeJobIdError
+from ts_platform.api.jobs.retry import RetryPolicy
+from ts_platform.api.jobs.store import (
+    JobNotFoundError,
+    JobStateConflictError,
+    JobStoreError,
+    UnsafeJobIdError,
+)
 from ts_platform.config.schema import validate_safe_path_component
 
 _JOB_COLUMNS = (
@@ -236,6 +242,144 @@ class SQLiteJobStore:
                 updated = replace(job, status="cancel_requested", updated_at=now)
                 return self._update_with_event(updated, "cancel_requested")
             return job
+
+    def mark_timed_out(self, job_id: str, *, reason: str | None = None) -> JobRecord:
+        """Explicitly mark a running job timed out."""
+
+        reason_text = reason or "job timed out"
+        with self._lock:
+            safe_job_id = self._safe_job_id(job_id)
+            with self._connect() as conn:
+                try:
+                    row = conn.execute(
+                        f"SELECT {', '.join(_JOB_COLUMNS)} FROM jobs WHERE job_id = ?",
+                        (safe_job_id,),
+                    ).fetchone()
+                    if row is None:
+                        msg = f"job does not exist: {safe_job_id}"
+                        raise JobNotFoundError(msg)
+                    job = self._row_to_job(row)
+                    if job.status not in {"running", "cancel_requested"}:
+                        return job
+                    now = utc_now()
+                    updated = replace(
+                        job,
+                        status="timed_out",
+                        updated_at=now,
+                        finished_at=now,
+                        error=reason_text,
+                    )
+                    rowcount = self._update_job(conn, updated)
+                    if rowcount == 0:
+                        msg = f"job does not exist: {safe_job_id}"
+                        raise JobNotFoundError(msg)
+                    self._append_event(
+                        conn,
+                        updated.job_id,
+                        "job_timed_out",
+                        message=reason_text,
+                        payload={"previous_status": job.status},
+                    )
+                    attempt = self._latest_attempt(conn, safe_job_id, status="running")
+                    if attempt is not None:
+                        self._update_attempt_row(
+                            conn,
+                            attempt,
+                            status="failed",
+                            event_type="attempt_failed",
+                            error=reason_text,
+                            now=now,
+                        )
+                except sqlite3.Error as exc:
+                    msg = "job timeout state cannot be written to SQLite"
+                    raise JobStoreError(msg) from exc
+        return updated
+
+    def retry_job(self, job_id: str, *, policy: RetryPolicy | None = None) -> JobRecord:
+        """Requeue a failed, timed out, or cancelled job for a future worker."""
+
+        retry_policy = policy or RetryPolicy()
+        with self._lock:
+            safe_job_id = self._safe_job_id(job_id)
+            with self._connect() as conn:
+                try:
+                    row = conn.execute(
+                        f"SELECT {', '.join(_JOB_COLUMNS)} FROM jobs WHERE job_id = ?",
+                        (safe_job_id,),
+                    ).fetchone()
+                    if row is None:
+                        msg = f"job does not exist: {safe_job_id}"
+                        raise JobNotFoundError(msg)
+                    job = self._row_to_job(row)
+                    if job.status not in {"failed", "timed_out", "cancelled"}:
+                        msg = f"cannot retry job with status: {job.status}"
+                        raise JobStateConflictError(msg)
+                    attempt_count = self._attempt_count(conn, safe_job_id)
+                    if attempt_count >= retry_policy.max_attempts:
+                        msg = (
+                            f"job has reached max attempts: "
+                            f"{attempt_count}/{retry_policy.max_attempts}"
+                        )
+                        raise JobStateConflictError(msg)
+                    now = utc_now()
+                    retrying = replace(job, status="retrying", updated_at=now)
+                    rowcount = self._update_job(conn, retrying)
+                    if rowcount == 0:
+                        msg = f"job does not exist: {safe_job_id}"
+                        raise JobNotFoundError(msg)
+                    self._append_event(
+                        conn,
+                        retrying.job_id,
+                        "job_retrying",
+                        payload={
+                            "previous_status": job.status,
+                            "attempt_count": attempt_count,
+                            "max_attempts": retry_policy.max_attempts,
+                        },
+                    )
+                    requeued = replace(
+                        retrying,
+                        status="queued",
+                        updated_at=now,
+                        started_at=None,
+                        finished_at=None,
+                        run_id=None,
+                        compare_run_id=None,
+                        result_path=None,
+                        leaderboard_json_path=None,
+                        artifacts_path=None,
+                        error=None,
+                    )
+                    self._update_job(conn, requeued)
+                    self._append_event(
+                        conn,
+                        requeued.job_id,
+                        "job_requeued",
+                        payload={
+                            "attempt_count": attempt_count,
+                            "max_attempts": retry_policy.max_attempts,
+                        },
+                    )
+                except sqlite3.Error as exc:
+                    msg = "job retry state cannot be written to SQLite"
+                    raise JobStoreError(msg) from exc
+        return requeued
+
+    def mark_stale_running_jobs_timed_out(
+        self,
+        *,
+        older_than_seconds: int,
+        reason: str | None = None,
+    ) -> list[JobRecord]:
+        """Mark currently stale running jobs timed out without retrying them."""
+
+        stale_jobs = self.list_stale_running_jobs(older_than_seconds=older_than_seconds)
+        timed_out_jobs: list[JobRecord] = []
+        for job in stale_jobs:
+            timed_out = self.mark_timed_out(job.job_id, reason=reason)
+            if timed_out.status == "timed_out":
+                timed_out_jobs.append(timed_out)
+        return timed_out_jobs
 
     def claim_next_queued_job(self, *, worker_id: str) -> ClaimedJob | None:
         """Atomically claim the oldest queued job for one worker."""
@@ -653,6 +797,38 @@ class SQLiteJobStore:
             raise JobStoreError(msg)
         return self._row_to_attempt(row)
 
+    def _latest_attempt(
+        self,
+        conn: sqlite3.Connection,
+        job_id: str,
+        *,
+        status: str | None = None,
+    ) -> dict[str, Any] | None:
+        status_clause = "" if status is None else "AND status = ?"
+        params: tuple[str, ...] = (job_id,) if status is None else (job_id, status)
+        row = conn.execute(
+            f"""
+            SELECT attempt_id, job_id, status, worker_id, started_at,
+                   finished_at, heartbeat_at, error
+            FROM job_attempts
+            WHERE job_id = ?
+            {status_clause}
+            ORDER BY attempt_id DESC
+            LIMIT 1
+            """,
+            params,
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_attempt(row)
+
+    def _attempt_count(self, conn: sqlite3.Connection, job_id: str) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) AS attempt_count FROM job_attempts WHERE job_id = ?",
+            (job_id,),
+        ).fetchone()
+        return int(row["attempt_count"])
+
     def _update_attempt(
         self,
         attempt_id: int,
@@ -665,26 +841,46 @@ class SQLiteJobStore:
             try:
                 attempt = self._get_attempt(conn, attempt_id)
                 now = utc_now()
-                conn.execute(
-                    """
-                    UPDATE job_attempts
-                    SET status = ?, finished_at = ?, heartbeat_at = ?, error = ?
-                    WHERE attempt_id = ?
-                    """,
-                    (status, now, now, error, attempt_id),
-                )
-                self._append_event(
+                self._update_attempt_row(
                     conn,
-                    str(attempt["job_id"]),
-                    event_type,
-                    message=error,
-                    payload={"attempt_id": attempt_id, "worker_id": attempt["worker_id"]},
+                    attempt,
+                    status=status,
+                    event_type=event_type,
+                    error=error,
+                    now=now,
                 )
                 attempt = self._get_attempt(conn, attempt_id)
             except sqlite3.Error as exc:
                 msg = "job attempt cannot be updated in SQLite"
                 raise JobStoreError(msg) from exc
         return attempt
+
+    def _update_attempt_row(
+        self,
+        conn: sqlite3.Connection,
+        attempt: dict[str, Any],
+        *,
+        status: str,
+        event_type: str,
+        error: str | None,
+        now: str,
+    ) -> None:
+        attempt_id = int(attempt["attempt_id"])
+        conn.execute(
+            """
+            UPDATE job_attempts
+            SET status = ?, finished_at = ?, heartbeat_at = ?, error = ?
+            WHERE attempt_id = ?
+            """,
+            (status, now, now, error, attempt_id),
+        )
+        self._append_event(
+            conn,
+            str(attempt["job_id"]),
+            event_type,
+            message=error,
+            payload={"attempt_id": attempt_id, "worker_id": attempt["worker_id"]},
+        )
 
     def _row_to_job(self, row: sqlite3.Row) -> JobRecord:
         payload = {column: row[column] for column in _JOB_COLUMNS}

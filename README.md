@@ -27,6 +27,7 @@ The current MVP focuses on a runnable local training loop:
 - Optional SQLite job metadata backend prototype for local jobs.
 - Local `worker-once` prototype for queued SQLite jobs.
 - SQLite job events/attempts inspection and finite `worker-loop` prototype.
+- Explicit SQLite retry/timeout policy prototype for local jobs.
 
 No BasicTS code is copied into this project.
 
@@ -183,6 +184,9 @@ py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main show-job-events --job-id 20260619T120000Z_a1b2c3 --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job-attempts --job-id 20260619T120000Z_a1b2c3 --sqlite-db runs/jobs.sqlite3
+py -m ts_platform.cli.main list-stale-jobs --sqlite-db runs/jobs.sqlite3 --older-than-seconds 3600
+py -m ts_platform.cli.main mark-stale-timeout --sqlite-db runs/jobs.sqlite3 --older-than-seconds 3600
+py -m ts_platform.cli.main retry-job --job-id 20260619T120000Z_a1b2c3 --sqlite-db runs/jobs.sqlite3 --max-attempts 3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
 py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --max-jobs 1
 ```
@@ -201,7 +205,9 @@ metadata in `runs/jobs.sqlite3`; use `--job-backend sqlite` with
 `show-job-events` and `show-job-attempts` read SQLite observability rows as
 JSON. `worker-once` claims and runs at most one queued SQLite job, then exits.
 `worker-loop` repeats the same worker path with finite `--max-jobs` and
-`--max-idle-cycles` bounds.
+`--max-idle-cycles` bounds. `list-stale-jobs`, `mark-stale-timeout`, and
+`retry-job` are explicit SQLite maintenance commands; they do not start a
+scheduler or execute queued jobs.
 CLI job submission is intentionally not provided because a one-shot CLI process
 cannot keep an in-process background executor alive after exit.
 
@@ -325,6 +331,7 @@ py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
 py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --max-jobs 1
+py -m ts_platform.cli.main list-stale-jobs --sqlite-db runs/jobs.sqlite3 --older-than-seconds 3600
 ```
 
 ## API Demo
@@ -348,12 +355,15 @@ Available endpoints:
 - `POST /jobs/train`
 - `POST /jobs/compare`
 - `GET /jobs`
+- `GET /jobs/stale`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/events`
 - `GET /jobs/{job_id}/attempts`
 - `GET /jobs/{job_id}/result`
 - `GET /jobs/{job_id}/logs`
 - `POST /jobs/{job_id}/cancel`
+- `POST /jobs/{job_id}/timeout`
+- `POST /jobs/{job_id}/retry`
 
 The API keeps experiment discovery under the fixed safe `runs` root. For
 `POST /experiments/train` and `POST /experiments/compare`, the API ignores any
@@ -396,7 +406,9 @@ SQLite-backed jobs also expose `GET /jobs/{job_id}/events` and
 `GET /jobs/{job_id}/attempts`; JSON backend requests to those endpoints return
 HTTP 400 because JSON jobs do not have event or attempt tables. `worker-loop`
 is a finite local polling helper, not a daemon. Worker heartbeats are minimal
-claim/success/failure markers and do not implement timeout recovery.
+claim/success/failure markers. `GET /jobs/stale`, `POST /jobs/{job_id}/timeout`,
+and `POST /jobs/{job_id}/retry` provide explicit SQLite retry/timeout
+maintenance, but there is still no automatic retry scheduler or timeout sweep.
 `GET /jobs/{job_id}/result` returns the saved `results.json` only after the job
 has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
 current status and error field. Cancelling a queued job marks it `cancelled`.

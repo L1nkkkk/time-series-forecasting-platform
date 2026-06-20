@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -390,6 +391,181 @@ def test_api_get_job_events_rejects_unsafe_job_id(
     response = client.get("/jobs/bad%20id/events")
 
     assert response.status_code == 400
+
+
+def test_api_get_stale_jobs_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_stale").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    old = "2000-01-01T00:00:00+00:00"
+    stale = replace(
+        runner.store.get_job(submitted["job_id"]),
+        status="running",
+        started_at=old,
+        updated_at=old,
+    )
+    runner.store.update_job(stale, touch=False)
+
+    response = client.get("/jobs/stale?older_than_seconds=60")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [job["job_id"] for job in payload] == [submitted["job_id"]]
+    assert runner.store.get_job(submitted["job_id"]).status == "running"
+
+
+def test_api_get_stale_jobs_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _install_runner(monkeypatch, tmp_path, request=request)
+    client = TestClient(create_app())
+
+    response = client.get("/jobs/stale")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "stale jobs require sqlite backend"
+
+
+def test_api_get_stale_jobs_rejects_invalid_threshold(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+
+    response = client.get("/jobs/stale?older_than_seconds=0")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "older_than_seconds must be > 0"
+
+
+def test_api_timeout_job_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_timeout").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    claimed = runner.store.claim_next_queued_job(worker_id="api_worker")
+    assert claimed is not None
+
+    response = client.post(f"/jobs/{submitted['job_id']}/timeout?reason=api-timeout")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "timed_out"
+    assert response.json()["error"] == "api-timeout"
+    assert runner.store.list_attempts(submitted["job_id"])[0]["status"] == "failed"
+
+
+def test_api_timeout_job_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("train", "api_timeout_json", {"config": True})
+    client = TestClient(create_app())
+
+    response = client.post(f"/jobs/{job.job_id}/timeout")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "job timeout requires sqlite backend"
+
+
+def test_api_retry_job_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_retry").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    runner.store.mark_failed(submitted["job_id"], "boom")
+
+    response = client.post(f"/jobs/{submitted['job_id']}/retry")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert response.json()["error"] is None
+
+
+def test_api_retry_job_respects_max_attempts(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_retry_max").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    claimed = runner.store.claim_next_queued_job(worker_id="api_worker")
+    assert claimed is not None
+    runner.store.mark_failed(submitted["job_id"], "boom")
+    runner.store.mark_attempt_failed(claimed.attempt_id, "boom")
+
+    response = client.post(f"/jobs/{submitted['job_id']}/retry?max_attempts=1")
+
+    assert response.status_code == 409
+    assert "max attempts" in response.json()["detail"]
+
+
+def test_api_retry_job_rejects_running_job(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_retry_running").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    runner.store.mark_running(submitted["job_id"])
+
+    response = client.post(f"/jobs/{submitted['job_id']}/retry")
+
+    assert response.status_code == 409
+    assert "cannot retry job with status" in response.json()["detail"]
+
+
+def test_api_retry_job_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("train", "api_retry_json", {"config": True})
+    client = TestClient(create_app())
+
+    response = client.post(f"/jobs/{job.job_id}/retry")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "job retry requires sqlite backend"
 
 
 def test_api_external_worker_mode_requires_sqlite_backend(

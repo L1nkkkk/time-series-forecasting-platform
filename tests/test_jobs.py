@@ -14,10 +14,12 @@ from tests.helpers import tiny_config
 from ts_platform.api.jobs.base import JobStoreProtocol
 from ts_platform.api.jobs.factory import build_job_store
 from ts_platform.api.jobs.models import JOB_STATUS_VALUES, JobRecord, make_job_id, utc_now
+from ts_platform.api.jobs.retry import RetryPolicy
 from ts_platform.api.jobs.runner import JobRunner
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.jobs.store import (
     JobNotFoundError,
+    JobStateConflictError,
     JobStore,
     JobStoreError,
     JsonJobStore,
@@ -64,6 +66,27 @@ def _compare_config(tmp_path: Path, *, name: str = "job_compare") -> CompareConf
 
 def _sqlite_store(tmp_path: Path) -> SQLiteJobStore:
     return SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+
+
+def _job_record_with_status(status: str) -> JobRecord:
+    now = utc_now()
+    return JobRecord(
+        job_id=make_job_id(),
+        job_type="train",
+        status=status,  # type: ignore[arg-type]
+        created_at=now,
+        updated_at=now,
+        started_at=now if status in {"running", "cancel_requested"} else None,
+        finished_at=now if status in {"succeeded", "failed", "cancelled", "timed_out"} else None,
+        experiment_name=f"roundtrip_{status}",
+        run_id=None,
+        compare_run_id=None,
+        result_path=None,
+        leaderboard_json_path=None,
+        artifacts_path=None,
+        error="done" if status in {"failed", "timed_out"} else None,
+        config_snapshot_path="runs/jobs/request_config.json",
+    )
 
 
 def _write_train_result(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
@@ -120,6 +143,18 @@ def test_job_record_serializes_roundtrip() -> None:
     assert JobRecord.from_dict(record.to_dict()) == record
 
 
+def test_job_record_roundtrip_with_timed_out() -> None:
+    record = _job_record_with_status("timed_out")
+
+    assert JobRecord.from_dict(record.to_dict()) == record
+
+
+def test_job_record_roundtrip_with_retrying() -> None:
+    record = _job_record_with_status("retrying")
+
+    assert JobRecord.from_dict(record.to_dict()) == record
+
+
 def test_job_id_is_safe_path_component() -> None:
     job_id = make_job_id()
 
@@ -135,7 +170,30 @@ def test_job_status_values() -> None:
         "failed",
         "cancel_requested",
         "cancelled",
+        "retrying",
+        "timed_out",
     }
+
+
+def test_job_status_values_include_retrying_and_timed_out() -> None:
+    assert {"retrying", "timed_out"}.issubset(set(JOB_STATUS_VALUES))
+
+
+def test_retry_policy_defaults() -> None:
+    policy = RetryPolicy()
+
+    assert policy.max_attempts == 3
+    assert policy.stale_after_seconds == 3600
+
+
+def test_retry_policy_rejects_invalid_max_attempts() -> None:
+    with pytest.raises(ValueError, match="max_attempts must be >= 1"):
+        RetryPolicy(max_attempts=0)
+
+
+def test_retry_policy_rejects_invalid_stale_after_seconds() -> None:
+    with pytest.raises(ValueError, match="stale_after_seconds must be > 0"):
+        RetryPolicy(stale_after_seconds=0)
 
 
 def test_json_job_store_implements_protocol(tmp_path: Path) -> None:
@@ -527,6 +585,179 @@ def test_sqlite_job_store_records_heartbeat_event(tmp_path: Path) -> None:
     ]
 
 
+def test_sqlite_mark_timed_out_from_running(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_timeout_running", {"config": True})
+    running = store.mark_running(job.job_id)
+
+    timed_out = store.mark_timed_out(running.job_id, reason="stale heartbeat")
+
+    assert timed_out.status == "timed_out"
+    assert timed_out.finished_at is not None
+    assert timed_out.error == "stale heartbeat"
+
+
+def test_sqlite_mark_timed_out_from_cancel_requested(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_timeout_cancel", {"config": True})
+    store.mark_running(job.job_id)
+    cancel_requested = store.request_cancel(job.job_id)
+
+    timed_out = store.mark_timed_out(cancel_requested.job_id)
+
+    assert timed_out.status == "timed_out"
+    assert timed_out.error == "job timed out"
+
+
+def test_sqlite_mark_timed_out_does_not_change_succeeded(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_timeout_succeeded", {"config": True})
+    succeeded = store.mark_succeeded(
+        job.job_id,
+        run_id="run_1",
+        compare_run_id=None,
+        result_path=str(tmp_path / "runs" / "results.json"),
+        artifacts_path=str(tmp_path / "runs" / "artifacts.json"),
+    )
+
+    unchanged = store.mark_timed_out(succeeded.job_id)
+
+    assert unchanged == succeeded
+    assert store.get_job(job.job_id).status == "succeeded"
+
+
+def test_sqlite_mark_timed_out_updates_attempt(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_timeout_attempt", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+
+    store.mark_timed_out(job.job_id, reason="too old")
+    attempt = store.list_attempts(job.job_id)[0]
+
+    assert attempt["status"] == "failed"
+    assert attempt["finished_at"] is not None
+    assert attempt["error"] == "too old"
+
+
+def test_sqlite_mark_timed_out_records_event(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_timeout_event", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+
+    store.mark_timed_out(job.job_id, reason="too old")
+
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_claimed",
+        "job_timed_out",
+        "attempt_failed",
+    ]
+
+
+def test_sqlite_mark_timed_out_rejects_missing_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with pytest.raises(JobNotFoundError, match="does not exist"):
+        store.mark_timed_out("20260619T120000Z_a1b2c3")
+
+
+def test_sqlite_retry_failed_job_requeues(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_failed", {"config": True})
+    store.mark_succeeded(
+        job.job_id,
+        run_id="run_1",
+        compare_run_id=None,
+        result_path=str(tmp_path / "runs" / "results.json"),
+        artifacts_path=str(tmp_path / "runs" / "artifacts.json"),
+    )
+    failed = store.mark_failed(job.job_id, "boom")
+
+    retried = store.retry_job(failed.job_id)
+
+    assert retried.status == "queued"
+    assert retried.started_at is None
+    assert retried.finished_at is None
+    assert retried.run_id is None
+    assert retried.result_path is None
+    assert retried.artifacts_path is None
+    assert retried.error is None
+
+
+def test_sqlite_retry_timed_out_job_requeues(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_timeout", {"config": True})
+    store.mark_running(job.job_id)
+    timed_out = store.mark_timed_out(job.job_id)
+
+    retried = store.retry_job(timed_out.job_id)
+
+    assert retried.status == "queued"
+
+
+def test_sqlite_retry_cancelled_job_requeues(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_cancelled", {"config": True})
+    cancelled = store.request_cancel(job.job_id)
+
+    retried = store.retry_job(cancelled.job_id)
+
+    assert retried.status == "queued"
+
+
+def test_sqlite_retry_rejects_running_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_running", {"config": True})
+    running = store.mark_running(job.job_id)
+
+    with pytest.raises(JobStateConflictError, match="cannot retry job with status"):
+        store.retry_job(running.job_id)
+
+
+def test_sqlite_retry_rejects_succeeded_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_succeeded", {"config": True})
+    succeeded = store.mark_succeeded(
+        job.job_id,
+        run_id="run_1",
+        compare_run_id=None,
+        result_path=str(tmp_path / "runs" / "results.json"),
+        artifacts_path=str(tmp_path / "runs" / "artifacts.json"),
+    )
+
+    with pytest.raises(JobStateConflictError, match="cannot retry job with status"):
+        store.retry_job(succeeded.job_id)
+
+
+def test_sqlite_retry_respects_max_attempts(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_max", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+    store.mark_failed(job.job_id, "boom")
+    store.mark_attempt_failed(claimed.attempt_id, "boom")
+
+    with pytest.raises(JobStateConflictError, match="max attempts"):
+        store.retry_job(job.job_id, policy=RetryPolicy(max_attempts=1))
+
+
+def test_sqlite_retry_records_events(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_retry_events", {"config": True})
+    store.mark_failed(job.job_id, "boom")
+
+    store.retry_job(job.job_id)
+
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_failed",
+        "job_retrying",
+        "job_requeued",
+    ]
+
+
 def test_sqlite_list_stale_running_jobs(tmp_path: Path) -> None:
     store = _sqlite_store(tmp_path)
     job = store.create_job("train", "sqlite_stale", {"config": True})
@@ -582,6 +813,56 @@ def test_sqlite_list_stale_running_jobs_does_not_mutate_status(tmp_path: Path) -
 
     assert [item.job_id for item in stale] == [job.job_id]
     assert store.get_job(job.job_id).status == "running"
+
+
+def test_sqlite_mark_stale_running_jobs_timed_out(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_stale_timeout", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    timed_out = store.mark_stale_running_jobs_timed_out(
+        older_than_seconds=60,
+        reason="stale worker",
+    )
+
+    assert [item.job_id for item in timed_out] == [job.job_id]
+    assert store.get_job(job.job_id).status == "timed_out"
+    assert store.get_job(job.job_id).error == "stale worker"
+
+
+def test_sqlite_mark_stale_running_jobs_timed_out_does_not_retry(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_stale_timeout_no_retry", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    timed_out = store.mark_stale_running_jobs_timed_out(older_than_seconds=60)
+
+    assert timed_out[0].status == "timed_out"
+    assert store.get_job(job.job_id).status == "timed_out"
+
+
+def test_sqlite_mark_stale_running_jobs_timed_out_empty_when_none(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    store.create_job("train", "sqlite_stale_timeout_empty", {"config": True})
+
+    assert store.mark_stale_running_jobs_timed_out(older_than_seconds=60) == []
+
+
+def test_sqlite_mark_stale_running_jobs_timed_out_rejects_invalid_threshold(
+    tmp_path: Path,
+) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with pytest.raises(ValueError, match="older_than_seconds must be > 0"):
+        store.mark_stale_running_jobs_timed_out(older_than_seconds=0)
 
 
 def test_sqlite_claim_next_queued_job_returns_oldest(tmp_path: Path) -> None:
@@ -727,6 +1008,28 @@ def test_job_worker_records_failure(tmp_path: Path) -> None:
     assert finished.error is not None
     assert "worker boom" in finished.error
     assert store.list_attempts(job.job_id)[0]["status"] == "failed"
+
+
+def test_worker_once_processes_retried_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_retry")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    store.mark_failed(job.job_id, "first failure")
+    retried = store.retry_job(job.job_id)
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=_write_train_result,
+    )
+
+    finished = worker.run_once()
+
+    assert retried.status == "queued"
+    assert finished is not None
+    assert finished.job_id == job.job_id
+    assert finished.status == "succeeded"
+    assert store.list_attempts(job.job_id)[0]["status"] == "succeeded"
 
 
 def test_job_worker_records_heartbeat_event(tmp_path: Path) -> None:

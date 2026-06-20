@@ -10,6 +10,7 @@ from pathlib import Path
 
 from ts_platform.api.jobs.base import JobStoreProtocol
 from ts_platform.api.jobs.factory import build_job_store
+from ts_platform.api.jobs.retry import RetryPolicy
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.jobs.worker import JobWorker
 from ts_platform.api.services.artifact_service import ArtifactService
@@ -165,6 +166,74 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite jobs database to read",
     )
 
+    list_stale_jobs_parser = subparsers.add_parser(
+        "list-stale-jobs",
+        help="List stale running SQLite jobs without changing state",
+    )
+    list_stale_jobs_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to inspect",
+    )
+    list_stale_jobs_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root containing request snapshots",
+    )
+    list_stale_jobs_parser.add_argument(
+        "--older-than-seconds",
+        type=int,
+        default=3600,
+        help="Activity age threshold for stale running jobs",
+    )
+
+    mark_stale_timeout_parser = subparsers.add_parser(
+        "mark-stale-timeout",
+        help="Mark stale running SQLite jobs timed out",
+    )
+    mark_stale_timeout_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to update",
+    )
+    mark_stale_timeout_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root containing request snapshots",
+    )
+    mark_stale_timeout_parser.add_argument(
+        "--older-than-seconds",
+        type=int,
+        default=3600,
+        help="Activity age threshold for stale running jobs",
+    )
+    mark_stale_timeout_parser.add_argument(
+        "--reason",
+        help="Optional timeout reason to store on each job",
+    )
+
+    retry_job_parser = subparsers.add_parser(
+        "retry-job",
+        help="Requeue a failed, timed out, or cancelled SQLite job",
+    )
+    retry_job_parser.add_argument("--job-id", required=True, help="Job id to retry")
+    retry_job_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to update",
+    )
+    retry_job_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root containing request snapshots",
+    )
+    retry_job_parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=3,
+        help="Maximum allowed attempts before rejecting retry",
+    )
+
     worker_once_parser = subparsers.add_parser(
         "worker-once",
         help="Claim and run one queued SQLite job",
@@ -309,6 +378,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         store = _sqlite_store_from_args(args)
         store.get_job(args.job_id)
         print(json.dumps(store.list_attempts(args.job_id), indent=2, sort_keys=True))
+        return 0
+    if args.command == "list-stale-jobs":
+        if args.older_than_seconds <= 0:
+            parser.error("--older-than-seconds must be > 0")
+        store = _sqlite_store_from_args(args)
+        jobs_payload = [
+            job.to_dict()
+            for job in store.list_stale_running_jobs(
+                older_than_seconds=args.older_than_seconds,
+            )
+        ]
+        print(json.dumps({"jobs": jobs_payload}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "mark-stale-timeout":
+        if args.older_than_seconds <= 0:
+            parser.error("--older-than-seconds must be > 0")
+        store = _sqlite_store_from_args(args)
+        timed_out_payload = [
+            job.to_dict()
+            for job in store.mark_stale_running_jobs_timed_out(
+                older_than_seconds=args.older_than_seconds,
+                reason=args.reason,
+            )
+        ]
+        print(json.dumps({"timed_out": timed_out_payload}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "retry-job":
+        if args.max_attempts < 1:
+            parser.error("--max-attempts must be >= 1")
+        store = _sqlite_store_from_args(args)
+        policy = RetryPolicy(max_attempts=args.max_attempts)
+        job_payload = store.retry_job(args.job_id, policy=policy).to_dict()
+        print(json.dumps(job_payload, indent=2, sort_keys=True))
         return 0
     if args.command == "worker-once":
         store = SQLiteJobStore(Path(args.jobs_root), Path(args.sqlite_db))

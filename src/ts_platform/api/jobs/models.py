@@ -16,6 +16,8 @@ JobStatus = Literal[
     "failed",
     "cancel_requested",
     "cancelled",
+    "retrying",
+    "timed_out",
 ]
 JobType = Literal["train", "compare"]
 
@@ -26,6 +28,8 @@ JOB_STATUS_VALUES: tuple[JobStatus, ...] = (
     "failed",
     "cancel_requested",
     "cancelled",
+    "retrying",
+    "timed_out",
 )
 JOB_TYPE_VALUES: tuple[JobType, ...] = ("train", "compare")
 

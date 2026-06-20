@@ -232,6 +232,12 @@ job-store errors for SQLite database or schema failures.
 }
 ```
 
+### GET /jobs/stale
+
+Returns SQLite stale `running` or `cancel_requested` jobs as a JSON array
+without mutating state. `older_than_seconds` defaults to `3600` and must be
+positive. The endpoint is SQLite-only; JSON backend requests return HTTP 400.
+
 ### GET /jobs/{job_id}
 
 Returns one persisted job record. `job_id` must be a safe path component.
@@ -275,6 +281,21 @@ becomes `cancel_requested`; the platform does not force-kill the Python thread,
 so the underlying training or compare call may still complete and record a
 successful result. Terminal jobs return their current record unchanged.
 
+### POST /jobs/{job_id}/timeout
+
+Explicitly marks a SQLite `running` or `cancel_requested` job as `timed_out`.
+The latest running attempt is marked failed when one exists. Terminal jobs are
+returned unchanged. JSON backend requests return HTTP 400.
+
+### POST /jobs/{job_id}/retry
+
+Explicitly requeues a SQLite `failed`, `timed_out`, or `cancelled` job.
+`max_attempts` defaults to `3` and must be at least `1`. The retry operation
+records `job_retrying` and `job_requeued` events, clears prior result pointers
+and error fields, and leaves the job queued for `worker-once` or `worker-loop`.
+Non-retryable statuses and max-attempt exhaustion return HTTP 409. JSON backend
+requests return HTTP 400.
+
 Job statuses are:
 
 - `queued`
@@ -283,6 +304,8 @@ Job statuses are:
 - `failed`
 - `cancel_requested`
 - `cancelled`
+- `retrying`
+- `timed_out`
 
 The FastAPI app closes the local JobRunner executor during lifespan shutdown
 and resets the lazy singleton. A subsequent jobs request can create a fresh
@@ -312,21 +335,24 @@ it does not mutate state or trigger recovery.
 The existing `/jobs` API is the stable external shape for asynchronous work.
 The default runner is still a local `ThreadPoolExecutor`, and the backend can
 be JSON or SQLite behind the same service boundary. Phase 8B also supports a
-local SQLite worker process through `worker-once`. Future implementations may
-add retries, timeout handling, Redis/RQ, or Celery after the SQLite boundary is
-proven.
+local SQLite worker process through `worker-once`. Phase 8D adds explicit
+SQLite retry and timeout operations. Future implementations may add automatic
+scheduling, backoff, Redis/RQ, or Celery after the SQLite boundary is proven.
 
 Backend changes should preserve these endpoints:
 
 - `POST /jobs/train`
 - `POST /jobs/compare`
 - `GET /jobs`
+- `GET /jobs/stale`
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/events`
 - `GET /jobs/{job_id}/attempts`
 - `GET /jobs/{job_id}/result`
 - `GET /jobs/{job_id}/logs`
 - `POST /jobs/{job_id}/cancel`
+- `POST /jobs/{job_id}/timeout`
+- `POST /jobs/{job_id}/retry`
 
 Response shapes should remain compatible whenever possible. New durable queue
 fields such as attempt id, worker id, heartbeat timestamp, retry count, or event
@@ -345,8 +371,10 @@ links should be added in a backward-compatible way. Existing fields such as
 - Artifact download paths that escape the current run directory return HTTP
   400.
 - Invalid `job_id` path components return HTTP 400.
-- JSON backend requests to SQLite-only job observability endpoints return HTTP
-  400.
+- JSON backend requests to SQLite-only job observability, timeout, and retry
+  endpoints return HTTP 400.
+- Non-positive stale thresholds and retry `max_attempts < 1` return HTTP 400.
+- Non-retryable job statuses and max-attempt exhaustion return HTTP 409.
 - Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
   return HTTP 404.
 - Missing registered artifact names or missing artifact files return HTTP 404.
