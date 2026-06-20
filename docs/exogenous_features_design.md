@@ -12,7 +12,8 @@ for target-only baselines and early model comparison, but full training still
 cannot represent datasets where the model should learn from exogenous columns
 without predicting those columns. Phase 12B adds the CSV dataset/batch layer for
 those columns, and Phase 12C adds dataset-level split target/feature scaling
-while leaving model, evaluator, and checkpoint migration to later phases.
+while Phase 12D migrates the model forward interface. Trainer, evaluator, and
+checkpoint migration remain later phases.
 
 ## Current State
 
@@ -45,9 +46,13 @@ resolve either old `num_features` arguments or target-only
 Phase 12C enables `ScaledForecastingDataset` to scale feature-aware samples
 with `FeatureAwareScalerBundle`. The target scaler transforms `target_x` and
 `y`, the feature scaler transforms `feature_x`, and `x` is reconstructed from
-the scaled slices. Trainer still fails clearly for `input_dim != target_dim`
-with `feature-aware training is not implemented until Phase 12D/12E`, so full
-model, evaluator, and checkpoint integration remain later phases.
+the scaled slices.
+
+Phase 12D enables model construction and forward passes for `input_dim !=
+target_dim`. Trainable models consume the full `input_dim`, while statistical
+baselines use `target_slice()` and ignore feature columns. Trainer still fails
+clearly with `feature-aware training is not implemented until Phase 12E`, so
+full Trainer, evaluator, and checkpoint integration remain later phases.
 
 ## Proposed Semantics
 
@@ -188,9 +193,8 @@ Feature-aware trainable models:
 - `lstm`
 - `tcn`
 
-These models can migrate to accept `input_dim` and `target_dim`. Their input
-layers consume `input_dim`, while their projection heads output
-`output_len * target_dim`.
+These models accept `input_dim` and `target_dim`. Their input layers consume
+`input_dim`, while their projection heads output `output_len * target_dim`.
 
 Target-only statistical baselines:
 
@@ -202,7 +206,7 @@ These baselines should default to target history only. When exogenous columns
 are configured, they can ignore the feature slice and compute from
 `target_x`. This keeps them useful as target-only comparison baselines.
 
-The future model constructor boundary should become:
+The Phase 12D model constructor boundary is:
 
 ```python
 BaseForecastModel(
@@ -245,7 +249,8 @@ Backward compatibility rules:
 
 - Configs without `feature_cols` keep current behavior.
 - CSV datasets can validate and batch `feature_cols`, but Trainer keeps
-  feature-aware configs blocked until the model/evaluator/checkpoint phases.
+  feature-aware configs blocked until the Trainer/evaluator/checkpoint
+  integration phase.
 - Old `data.scaler.name` configs remain valid.
 - New nested scaler configs should be introduced with schema migration tests.
 
@@ -312,6 +317,8 @@ Phase 12D: Model interface migration
 - Add `input_dim` and `target_dim` to the model boundary.
 - Migrate trainable models to consume `input_dim` and output `target_dim`.
 - Make statistical baselines target-slice only.
+- Keep Trainer blocked until Phase 12E despite model-level feature-aware
+  forwards working in tests.
 
 Phase 12E: Trainer/Evaluator/checkpoint integration
 
@@ -356,7 +363,8 @@ Training smoke tests:
 
 Compare smoke tests:
 
-- Feature-aware compare config succeeds for trainable models.
+- Feature-aware compare config succeeds for trainable models after
+  Trainer/Evaluator/checkpoint integration.
 - Target-only baselines remain available and ignore features.
 - Leaderboard metrics remain target-only.
 

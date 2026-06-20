@@ -19,13 +19,22 @@ class MLPForecastModel(BaseForecastModel):
         self,
         input_len: int,
         output_len: int,
-        num_features: int,
+        num_features: int | None = None,
         hidden_sizes: Sequence[int] = (64, 32),
         dropout: float = 0.0,
+        *,
+        input_dim: int | None = None,
+        target_dim: int | None = None,
     ) -> None:
-        super().__init__(input_len, output_len, num_features)
+        super().__init__(
+            input_len,
+            output_len,
+            num_features,
+            input_dim=input_dim,
+            target_dim=target_dim,
+        )
         layers: list[nn.Module] = []
-        in_features = input_len * num_features
+        in_features = input_len * self.input_dim
         for hidden_size in hidden_sizes:
             if hidden_size <= 0:
                 msg = "hidden_sizes must contain positive integers"
@@ -35,19 +44,17 @@ class MLPForecastModel(BaseForecastModel):
             if dropout > 0:
                 layers.append(nn.Dropout(dropout))
             in_features = hidden_size
-        layers.append(nn.Linear(in_features, output_len * num_features))
+        layers.append(nn.Linear(in_features, output_len * self.target_dim))
         self.network = nn.Sequential(*layers)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run the MLP forecast."""
 
-        if x.ndim != 3:
-            msg = "x must be shaped [batch, input_len, num_features]"
-            raise ValueError(msg)
+        self.validate_input(x)
         batch_size = x.shape[0]
-        flattened = x.reshape(batch_size, self.input_len * self.num_features)
+        flattened = x.reshape(batch_size, self.input_len * self.input_dim)
         output = self.network(flattened)
-        return cast(torch.Tensor, output.reshape(batch_size, self.output_len, self.num_features))
+        return cast(torch.Tensor, output.reshape(batch_size, self.output_len, self.target_dim))
 
 
 if "mlp" not in MODEL_REGISTRY.names():

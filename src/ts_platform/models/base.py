@@ -51,3 +51,22 @@ class BaseForecastModel(nn.Module):
     @abstractmethod
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Return forecasts shaped [batch, output_len, target_dim]."""
+
+    def validate_input(self, x: torch.Tensor) -> None:
+        """Validate a model input tensor before forecasting."""
+
+        if x.ndim != 3:
+            msg = "x must be shaped [batch, input_len, input_dim]"
+            raise ValueError(msg)
+        if x.shape[1] != self.input_len:
+            msg = "x sequence length must match input_len"
+            raise ValueError(msg)
+        if x.shape[-1] != self.input_dim:
+            msg = "x last dimension must match input_dim"
+            raise ValueError(msg)
+
+    def target_slice(self, x: torch.Tensor) -> torch.Tensor:
+        """Return the target-history slice from a model input tensor."""
+
+        self.validate_input(x)
+        return x[..., : self.target_dim]

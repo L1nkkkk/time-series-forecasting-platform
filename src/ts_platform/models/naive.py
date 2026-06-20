@@ -14,10 +14,8 @@ class NaiveLastValueModel(BaseForecastModel):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Return repeated last values."""
 
-        if x.ndim != 3:
-            msg = "x must be shaped [batch, input_len, num_features]"
-            raise ValueError(msg)
-        return x[:, -1:, :].repeat(1, self.output_len, 1)
+        target_x = self.target_slice(x)
+        return target_x[:, -1:, :].repeat(1, self.output_len, 1)
 
 
 if "naive" not in MODEL_REGISTRY.names():

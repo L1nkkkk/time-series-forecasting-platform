@@ -359,7 +359,7 @@ def test_scaled_dataset_feature_aware_preserves_metadata() -> None:
     assert scaled[0]["metadata"] == dataset[0]["metadata"]
 
 
-def test_trainer_rejects_feature_aware_csv_until_phase12d(tmp_path) -> None:
+def test_trainer_rejects_feature_aware_csv_until_phase12e(tmp_path) -> None:
     config = tiny_config(tmp_path, name="feature_csv_blocked")
     data = config.data.model_copy(
         update={
@@ -384,7 +384,7 @@ def test_trainer_rejects_feature_aware_csv_until_phase12d(tmp_path) -> None:
 
     with pytest.raises(
         NotImplementedError,
-        match="feature-aware training is not implemented until Phase 12D/12E",
+        match="feature-aware training is not implemented until Phase 12E",
     ):
         Trainer(config).run()
 

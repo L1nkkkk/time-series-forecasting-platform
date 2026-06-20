@@ -210,10 +210,11 @@ Metrics, inverse transforms, and original-scale result reporting remain
 target-only in the planned end state. Feature columns do not enter `y`, target
 scaler inverse transforms, or target metrics.
 
-Full feature-aware training is intentionally still blocked. The current single
-model/evaluator/checkpoint path cannot consume `input_dim != target_dim`, so
-Trainer rejects feature-aware CSV configs with `feature-aware training is not
-implemented until Phase 12D/12E`.
+Models can now be constructed and called directly with feature-aware tensors
+for shape tests, but full feature-aware training is intentionally still
+blocked. Trainer rejects feature-aware CSV configs with `feature-aware training
+is not implemented until Phase 12E` until Trainer, evaluator, and checkpoint
+integration are migrated.
 
 See [exogenous_features_design.md](exogenous_features_design.md) for the full
 interface, scaler, checkpoint, and migration plan.
@@ -221,9 +222,10 @@ interface, scaler, checkpoint, and migration plan.
 ## Current Limits
 
 Feature-aware CSV datasets can be constructed, inspected, and scaled directly
-with split target/feature scalers. Full training with `feature_cols` remains
-blocked until later phases migrate model, evaluator, and checkpoint
-integration.
+with split target/feature scalers. Model forwards can consume the resulting
+`input_dim` and return `target_dim`, but full training with `feature_cols`
+remains blocked until Trainer, evaluator, and checkpoint integration are
+migrated.
 
 Profiling currently supports local CSV files only. Remote URLs and parquet
 files are not supported.

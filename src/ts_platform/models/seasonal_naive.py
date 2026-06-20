@@ -17,10 +17,22 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
         self,
         input_len: int,
         output_len: int,
-        num_features: int,
-        season_length: int,
+        num_features: int | None = None,
+        season_length: int | None = None,
+        *,
+        input_dim: int | None = None,
+        target_dim: int | None = None,
     ) -> None:
-        super().__init__(input_len, output_len, num_features)
+        super().__init__(
+            input_len,
+            output_len,
+            num_features,
+            input_dim=input_dim,
+            target_dim=target_dim,
+        )
+        if season_length is None:
+            msg = "season_length is required"
+            raise ValueError(msg)
         if season_length <= 0:
             msg = "season_length must be positive"
             raise ValueError(msg)
@@ -32,10 +44,8 @@ class SeasonalNaiveForecastModel(BaseForecastModel):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Cycle the last season until output_len predictions are produced."""
 
-        if x.ndim != 3:
-            msg = "x must be shaped [batch, input_len, num_features]"
-            raise ValueError(msg)
-        season = x[:, -self.season_length :, :]
+        target_x = self.target_slice(x)
+        season = target_x[:, -self.season_length :, :]
         repeats = math.ceil(self.output_len / self.season_length)
         return season.repeat(1, repeats, 1)[:, : self.output_len, :]
 

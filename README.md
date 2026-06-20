@@ -160,8 +160,9 @@ boundaries.
 
 Feature-aware CSV batches can be scaled directly with
 `FeatureAwareScalerBundle`, which keeps target and feature scaler state
-separate at the dataset wrapper layer. Full feature-aware training is still
-blocked until the model, evaluator, and checkpoint paths migrate.
+separate at the dataset wrapper layer. The model layer can forward
+`input_dim`/`target_dim` tensors directly, but full feature-aware training is
+still blocked until the Trainer, evaluator, and checkpoint paths migrate.
 
 Dataset catalog files such as
 [configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
@@ -205,7 +206,8 @@ is documented in
 implementation is intentionally split into Phase 12 steps. Phase 12A adds
 schema and compatibility infrastructure; Phase 12B adds CSV data-layer
 `feature_cols` support; Phase 12C adds split target/feature scaler support;
-Phase 12D will handle feature-aware model migration.
+Phase 12D adds feature-aware model forward support; Phase 12E will handle
+Trainer, evaluator, and checkpoint integration.
 
 ## Discovery Commands
 

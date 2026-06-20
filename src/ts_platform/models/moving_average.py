@@ -15,10 +15,19 @@ class MovingAverageForecastModel(BaseForecastModel):
         self,
         input_len: int,
         output_len: int,
-        num_features: int,
+        num_features: int | None = None,
         window_size: int | None = None,
+        *,
+        input_dim: int | None = None,
+        target_dim: int | None = None,
     ) -> None:
-        super().__init__(input_len, output_len, num_features)
+        super().__init__(
+            input_len,
+            output_len,
+            num_features,
+            input_dim=input_dim,
+            target_dim=target_dim,
+        )
         resolved_window_size = input_len if window_size is None else window_size
         if resolved_window_size <= 0:
             msg = "window_size must be positive"
@@ -31,10 +40,8 @@ class MovingAverageForecastModel(BaseForecastModel):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Return the moving average repeated over the forecast horizon."""
 
-        if x.ndim != 3:
-            msg = "x must be shaped [batch, input_len, num_features]"
-            raise ValueError(msg)
-        average = x[:, -self.window_size :, :].mean(dim=1, keepdim=True)
+        target_x = self.target_slice(x)
+        average = target_x[:, -self.window_size :, :].mean(dim=1, keepdim=True)
         return average.repeat(1, self.output_len, 1)
 
 

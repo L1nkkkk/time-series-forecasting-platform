@@ -72,6 +72,29 @@ def test_base_model_num_features_aliases_target_dim() -> None:
     assert model.num_features == model.target_dim
 
 
+def test_base_model_target_slice_feature_aware() -> None:
+    model = _DummyForecastModel(input_len=4, output_len=2, input_dim=3, target_dim=1)
+    x = torch.arange(24, dtype=torch.float32).reshape(2, 4, 3)
+
+    target_x = model.target_slice(x)
+
+    assert torch.equal(target_x, x[..., :1])
+
+
+def test_base_model_target_slice_rejects_wrong_input_dim() -> None:
+    model = _DummyForecastModel(input_len=4, output_len=2, input_dim=3, target_dim=1)
+
+    with pytest.raises(ValueError, match="x last dimension must match input_dim"):
+        model.target_slice(torch.randn(2, 4, 2))
+
+
+def test_base_model_target_slice_rejects_wrong_input_len() -> None:
+    model = _DummyForecastModel(input_len=4, output_len=2, input_dim=3, target_dim=1)
+
+    with pytest.raises(ValueError, match="x sequence length must match input_len"):
+        model.target_slice(torch.randn(2, 5, 3))
+
+
 def test_build_model_with_num_features_still_works() -> None:
     model = build_model(
         ModelConfig(name="linear"),
@@ -106,12 +129,73 @@ def test_build_model_target_only_dimensions_alias() -> None:
     assert model.num_features == 3
 
 
-def test_build_model_rejects_feature_aware_dimensions_until_model_migration() -> None:
-    with pytest.raises(ValueError, match="feature-aware model construction is not enabled"):
+def test_build_model_feature_aware_linear() -> None:
+    model = build_model(
+        ModelConfig(name="linear"),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_mlp() -> None:
+    model = build_model(
+        ModelConfig(name="mlp", params={"hidden_sizes": [8]}),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_rnn() -> None:
+    model = build_model(
+        ModelConfig(name="rnn", params={"hidden_size": 8}),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_tcn() -> None:
+    model = build_model(
+        ModelConfig(name="tcn", params={"hidden_channels": 8, "num_layers": 2}),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_statistical_baseline() -> None:
+    model = build_model(
+        ModelConfig(name="naive"),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_mixed_dimensions_still_rejected() -> None:
+    with pytest.raises(ValueError, match="Pass either num_features or input_dim/target_dim"):
         build_model(
             ModelConfig(name="linear"),
             input_len=8,
             output_len=2,
+            num_features=3,
             input_dim=5,
             target_dim=3,
         )
@@ -152,6 +236,103 @@ def test_model_forward_shapes_still_target_only() -> None:
 
     for model in models:
         assert model(x).shape == (4, 2, 2)
+
+
+def test_linear_feature_aware_shape() -> None:
+    model = LinearForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_mlp_feature_aware_shape() -> None:
+    model = MLPForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_rnn_feature_aware_shape() -> None:
+    model = RNNForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_gru_feature_aware_shape() -> None:
+    model = GRUForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_lstm_feature_aware_shape() -> None:
+    model = LSTMForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_tcn_feature_aware_shape() -> None:
+    model = TCNForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_trainable_model_rejects_wrong_input_dim() -> None:
+    model = LinearForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    with pytest.raises(ValueError, match="x last dimension must match input_dim"):
+        model(torch.randn(4, 6, 3))
+
+
+def test_statistical_model_rejects_wrong_input_dim() -> None:
+    model = NaiveLastValueModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    with pytest.raises(ValueError, match="x last dimension must match input_dim"):
+        model(torch.randn(4, 6, 3))
+
+
+def test_naive_feature_aware_uses_target_slice_only() -> None:
+    model = NaiveLastValueModel(input_len=4, output_len=2, input_dim=3, target_dim=1)
+    x = torch.tensor(
+        [[[1.0, 100.0, 200.0], [2.0, 100.0, 200.0], [3.0, 100.0, 200.0], [4.0, 100.0, 200.0]]]
+    )
+
+    assert model(x).tolist() == [[[4.0], [4.0]]]
+
+
+def test_moving_average_feature_aware_uses_target_slice_only() -> None:
+    model = MovingAverageForecastModel(
+        input_len=4,
+        output_len=2,
+        input_dim=3,
+        target_dim=1,
+        window_size=2,
+    )
+    x = torch.tensor(
+        [[[1.0, 100.0, 200.0], [2.0, 100.0, 200.0], [4.0, 100.0, 200.0], [8.0, 100.0, 200.0]]]
+    )
+
+    assert model(x).tolist() == [[[6.0], [6.0]]]
+
+
+def test_seasonal_naive_feature_aware_uses_target_slice_only() -> None:
+    model = SeasonalNaiveForecastModel(
+        input_len=5,
+        output_len=4,
+        input_dim=3,
+        target_dim=1,
+        season_length=3,
+    )
+    x = torch.tensor(
+        [
+            [
+                [1.0, 100.0, 200.0],
+                [2.0, 100.0, 200.0],
+                [3.0, 100.0, 200.0],
+                [4.0, 100.0, 200.0],
+                [5.0, 100.0, 200.0],
+            ]
+        ]
+    )
+
+    assert model(x).tolist() == [[[3.0], [4.0], [5.0], [3.0]]]
 
 
 def test_moving_average_model_shape() -> None:
