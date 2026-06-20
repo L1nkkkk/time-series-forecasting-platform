@@ -7,9 +7,10 @@ import torch
 
 from tests.helpers import tiny_config
 from ts_platform.data.csv_dataset import CSVForecastDataset
-from ts_platform.data.transforms import ScaledForecastingDataset
+from ts_platform.data.transforms import FeatureAwareScalerBundle, ScaledForecastingDataset
 from ts_platform.runner.trainer import Trainer
 from ts_platform.scaler.base import IdentityScaler
+from ts_platform.scaler.standard import StandardScaler
 
 FIXTURE = Path("tests/fixtures/tiny_series.csv")
 FEATURE_FIXTURE = Path("tests/fixtures/tiny_series_with_features.csv")
@@ -140,6 +141,20 @@ def test_csv_dataset_feature_cols_do_not_change_scaler_fit_values() -> None:
     assert values.flatten().tolist() == [float(value) for value in range(1, 21)]
 
 
+def test_csv_dataset_feature_scaler_fit_values() -> None:
+    dataset = _feature_dataset()
+
+    values = dataset.feature_scaler_fit_values()
+    assert values.tolist()[0] == [10.0, 1.0]
+    assert values.tolist()[-1] == [19.5, 0.0]
+
+
+def test_csv_dataset_feature_scaler_fit_values_shape() -> None:
+    dataset = _feature_dataset()
+
+    assert dataset.feature_scaler_fit_values().shape == (20, 2)
+
+
 def test_csv_dataset_rejects_missing_feature_column() -> None:
     with pytest.raises(ValueError, match="CSV feature columns are missing"):
         _feature_dataset(feature_cols=["missing"])
@@ -241,17 +256,110 @@ def test_csv_dataset_dimensions_with_feature_cols() -> None:
     assert dataset.dimensions.target_dim == 1
 
 
-def test_scaled_dataset_rejects_feature_aware_dataset_until_phase12c() -> None:
+def test_target_only_dataset_feature_scaler_fit_values_fails() -> None:
+    dataset = _dataset()
+
+    with pytest.raises(ValueError, match="dataset has no feature values for scaler fitting"):
+        dataset.feature_scaler_fit_values()
+
+
+def test_scaled_dataset_delegates_feature_scaler_fit_values() -> None:
+    dataset = _feature_dataset()
+    scaled = ScaledForecastingDataset(
+        dataset,
+        FeatureAwareScalerBundle(target=IdentityScaler(), features=IdentityScaler()),
+    )
+
+    assert torch.equal(scaled.feature_scaler_fit_values(), dataset.feature_scaler_fit_values())
+
+
+def test_feature_aware_scaler_bundle_target_only() -> None:
+    bundle = FeatureAwareScalerBundle(target=IdentityScaler())
+
+    assert bundle.target.fitted is True
+    assert bundle.features is None
+    assert not bundle.has_features()
+
+
+def test_feature_aware_scaler_bundle_with_features() -> None:
+    bundle = FeatureAwareScalerBundle(target=IdentityScaler(), features=IdentityScaler())
+
+    assert bundle.has_features()
+
+
+def test_scaled_dataset_feature_aware_requires_bundle() -> None:
     dataset = _feature_dataset()
 
     with pytest.raises(
-        NotImplementedError,
-        match="feature-aware scaling is not implemented until Phase 12C",
+        ValueError,
+        match="feature-aware datasets require FeatureAwareScalerBundle",
     ):
         ScaledForecastingDataset(dataset, IdentityScaler())
 
 
-def test_trainer_rejects_feature_aware_csv_until_phase12c(tmp_path) -> None:
+def test_scaled_dataset_feature_aware_requires_feature_scaler() -> None:
+    dataset = _feature_dataset()
+
+    with pytest.raises(ValueError, match="feature-aware datasets require feature scaler"):
+        ScaledForecastingDataset(dataset, FeatureAwareScalerBundle(target=IdentityScaler()))
+
+
+def test_scaled_dataset_feature_aware_scales_target_and_y_with_target_scaler() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    target_scaler = StandardScaler().fit(dataset.target_scaler_fit_values())
+    feature_scaler = StandardScaler().fit(dataset.feature_scaler_fit_values())
+    scaled = ScaledForecastingDataset(
+        dataset,
+        FeatureAwareScalerBundle(target=target_scaler, features=feature_scaler),
+    )
+
+    raw_sample = dataset[0]
+    sample = scaled[0]
+
+    assert torch.allclose(sample["target_x"], target_scaler.transform(raw_sample["target_x"]))
+    assert torch.allclose(sample["y"], target_scaler.transform(raw_sample["y"]))
+
+
+def test_scaled_dataset_feature_aware_scales_features_with_feature_scaler() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    target_scaler = StandardScaler().fit(dataset.target_scaler_fit_values())
+    feature_scaler = StandardScaler().fit(dataset.feature_scaler_fit_values())
+    scaled = ScaledForecastingDataset(
+        dataset,
+        FeatureAwareScalerBundle(target=target_scaler, features=feature_scaler),
+    )
+
+    raw_sample = dataset[0]
+    sample = scaled[0]
+
+    assert torch.allclose(sample["feature_x"], feature_scaler.transform(raw_sample["feature_x"]))
+
+
+def test_scaled_dataset_feature_aware_reconstructs_x_concatenation() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    target_scaler = StandardScaler().fit(dataset.target_scaler_fit_values())
+    feature_scaler = StandardScaler().fit(dataset.feature_scaler_fit_values())
+    scaled = ScaledForecastingDataset(
+        dataset,
+        FeatureAwareScalerBundle(target=target_scaler, features=feature_scaler),
+    )
+
+    sample = scaled[0]
+
+    assert torch.allclose(sample["x"], torch.cat([sample["target_x"], sample["feature_x"]], dim=-1))
+
+
+def test_scaled_dataset_feature_aware_preserves_metadata() -> None:
+    dataset = _feature_dataset()
+    scaled = ScaledForecastingDataset(
+        dataset,
+        FeatureAwareScalerBundle(target=IdentityScaler(), features=IdentityScaler()),
+    )
+
+    assert scaled[0]["metadata"] == dataset[0]["metadata"]
+
+
+def test_trainer_rejects_feature_aware_csv_until_phase12d(tmp_path) -> None:
     config = tiny_config(tmp_path, name="feature_csv_blocked")
     data = config.data.model_copy(
         update={
@@ -276,7 +384,7 @@ def test_trainer_rejects_feature_aware_csv_until_phase12c(tmp_path) -> None:
 
     with pytest.raises(
         NotImplementedError,
-        match="feature-aware scaling is not implemented until Phase 12C",
+        match="feature-aware training is not implemented until Phase 12D/12E",
     ):
         Trainer(config).run()
 
@@ -290,6 +398,41 @@ def test_scaled_dataset_target_only_still_works() -> None:
     assert scaled.target_dim == 1
     assert sample["x"].shape == (8, 1)
     assert sample["y"].shape == (2, 1)
+
+
+def test_trainer_target_only_csv_still_works(tmp_path) -> None:
+    config = tiny_config(tmp_path, name="target_only_csv")
+    data = config.data.model_copy(
+        update={
+            "name": "csv",
+            "input_len": 8,
+            "output_len": 2,
+            "batch_size": 4,
+            "train_ratio": 0.7,
+            "val_ratio": 0.15,
+            "test_ratio": 0.15,
+            "params": {
+                "path": str(FIXTURE),
+                "timestamp_col": "timestamp",
+                "target_cols": ["value"],
+                "missing_policy": "error",
+                "sort_by_time": True,
+            },
+        }
+    )
+    config = config.model_copy(update={"data": data})
+
+    result = Trainer(config).run()
+
+    assert result.checkpoint_path.exists()
+    assert "original" in result.test_metrics
+
+
+def test_trainer_synthetic_still_works(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="synthetic_still_works")).run()
+
+    assert result.checkpoint_path.exists()
+    assert "original" in result.test_metrics
 
 
 def test_csv_dataset_time_split_no_overlap() -> None:

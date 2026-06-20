@@ -158,10 +158,10 @@ the selected split. For example, `forward_fill` cannot propagate the final train
 row into the first validation row, and `drop` cannot change another split's row
 boundaries.
 
-Feature-aware CSV configs are still blocked from training until Phase 12C adds
-separate target and feature scaler support. `ScaledForecastingDataset` raises a
-clear `feature-aware scaling is not implemented until Phase 12C` error instead
-of silently training with the wrong scaling semantics.
+Feature-aware CSV batches can be scaled directly with
+`FeatureAwareScalerBundle`, which keeps target and feature scaler state
+separate at the dataset wrapper layer. Full feature-aware training is still
+blocked until the model, evaluator, and checkpoint paths migrate.
 
 Dataset catalog files such as
 [configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
@@ -204,8 +204,8 @@ is documented in
 [docs/exogenous_features_design.md](docs/exogenous_features_design.md), and
 implementation is intentionally split into Phase 12 steps. Phase 12A adds
 schema and compatibility infrastructure; Phase 12B adds CSV data-layer
-`feature_cols` support; Phase 12C and Phase 12D will handle split scalers and
-feature-aware model migration.
+`feature_cols` support; Phase 12C adds split target/feature scaler support;
+Phase 12D will handle feature-aware model migration.
 
 ## Discovery Commands
 

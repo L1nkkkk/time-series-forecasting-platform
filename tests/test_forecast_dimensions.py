@@ -48,6 +48,18 @@ def test_forecast_dimensions_num_features_alias() -> None:
     assert dimensions.num_features == 2
 
 
+def test_forecast_dimensions_feature_dim_target_only() -> None:
+    dimensions = ForecastDimensions(input_len=8, output_len=2, input_dim=3, target_dim=3)
+
+    assert dimensions.feature_dim == 0
+
+
+def test_forecast_dimensions_feature_dim_feature_aware() -> None:
+    dimensions = ForecastDimensions(input_len=8, output_len=2, input_dim=5, target_dim=2)
+
+    assert dimensions.feature_dim == 3
+
+
 def test_forecast_batch_allows_optional_metadata_runtime() -> None:
     batch: ForecastBatch = {
         "x": torch.zeros(8, 1),
@@ -117,6 +129,37 @@ def test_csv_dataset_dimensions_target_only() -> None:
     assert sample["y"].shape == (2, 1)
 
 
+def test_forecasting_dataset_exposes_feature_dim() -> None:
+    synthetic = SyntheticForecastDataset(
+        input_len=8,
+        output_len=2,
+        mode="train",
+        train_ratio=0.7,
+        val_ratio=0.15,
+        test_ratio=0.15,
+        length=32,
+        num_features=2,
+    )
+    csv = CSVForecastDataset(
+        input_len=8,
+        output_len=2,
+        mode="train",
+        train_ratio=0.5,
+        val_ratio=0.25,
+        test_ratio=0.25,
+        path=Path("tests/fixtures/tiny_series_with_features.csv"),
+        timestamp_col="timestamp",
+        target_cols=["value"],
+        feature_cols=["temperature", "holiday"],
+        missing_policy="error",
+    )
+
+    assert synthetic.feature_dim == 0
+    assert synthetic.dimensions.feature_dim == 0
+    assert csv.feature_dim == 2
+    assert csv.dimensions.feature_dim == 2
+
+
 def test_scaled_dataset_preserves_dimensions() -> None:
     dataset = SyntheticForecastDataset(
         input_len=6,
@@ -132,7 +175,9 @@ def test_scaled_dataset_preserves_dimensions() -> None:
 
     assert scaled.input_dim == dataset.input_dim
     assert scaled.target_dim == dataset.target_dim
+    assert scaled.feature_dim == dataset.feature_dim
     assert scaled.num_features == dataset.num_features
     assert scaled.dimensions == dataset.dimensions
+    assert scaled.dimensions.feature_dim == 0
     assert scaled[0]["x"].shape == (6, 2)
     assert scaled[0]["y"].shape == (2, 2)

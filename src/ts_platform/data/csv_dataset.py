@@ -157,6 +157,14 @@ class CSVForecastDataset(ForecastingDataset):
             raise ValueError(msg)
         return self._values
 
+    def feature_scaler_fit_values(self) -> torch.Tensor:
+        """Return feature values from this split for feature scaler fitting."""
+
+        if self._feature_values is None or self._feature_values.numel() == 0:
+            msg = "dataset has no feature values for scaler fitting"
+            raise ValueError(msg)
+        return self._feature_values
+
     def _load_frame(self) -> pd.DataFrame:
         if not self.path.exists():
             msg = f"CSV dataset file does not exist: {self.path}"
