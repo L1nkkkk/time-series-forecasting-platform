@@ -527,6 +527,63 @@ def test_sqlite_job_store_records_heartbeat_event(tmp_path: Path) -> None:
     ]
 
 
+def test_sqlite_list_stale_running_jobs(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_stale", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    stale = store.list_stale_running_jobs(older_than_seconds=60)
+
+    assert [item.job_id for item in stale] == [job.job_id]
+
+
+def test_sqlite_list_stale_running_jobs_uses_heartbeat(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_stale_heartbeat", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(replace(claimed.job, updated_at=old), touch=False)
+
+    assert store.list_stale_running_jobs(older_than_seconds=60) == []
+
+    with store._connect() as conn:
+        conn.execute(
+            "UPDATE job_attempts SET heartbeat_at = ? WHERE attempt_id = ?",
+            (old, claimed.attempt_id),
+        )
+
+    stale = store.list_stale_running_jobs(older_than_seconds=60)
+
+    assert [item.job_id for item in stale] == [job.job_id]
+
+
+def test_sqlite_list_stale_running_jobs_rejects_invalid_threshold(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with pytest.raises(ValueError, match="older_than_seconds must be > 0"):
+        store.list_stale_running_jobs(older_than_seconds=0)
+
+
+def test_sqlite_list_stale_running_jobs_does_not_mutate_status(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_stale_no_mutate", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    stale = store.list_stale_running_jobs(older_than_seconds=60)
+
+    assert [item.job_id for item in stale] == [job.job_id]
+    assert store.get_job(job.job_id).status == "running"
+
+
 def test_sqlite_claim_next_queued_job_returns_oldest(tmp_path: Path) -> None:
     store = _sqlite_store(tmp_path)
     first = store.create_job("train", "sqlite_oldest_first", {"config": 1})
@@ -670,6 +727,85 @@ def test_job_worker_records_failure(tmp_path: Path) -> None:
     assert finished.error is not None
     assert "worker boom" in finished.error
     assert store.list_attempts(job.job_id)[0]["status"] == "failed"
+
+
+def test_job_worker_records_heartbeat_event(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_heartbeat")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=_write_train_result,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.status == "succeeded"
+    event_types = [event["event_type"] for event in store.list_events(job.job_id)]
+    assert event_types.count("heartbeat") == 2
+    assert "attempt_succeeded" in event_types
+
+
+def test_job_worker_records_heartbeat_before_success(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_heartbeat_order")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=_write_train_result,
+    )
+
+    worker.run_once()
+
+    event_types = [event["event_type"] for event in store.list_events(job.job_id)]
+    success_index = event_types.index("job_succeeded")
+    assert event_types[success_index - 1] == "heartbeat"
+    assert event_types.index("attempt_succeeded") > success_index
+
+
+def test_job_worker_failure_preserves_original_error_when_heartbeat_fails(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    def fail_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        raise RuntimeError("worker boom")
+
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_heartbeat_failure")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    original_record_heartbeat = store.record_heartbeat
+    heartbeat_calls = 0
+
+    def flaky_record_heartbeat(attempt_id: int) -> dict[str, Any]:
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+        if heartbeat_calls > 1:
+            raise RuntimeError("heartbeat down")
+        return original_record_heartbeat(attempt_id)
+
+    monkeypatch.setattr(store, "record_heartbeat", flaky_record_heartbeat)
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=fail_train,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.status == "failed"
+    assert finished.error is not None
+    assert "worker boom" in finished.error
+    assert "heartbeat down" not in finished.error
+    attempt = store.list_attempts(job.job_id)[0]
+    assert attempt["status"] == "failed"
+    assert "worker boom" in attempt["error"]
 
 
 def test_job_worker_uses_safe_runs_root(tmp_path: Path) -> None:

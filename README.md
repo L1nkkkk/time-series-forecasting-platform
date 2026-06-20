@@ -26,6 +26,7 @@ The current MVP focuses on a runnable local training loop:
 - Local asynchronous train/compare jobs for the demo API.
 - Optional SQLite job metadata backend prototype for local jobs.
 - Local `worker-once` prototype for queued SQLite jobs.
+- SQLite job events/attempts inspection and finite `worker-loop` prototype.
 
 No BasicTS code is copied into this project.
 
@@ -180,7 +181,10 @@ py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run lat
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main show-job-events --job-id 20260619T120000Z_a1b2c3 --sqlite-db runs/jobs.sqlite3
+py -m ts_platform.cli.main show-job-attempts --job-id 20260619T120000Z_a1b2c3 --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
+py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --max-jobs 1
 ```
 
 `show-results` returns a train run `results.json` or a compare parent
@@ -194,7 +198,10 @@ default in the CLI, and artifact files larger than 5 MiB are rejected.
 default. The default job backend is JSON. The Phase 8A SQLite prototype stores
 metadata in `runs/jobs.sqlite3`; use `--job-backend sqlite` with
 `--sqlite-db runs/jobs.sqlite3` for read-only CLI inspection of SQLite jobs.
-`worker-once` claims and runs at most one queued SQLite job, then exits.
+`show-job-events` and `show-job-attempts` read SQLite observability rows as
+JSON. `worker-once` claims and runs at most one queued SQLite job, then exits.
+`worker-loop` repeats the same worker path with finite `--max-jobs` and
+`--max-idle-cycles` bounds.
 CLI job submission is intentionally not provided because a one-shot CLI process
 cannot keep an in-process background executor alive after exit.
 
@@ -317,6 +324,7 @@ py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run lat
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
+py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --max-jobs 1
 ```
 
 ## API Demo
@@ -341,6 +349,8 @@ Available endpoints:
 - `POST /jobs/compare`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/events`
+- `GET /jobs/{job_id}/attempts`
 - `GET /jobs/{job_id}/result`
 - `GET /jobs/{job_id}/logs`
 - `POST /jobs/{job_id}/cancel`
@@ -382,6 +392,11 @@ metadata in `runs/jobs.sqlite3` behind the unchanged `/jobs` API while still
 writing request snapshots under `runs/jobs/<job_id>/request_config.json`.
 `APISettings.job_execution_mode = "external_worker"` makes SQLite-backed submit
 endpoints queue only; `worker-once` then claims and executes one queued job.
+SQLite-backed jobs also expose `GET /jobs/{job_id}/events` and
+`GET /jobs/{job_id}/attempts`; JSON backend requests to those endpoints return
+HTTP 400 because JSON jobs do not have event or attempt tables. `worker-loop`
+is a finite local polling helper, not a daemon. Worker heartbeats are minimal
+claim/success/failure markers and do not implement timeout recovery.
 `GET /jobs/{job_id}/result` returns the saved `results.json` only after the job
 has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
 current status and error field. Cancelling a queued job marks it `cancelled`.

@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 
 from ts_platform.api.jobs.factory import build_job_runner, validate_job_execution_settings
 from ts_platform.api.jobs.runner import JobRunner
+from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.jobs.store import (
     JobNotFoundError,
     JobStoreError,
@@ -67,6 +68,30 @@ def list_jobs() -> dict[str, list[dict[str, Any]]]:
     try:
         return {"jobs": [job.to_dict() for job in get_job_runner().store.list_jobs()]}
     except JobStoreError as exc:
+        _raise_job_error(exc)
+
+
+@router.get("/jobs/{job_id}/events")
+def get_job_events(job_id: str) -> list[dict[str, Any]]:
+    """Read SQLite audit events for one job."""
+
+    try:
+        store = _sqlite_store_for_observability("events")
+        store.get_job(job_id)
+        return store.list_events(job_id)
+    except (UnsafeJobIdError, JobNotFoundError, JobStoreError) as exc:
+        _raise_job_error(exc)
+
+
+@router.get("/jobs/{job_id}/attempts")
+def get_job_attempts(job_id: str) -> list[dict[str, Any]]:
+    """Read SQLite worker attempts for one job."""
+
+    try:
+        store = _sqlite_store_for_observability("attempts")
+        store.get_job(job_id)
+        return store.list_attempts(job_id)
+    except (UnsafeJobIdError, JobNotFoundError, JobStoreError) as exc:
         _raise_job_error(exc)
 
 
@@ -185,6 +210,13 @@ def _runner_settings() -> APISettings:
         jobs_root=JOBS_ROOT,
         sqlite_jobs_db_path=SQLITE_JOBS_DB_PATH,
     )
+
+
+def _sqlite_store_for_observability(feature: str) -> SQLiteJobStore:
+    store = get_job_runner().store
+    if not isinstance(store, SQLiteJobStore):
+        raise HTTPException(status_code=400, detail=f"job {feature} require sqlite backend")
+    return store
 
 
 def _raise_job_error(

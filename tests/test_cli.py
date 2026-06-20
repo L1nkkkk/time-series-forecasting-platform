@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from tests.helpers import tiny_config
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
-from ts_platform.api.jobs.store import JobStore
+from ts_platform.api.jobs.store import JobStore, UnsafeJobIdError
 from ts_platform.api.services.artifact_service import ArtifactAccessForbiddenError
 from ts_platform.api.services.experiment_store import (
     ExperimentArtifactNotFoundError,
@@ -554,6 +554,68 @@ def test_cli_show_job_sqlite_backend(tmp_path, capsys) -> None:
     assert payload["job_type"] == "compare"
 
 
+def test_cli_show_job_events(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_events", {"config": True})
+
+    exit_code = main(
+        [
+            "show-job-events",
+            "--job-id",
+            job.job_id,
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert [event["event_type"] for event in payload] == ["job_created"]
+
+
+def test_cli_show_job_attempts(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_attempts", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="cli_worker")
+    assert claimed is not None
+
+    exit_code = main(
+        [
+            "show-job-attempts",
+            "--job-id",
+            job.job_id,
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload[0]["attempt_id"] == claimed.attempt_id
+    assert payload[0]["worker_id"] == "cli_worker"
+
+
+def test_cli_show_job_events_rejects_unsafe_job_id(tmp_path) -> None:
+    with pytest.raises(UnsafeJobIdError, match="job_id"):
+        main(
+            [
+                "show-job-events",
+                "--job-id",
+                "../escape",
+                "--jobs-root",
+                str(tmp_path / "jobs"),
+                "--sqlite-db",
+                str(tmp_path / "jobs.sqlite3"),
+            ]
+        )
+
+
 def test_cli_list_jobs_rejects_unknown_backend(capsys) -> None:
     with pytest.raises(SystemExit) as exc_info:
         main(["list-jobs", "--job-backend", "memory"])
@@ -612,6 +674,124 @@ def test_cli_worker_once_rejects_unsafe_worker_id(tmp_path) -> None:
         main(
             [
                 "worker-once",
+                "--jobs-root",
+                str(tmp_path / "jobs"),
+                "--sqlite-db",
+                str(tmp_path / "jobs.sqlite3"),
+                "--worker-id",
+                "bad worker",
+            ]
+        )
+
+
+def test_cli_worker_loop_idle(tmp_path, capsys) -> None:
+    exit_code = main(
+        [
+            "worker-loop",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--sleep-seconds",
+            "0",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload == {
+        "worker_id": "local_worker",
+        "processed": 0,
+        "idle_cycles": 1,
+        "jobs": [],
+    }
+
+
+def test_cli_worker_loop_processes_one_job(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    config = tiny_config(tmp_path / "requested", name="cli_worker_loop")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+
+    exit_code = main(
+        [
+            "worker-loop",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--worker-id",
+            "loop_worker",
+            "--sleep-seconds",
+            "0",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["worker_id"] == "loop_worker"
+    assert payload["processed"] == 1
+    assert payload["idle_cycles"] == 0
+    assert payload["jobs"][0]["job_id"] == job.job_id
+    assert payload["jobs"][0]["status"] == "succeeded"
+
+
+def test_cli_worker_loop_respects_max_jobs(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    first_config = tiny_config(tmp_path / "requested", name="cli_worker_loop_first")
+    second_config = tiny_config(tmp_path / "requested", name="cli_worker_loop_second")
+    first = store.create_job(
+        "train", first_config.experiment.name, first_config.model_dump(mode="json")
+    )
+    second = store.create_job(
+        "train",
+        second_config.experiment.name,
+        second_config.model_dump(mode="json"),
+    )
+
+    exit_code = main(
+        [
+            "worker-loop",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--max-jobs",
+            "1",
+            "--sleep-seconds",
+            "0",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+    statuses = [store.get_job(job.job_id).status for job in (first, second)]
+
+    assert exit_code == 0
+    assert payload["processed"] == 1
+    assert statuses.count("succeeded") == 1
+    assert statuses.count("queued") == 1
+
+
+def test_cli_worker_loop_rejects_invalid_max_jobs(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["worker-loop", "--max-jobs", "0"])
+
+    assert exc_info.value.code == 2
+    assert "--max-jobs must be >= 1" in capsys.readouterr().err
+
+
+def test_cli_worker_loop_rejects_unsafe_worker_id(tmp_path) -> None:
+    with pytest.raises(ValueError, match="worker_id"):
+        main(
+            [
+                "worker-loop",
                 "--jobs-root",
                 str(tmp_path / "jobs"),
                 "--sqlite-db",
