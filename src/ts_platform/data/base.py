@@ -42,6 +42,12 @@ class ForecastDimensions:
 
         return self.target_dim
 
+    @property
+    def feature_dim(self) -> int:
+        """Number of input-only feature columns."""
+
+        return self.input_dim - self.target_dim
+
 
 class _OptionalForecastBatchFields(TypedDict, total=False):
     target_x: torch.Tensor
@@ -63,6 +69,7 @@ class ForecastingDataset(Dataset[ForecastBatch], ABC):
     output_len: int
     input_dim: int
     target_dim: int
+    feature_dim: int
     num_features: int
 
     @property
@@ -87,3 +94,14 @@ class ForecastingDataset(Dataset[ForecastBatch], ABC):
     @abstractmethod
     def scaler_fit_values(self) -> torch.Tensor:
         """Return values that should be used to fit scalers."""
+
+    def target_scaler_fit_values(self) -> torch.Tensor:
+        """Return values that should be used to fit the target scaler."""
+
+        return self.scaler_fit_values()
+
+    def feature_scaler_fit_values(self) -> torch.Tensor:
+        """Return values that should be used to fit the feature scaler."""
+
+        msg = "dataset has no feature values for scaler fitting"
+        raise ValueError(msg)

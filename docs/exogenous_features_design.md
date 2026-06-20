@@ -11,7 +11,8 @@ The current trainable platform supports CSV `target_cols` only. That is enough
 for target-only baselines and early model comparison, but full training still
 cannot represent datasets where the model should learn from exogenous columns
 without predicting those columns. Phase 12B adds the CSV dataset/batch layer for
-those columns while leaving scaler and model migration to later phases.
+those columns, and Phase 12C adds dataset-level split target/feature scaling
+while leaving model, evaluator, and checkpoint migration to later phases.
 
 ## Current State
 
@@ -41,12 +42,12 @@ enabling exogenous runtime behavior. Target-only datasets expose
 resolve either old `num_features` arguments or target-only
 `input_dim`/`target_dim` arguments.
 
-Phase 12B does not enable full feature-aware training. The current
-`ScaledForecastingDataset` rejects `input_dim != target_dim` with
-`feature-aware scaling is not implemented until Phase 12C`, so Trainer fails
-clearly instead of silently scaling feature and target columns as one tensor.
-Scaler splitting, feature-aware model forwards, and checkpoint schema expansion
-remain later phases.
+Phase 12C enables `ScaledForecastingDataset` to scale feature-aware samples
+with `FeatureAwareScalerBundle`. The target scaler transforms `target_x` and
+`y`, the feature scaler transforms `feature_x`, and `x` is reconstructed from
+the scaled slices. Trainer still fails clearly for `input_dim != target_dim`
+with `feature-aware training is not implemented until Phase 12D/12E`, so full
+model, evaluator, and checkpoint integration remain later phases.
 
 ## Proposed Semantics
 
@@ -243,7 +244,8 @@ data:
 Backward compatibility rules:
 
 - Configs without `feature_cols` keep current behavior.
-- Configs with `feature_cols` remain rejected until Phase 12 enables them.
+- CSV datasets can validate and batch `feature_cols`, but Trainer keeps
+  feature-aware configs blocked until the model/evaluator/checkpoint phases.
 - Old `data.scaler.name` configs remain valid.
 - New nested scaler configs should be introduced with schema migration tests.
 
@@ -301,6 +303,9 @@ Phase 12C: Scaler split support
 - Add target scaler and feature scaler plumbing.
 - Fit both scalers from training-period values only.
 - Inverse-transform only target predictions and labels.
+- Support feature-aware batch scaling through `FeatureAwareScalerBundle`.
+- Keep Trainer blocked for feature-aware configs until the model/evaluator and
+  checkpoint paths understand `input_dim != target_dim`.
 
 Phase 12D: Model interface migration
 
@@ -344,7 +349,8 @@ Model shape tests:
 
 Training smoke tests:
 
-- A tiny CSV with target and feature columns trains for one epoch.
+- A tiny CSV with target and feature columns is rejected by Trainer until the
+  model/evaluator/checkpoint phases are complete.
 - Original-scale metrics are target-only.
 - Checkpoint resume validates dimensions and column metadata.
 

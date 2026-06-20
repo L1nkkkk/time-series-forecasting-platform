@@ -104,9 +104,10 @@ These models can migrate to consume `input_dim` and project to
 `output_len * target_dim`.
 
 Phase 12A prepares this by allowing `BaseForecastModel` and `build_model` to
-resolve target-only `input_dim`/`target_dim` arguments, but the concrete model
-forward methods are not feature-aware yet. `build_model(input_dim !=
-target_dim)` remains rejected until the model interface migration phase.
+resolve target-only `input_dim`/`target_dim` arguments. Phase 12C adds
+dataset-level split scaling for feature-aware batches, but the concrete model
+forward methods are still not feature-aware. `build_model(input_dim !=
+target_dim)` remains rejected until the Phase 12D model interface migration.
 
 Statistical baselines remain target-only by default:
 
@@ -123,7 +124,9 @@ design.
 ## Current Limitations
 
 - Probabilistic forecasting is not supported.
-- Exogenous feature columns are not supported.
+- Feature-aware model forwards are not supported yet; dataset-level
+  `feature_cols` and split scaling exist, but model construction still rejects
+  `input_dim != target_dim`.
 - Recurrent models use direct projection, not an autoregressive decoder.
 - TCN is a lightweight baseline, not a complex SOTA implementation.
 - The model zoo is designed for local CPU smoke tests and simple comparisons;

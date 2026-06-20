@@ -86,10 +86,11 @@ Feature-aware CSV samples also include:
 - `feature_x`: exogenous feature-history slice.
 - `metadata`: target columns, feature columns, and dimension metadata.
 
-`ScaledForecastingDataset` still supports target-only datasets only. It rejects
-feature-aware datasets with `feature-aware scaling is not implemented until
-Phase 12C`, so feature-aware CSV configs are not silently trained before the
-split target/feature scaler migration.
+`ScaledForecastingDataset` supports target-only datasets with the old single
+scaler path and can scale feature-aware samples with a
+`FeatureAwareScalerBundle`. In feature-aware mode, the target scaler transforms
+`target_x` and `y`, the feature scaler transforms `feature_x`, and the returned
+`x` is reconstructed as `concat(scaled_target_x, scaled_feature_x)`.
 
 ## Missing Values
 
@@ -210,18 +211,19 @@ target-only in the planned end state. Feature columns do not enter `y`, target
 scaler inverse transforms, or target metrics.
 
 Full feature-aware training is intentionally still blocked. The current single
-`ScaledForecastingDataset` cannot scale target and feature slices separately,
-so feature-aware CSV configs raise `feature-aware scaling is not implemented
-until Phase 12C`.
+model/evaluator/checkpoint path cannot consume `input_dim != target_dim`, so
+Trainer rejects feature-aware CSV configs with `feature-aware training is not
+implemented until Phase 12D/12E`.
 
 See [exogenous_features_design.md](exogenous_features_design.md) for the full
 interface, scaler, checkpoint, and migration plan.
 
 ## Current Limits
 
-Feature-aware CSV datasets can be constructed and inspected directly, but
-training with `feature_cols` is blocked until Phase 12C adds split target and
-feature scaling and later phases migrate model/checkpoint integration.
+Feature-aware CSV datasets can be constructed, inspected, and scaled directly
+with split target/feature scalers. Full training with `feature_cols` remains
+blocked until later phases migrate model, evaluator, and checkpoint
+integration.
 
 Profiling currently supports local CSV files only. Remote URLs and parquet
 files are not supported.
