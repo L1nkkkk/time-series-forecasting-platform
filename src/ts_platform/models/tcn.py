@@ -52,13 +52,22 @@ class TCNForecastModel(BaseForecastModel):
         self,
         input_len: int,
         output_len: int,
-        num_features: int,
+        num_features: int | None = None,
         hidden_channels: int = 32,
         num_layers: int = 3,
         kernel_size: int = 3,
         dropout: float = 0.0,
+        *,
+        input_dim: int | None = None,
+        target_dim: int | None = None,
     ) -> None:
-        super().__init__(input_len, output_len, num_features)
+        super().__init__(
+            input_len,
+            output_len,
+            num_features,
+            input_dim=input_dim,
+            target_dim=target_dim,
+        )
         if hidden_channels <= 0:
             msg = "hidden_channels must be positive"
             raise ValueError(msg)
@@ -73,7 +82,7 @@ class TCNForecastModel(BaseForecastModel):
             raise ValueError(msg)
 
         layers: list[nn.Module] = []
-        in_channels = num_features
+        in_channels = self.input_dim
         for layer_index in range(num_layers):
             dilation = 2**layer_index
             layers.append(
@@ -87,20 +96,18 @@ class TCNForecastModel(BaseForecastModel):
             )
             in_channels = hidden_channels
         self.network = nn.Sequential(*layers)
-        self.projection = nn.Linear(hidden_channels, output_len * num_features)
+        self.projection = nn.Linear(hidden_channels, output_len * self.target_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Run TCN encoder and project the final hidden step to the horizon."""
 
-        if x.ndim != 3:
-            msg = "x must be shaped [batch, input_len, num_features]"
-            raise ValueError(msg)
+        self.validate_input(x)
         batch_size = x.shape[0]
         features_first = x.transpose(1, 2)
         encoded = self.network(features_first)
         final_step = encoded[:, :, -1]
         output = self.projection(final_step)
-        return cast(torch.Tensor, output.reshape(batch_size, self.output_len, self.num_features))
+        return cast(torch.Tensor, output.reshape(batch_size, self.output_len, self.target_dim))
 
 
 if "tcn" not in MODEL_REGISTRY.names():

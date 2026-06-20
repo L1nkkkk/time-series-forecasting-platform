@@ -106,7 +106,7 @@ class Trainer:
         val_dataset = build_dataset(self.config.data, "val", self.config.experiment.seed)
         test_dataset = build_dataset(self.config.data, "test", self.config.experiment.seed)
         if train_dataset.input_dim != train_dataset.target_dim:
-            msg = "feature-aware training is not implemented until Phase 12D/12E"
+            msg = "feature-aware training is not implemented until Phase 12E"
             raise NotImplementedError(msg)
 
         if resume_checkpoint is not None:
