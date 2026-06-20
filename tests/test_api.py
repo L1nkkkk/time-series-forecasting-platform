@@ -17,6 +17,7 @@ from ts_platform.config.schema import (
     ScalerConfig,
     TrainingConfig,
 )
+from ts_platform.data import DATASET_CATALOG, DatasetMetadata
 from ts_platform.runner.comparer import CompareRunner
 from ts_platform.runner.trainer import Trainer
 
@@ -173,6 +174,82 @@ def test_api_datasets_loads_local_catalog() -> None:
 
     assert response.status_code == 200
     assert any(item["name"] == "tiny_csv" for item in datasets)
+
+
+def test_api_get_dataset_detail() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/tiny_csv")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["name"] == "tiny_csv"
+    assert payload["dataset_type"] == "csv"
+    assert payload["path"] == "tests/fixtures/tiny_series.csv"
+
+
+def test_api_get_dataset_detail_missing_returns_404() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/missing_dataset")
+
+    assert response.status_code == 404
+
+
+def test_api_profile_dataset_from_catalog() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/tiny_csv/profile", params={"input_len": 8, "output_len": 2})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["name"] == "tiny_csv"
+    assert payload["exists"] is True
+    assert payload["row_count"] == 90
+    assert payload["can_build_windows"] is True
+
+
+def test_api_profile_dataset_does_not_accept_arbitrary_path(tmp_path) -> None:
+    outside = tmp_path / "outside.csv"
+    outside.write_text("timestamp,value\n2024-01-01,999\n", encoding="utf-8")
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/tiny_csv/profile", params={"path": str(outside)})
+
+    assert response.status_code == 422
+    assert "path" in response.text
+
+
+def test_api_profile_dataset_missing_file_returns_exists_false(tmp_path) -> None:
+    DATASET_CATALOG.register(
+        DatasetMetadata(
+            name="missing_profile_csv",
+            dataset_type="csv",
+            domain="demo",
+            description="Missing profile CSV",
+            source=str(tmp_path / "missing.csv"),
+            path=str(tmp_path / "missing.csv"),
+            target_cols=["value"],
+            timestamp_col="timestamp",
+        )
+    )
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/missing_profile_csv/profile")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["exists"] is False
+    assert "missing file" in payload["warnings"]
+
+
+def test_api_profile_dataset_rejects_non_csv_dataset() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/datasets/synthetic/profile")
+
+    assert response.status_code == 400
+    assert "only supports csv" in response.text
 
 
 def test_api_experiments_lists_run_metadata(tmp_path, monkeypatch) -> None:

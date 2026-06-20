@@ -20,6 +20,8 @@ The current MVP focuses on a runnable local training loop:
 - Versioned checkpoints that can restore model, scaler, and optimizer state.
 - Strict CSV parameter validation, split-local missing-value handling, and
   dataset catalog discovery.
+- CSV dataset profiling, catalog profiling, and config generation from catalog
+  metadata.
 - Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
 - Artifact manifests that make train and compare outputs discoverable.
 - Safe manifest-based artifact downloads for JSON, YAML, CSV, and log files.
@@ -168,6 +170,26 @@ py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.ya
 
 Registering catalog metadata with an existing name overwrites the previous
 metadata entry.
+
+Profile one local CSV without training or cleaning it:
+
+```bash
+py -m ts_platform.cli.main profile-dataset --path tests/fixtures/tiny_series.csv --target-cols value --timestamp-col timestamp --input-len 8 --output-len 2
+```
+
+Profile CSV entries from a catalog:
+
+```bash
+py -m ts_platform.cli.main profile-catalog --catalog configs/datasets/local_csv.yaml --input-len 8 --output-len 2
+```
+
+Generate a training config from catalog metadata:
+
+```bash
+py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/local_csv.yaml --dataset tiny_csv --output /tmp/tiny_csv_generated.yaml --input-len 8 --output-len 2 --model linear --epochs 1
+```
+
+The generated config is a normal training YAML. It is not run automatically.
 
 ## Discovery Commands
 
@@ -334,6 +356,9 @@ py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
 py -m ts_platform.cli.main list-datasets
 py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
+py -m ts_platform.cli.main profile-dataset --path tests/fixtures/tiny_series.csv --target-cols value --timestamp-col timestamp --input-len 8 --output-len 2
+py -m ts_platform.cli.main profile-catalog --catalog configs/datasets/local_csv.yaml --input-len 8 --output-len 2
+py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/local_csv.yaml --dataset tiny_csv --output /tmp/tiny_csv_generated.yaml --input-len 8 --output-len 2 --model linear --epochs 1
 py -m ts_platform.cli.main list-models
 py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
 py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
@@ -358,6 +383,8 @@ Available endpoints:
 
 - `GET /health`
 - `GET /datasets`
+- `GET /datasets/{dataset_name}`
+- `GET /datasets/{dataset_name}/profile`
 - `GET /models`
 - `GET /experiments`
 - `GET /experiments/{experiment_name}/{run_id}/results`
@@ -389,6 +416,11 @@ their configs.
 incomplete run directories. Train summaries include checkpoint and test metric
 metadata. Compare summaries include the parent compare run id, primary metric,
 success/failure counts, and leaderboard paths.
+
+`GET /datasets/{dataset_name}` returns catalog metadata. `GET
+/datasets/{dataset_name}/profile` profiles only local CSV datasets already
+described in the catalog and accepts only optional `input_len` and `output_len`
+query parameters. It does not accept arbitrary paths and does not train.
 
 Result lookup path parameters must be safe path components containing only
 letters, numbers, `_`, `-`, and `.`. `run_id` also accepts `latest`. Path

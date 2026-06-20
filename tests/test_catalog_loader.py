@@ -18,7 +18,7 @@ def test_dataset_catalog_loader() -> None:
     assert registered[0].path == "tests/fixtures/tiny_series.csv"
 
 
-def test_catalog_duplicate_name_overwrites_or_rejects_documented_behavior() -> None:
+def test_catalog_duplicate_name_overwrites_documented() -> None:
     catalog = DatasetCatalog()
     catalog.register(
         DatasetMetadata(
@@ -47,3 +47,75 @@ def test_catalog_loader_rejects_invalid_schema(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="field 'dataset_type'"):
         load_dataset_catalog(catalog_path)
+
+
+def test_catalog_loader_rejects_missing_name(tmp_path) -> None:
+    catalog_path = tmp_path / "missing_name.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - dataset_type: csv\n"
+        "    domain: demo\n"
+        "    description: Missing name\n"
+        "    path: tests/fixtures/tiny_series.csv\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="field 'name'"):
+        load_dataset_catalog(catalog_path)
+
+
+def test_catalog_loader_rejects_csv_without_path(tmp_path) -> None:
+    catalog_path = tmp_path / "csv_without_path.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: no_path\n"
+        "    dataset_type: csv\n"
+        "    domain: demo\n"
+        "    description: Missing path\n"
+        "    target_cols: [value]\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="path.*required for csv"):
+        load_dataset_catalog(catalog_path)
+
+
+def test_catalog_loader_rejects_target_cols_string(tmp_path) -> None:
+    catalog_path = tmp_path / "target_cols_string.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: bad_targets\n"
+        "    dataset_type: csv\n"
+        "    domain: demo\n"
+        "    description: Bad target cols\n"
+        "    path: tests/fixtures/tiny_series.csv\n"
+        "    target_cols: value\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="target_cols"):
+        load_dataset_catalog(catalog_path)
+
+
+def test_catalog_loader_accepts_valid_csv_metadata(tmp_path) -> None:
+    catalog_path = tmp_path / "valid_csv.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: valid_csv\n"
+        "    dataset_type: csv\n"
+        "    domain: demo\n"
+        "    description: Valid CSV\n"
+        "    path: tests/fixtures/tiny_series.csv\n"
+        "    timestamp_col: timestamp\n"
+        "    target_cols: [value]\n"
+        "    frequency: D\n"
+        "    license: test-fixture\n",
+        encoding="utf-8",
+    )
+
+    metadata = load_dataset_catalog(catalog_path)
+
+    assert metadata[0].name == "valid_csv"
+    assert metadata[0].path == "tests/fixtures/tiny_series.csv"
+    assert metadata[0].timestamp_col == "timestamp"
+    assert metadata[0].target_cols == ["value"]
