@@ -233,8 +233,9 @@ interface, scaler, checkpoint, and migration plan.
 Feature-aware CSV datasets can be constructed, inspected, and scaled directly
 with split target/feature scalers. Model forwards can consume the resulting
 `input_dim` and return `target_dim`, and Trainer can run feature-aware CSV
-training. Feature-aware compare/model-zoo smoke coverage remains a later Phase
-12F task.
+training. Compare can also run feature-aware CSV configs, including the
+lightweight model zoo smoke in
+`configs/examples/compare_feature_forecast.yaml`.
 
 Profiling currently supports local CSV files only. Remote URLs and parquet
 files are not supported.

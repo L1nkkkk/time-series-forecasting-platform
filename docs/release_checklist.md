@@ -1,19 +1,15 @@
-# Contributing
+# Release Checklist
 
-## Setup
+## Code Quality
 
-Install the project in editable mode with development dependencies:
+- `python -m pytest`
+- `ruff check .`
+- `ruff format --check .`
+- `mypy src`
 
-```bash
-pip install -e ".[dev]"
-```
+## CLI Smoke
 
-On Windows, use the Python launcher or the project Python installation if
-`python` points at the Windows Store shim.
-
-## Run Tests
-
-Run the final quality gate before publishing a branch:
+Run the full local smoke gate before publishing a release branch:
 
 ```bash
 python -m pytest
@@ -39,28 +35,49 @@ python -m ts_platform.cli.main show-artifact --experiment compare_feature_foreca
 python -m ts_platform.cli.main list-jobs
 ```
 
-Do not commit generated `runs/` artifacts, `runs/jobs.sqlite3`, checkpoints, or
-temporary generated configs. Every PR must report the tests and smoke commands
-that were actually run.
+## API Smoke
 
-## Branch Naming
+Optionally start the local demo API:
 
-Use short-lived branches from `main`. Automation branches should use the
-`codex/` prefix unless the repository owner requests a different convention.
+```bash
+uvicorn ts_platform.api.app:create_app --factory
+```
 
-## Coding Style
+Suggested checks:
 
-- Keep changes scoped to the requested behavior.
-- Prefer existing module boundaries and helper APIs.
-- Add tests for new behavior.
-- Keep generated run artifacts out of commits.
-- Do not add external services or dependencies without an explicit design
-  decision.
+- `GET /health`
+- `GET /datasets`
+- `GET /models`
+- `GET /experiments`
+- `POST /jobs/train`
+- `GET /jobs`
 
-## PR Checklist
+API smoke is intentionally manual for this release checklist.
 
-- Summary explains the intent and scope.
-- Tests and quality gates are reported.
-- Documentation is updated when behavior or architecture changes.
-- Security-sensitive path handling is covered by tests.
-- No secrets, generated run outputs, or local environment files are committed.
+## Artifact Safety
+
+- `artifacts.json` exists for train and compare runs.
+- `show-artifacts` works.
+- `show-artifact leaderboard_json` works.
+- Checkpoint download remains blocked by default.
+
+## Job Safety
+
+- `list-jobs` works.
+- SQLite job store remains optional.
+- No `runs/jobs.sqlite3` is committed.
+
+## Documentation
+
+- README updated.
+- CHANGELOG updated.
+- docs/roadmap updated.
+- docs/demo_guide updated.
+
+## Repository Hygiene
+
+- No `runs/` artifacts.
+- No checkpoints.
+- No secrets.
+- No local env files.
+- No temporary generated YAML under repo root.

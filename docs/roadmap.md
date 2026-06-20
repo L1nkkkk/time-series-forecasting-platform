@@ -336,90 +336,53 @@ Notes: This phase keeps `Trainer`, `Evaluator`, and checkpoint behavior as the
 single source of truth. Statistical baselines ignore feature slices; trainable
 models consume the full `input_dim`.
 
+### Phase 13: Release Hardening / Final Project Polish
+
+Goal: Bring the MVP to a deliverable state without adding large new runtime
+features.
+
+Delivered:
+
+- Expanded changelog coverage for the completed MVP.
+- Final contributor quality gate and release checklist.
+- Demo guide for local presentation workflows.
+- Final report outline for coursework/project reporting.
+- README demo entry points.
+- Leaderboard format clarification for feature-aware metadata.
+- Documentation tests for release materials.
+
+Non-goals:
+
+- New model families.
+- Redis, Celery, Kubernetes, or Web UI work.
+- Trainer or CompareRunner rewrites.
+
+Notes: This phase documents the release process and presentation path. It does
+not change the core training, compare, jobs, or artifact execution model.
+
 ## Recommended Next Phases
 
-### Phase 12: Exogenous Features Implementation
+### Phase 14: CLI Modularization
 
-Goal: Add controlled support for exogenous feature columns after the design is
-accepted.
+Goal: Split the growing CLI into smaller command modules without changing the
+user-facing command surface.
 
-Staged plan:
+### Phase 15: UI Dashboard
 
-- Phase 12A: Data schema and ForecastBatch migration. Completed as a
-  compatibility-only layer.
-- Phase 12B: `CSVForecastDataset` feature_cols support. Completed.
-- Phase 12C: Scaler split support. Completed.
-- Phase 12D: Model interface migration. Completed.
-- Phase 12E: Trainer/Evaluator/checkpoint integration. Completed.
-- Phase 12F: Compare/model zoo exogenous smoke tests. Completed.
+Goal: Prototype a small dashboard that reads existing API surfaces for
+experiments, jobs, results, leaderboards, and artifacts.
 
-Deliverables:
+### Phase 16: Production Queue Backend
 
-- CSV `feature_cols` parsing and validation.
-- Target/input dimension tracking with `input_dim` and `target_dim`.
-- `x` built from target history plus feature history.
-- `y` kept target-only.
-- Target scaler and feature scaler plumbing.
-- Feature-aware model support for trainable models.
-- Target-only behavior for statistical baselines.
-- Checkpoint/result metadata for target and feature columns.
-- Tests that prove split-local missing-value handling still cannot leak across
-  train/validation/test boundaries.
+Goal: Replace the local queue prototype with a production-ready worker backend
+when operational requirements justify it.
 
-Non-goals:
+### Phase 17: Auth / Multi-user Isolation
 
-- Remote feature stores.
-- Multi-tenant dataset permissions.
-- Probabilistic forecasting.
-- Automatic holiday/calendar feature generation.
-- Future-known covariate decoding.
+Goal: Add authentication, authorization, ownership, and artifact isolation for
+multi-user deployments.
 
-Acceptance criteria:
+### Phase 18: Advanced Forecasting Models
 
-- Existing target-only configs keep working.
-- Feature-aware configs train with supported models.
-- Target-only baselines ignore feature slices and report target-only metrics.
-- Checkpoint resume validates dimensions and column metadata.
-- Compare/model zoo smoke tests cover exogenous configurations.
-
-### Phase 13: Observability and Release
-
-Goal: Make operations and releases easier to inspect.
-
-Deliverables:
-
-- Structured logs.
-- Metrics design or lightweight implementation.
-- Release checklist.
-- Changelog discipline.
-
-Non-goals:
-
-- Full tracing platform.
-- Hosted monitoring stack.
-
-Acceptance criteria:
-
-- Job lifecycle, compare outcomes, and model zoo failures are auditable.
-- Releases have repeatable checks and documented changes.
-
-### Phase 14: Optional UI / Dashboard
-
-Goal: Provide a small dashboard only after API and storage boundaries are
-stable.
-
-Deliverables:
-
-- Experiment list view.
-- Job status view.
-- Result and artifact links.
-
-Non-goals:
-
-- Multi-user SaaS.
-- Complex workflow editor.
-
-Acceptance criteria:
-
-- UI uses existing APIs without requiring API redesign.
-- Artifact access remains policy-controlled.
+Goal: Explore richer forecasting models after the platform, data, safety, and
+release processes are stable.

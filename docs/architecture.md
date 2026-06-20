@@ -173,49 +173,53 @@ Datasets expose `ForecastDimensions` through `dataset.dimensions`:
 - `target_dim`: forecast target width.
 - `num_features`: target-only compatibility alias for `target_dim`.
 
-In the current target-only runtime, `input_dim == target_dim == num_features`.
-`Trainer` still uses `dataset.num_features` when building models, and existing
-configs, compare runs, jobs, artifacts, profiling, and checkpoints keep their
-old behavior.
+In target-only runs, `input_dim == target_dim == num_features`. In
+feature-aware CSV runs, `input_dim` includes target history plus feature
+history, while `target_dim` remains the number of forecast target columns.
+`Trainer` and `CompareRunner` build models with the explicit
+`input_dim`/`target_dim` boundary and keep `num_features` as a target-only
+compatibility alias.
 
 Datasets yield `ForecastBatch` dictionaries with required fields:
 
-- `x`: history tensor shaped `[input_len, num_features]`
-- `y`: target tensor shaped `[output_len, num_features]`
+- `x`: history tensor shaped `[input_len, input_dim]`
+- `y`: target tensor shaped `[output_len, target_dim]`
 
-The batch type reserves optional `target_x`, `feature_x`, and `metadata`
-fields for later exogenous phases. Current datasets still return only `x` and
-`y`, and runner code still consumes only those fields.
+Feature-aware CSV samples also expose optional `target_x`, `feature_x`, and
+`metadata` fields. Runner code keeps consuming the required `x` and `y`
+contract, while scaler, checkpoint, result, and leaderboard paths use the
+metadata needed for safe feature-aware behavior.
 
 DataLoader batches become:
 
-- `x`: `[batch, input_len, num_features]`
-- `y`: `[batch, output_len, num_features]`
+- `x`: `[batch, input_len, input_dim]`
+- `y`: `[batch, output_len, target_dim]`
 
 Models must return predictions shaped like `y`. Built-in models produce direct
 multi-step forecasts: one forward pass returns the whole output horizon shaped
-`[batch, output_len, num_features]`. The recurrent models encode the input
+`[batch, output_len, target_dim]`. The recurrent models encode the input
 history and project the final hidden state to the horizon; the TCN encodes the
 history with causal-ish temporal convolutions and projects the final hidden time
 step. Neither path uses autoregressive decoding in the current model zoo.
 
 Evaluation receives scaled model outputs and scaled targets. It computes
-original-scale metrics by inverse-transforming both predictions and targets
-before calling the metrics registry. When configured, scaled-space metrics are
-also recorded under a separate `scaled` key.
+original-scale metrics by inverse-transforming predictions and targets through
+the target scaler before calling the metrics registry. Feature columns never
+enter `y`, inverse transforms, or metrics. When configured, scaled-space
+metrics are also recorded under a separate `scaled` key.
 
-## Planned Exogenous Feature Architecture
+## Feature-aware CSV Architecture
 
-Phase 11 documented the future exogenous feature interface. Phase 12A adds the
-compatibility dimension layer (`input_dim`, `target_dim`, and optional
-ForecastBatch fields) while runtime support remains target-only.
+Phase 11 documented the exogenous feature interface, and Phase 12 implemented
+it in staged pieces through data, scaler, model, trainer, checkpoint, and
+compare integration.
 
 Data layer responsibilities:
 
 - Keep `target_cols` as the forecast target definition.
-- Add `feature_cols` later as input-only CSV columns.
-- Build future `x` tensors from target history plus feature history.
-- Keep future `y` tensors target-only.
+- Treat `feature_cols` as input-only CSV columns.
+- Build `x` tensors from target history plus feature history.
+- Keep `y` tensors target-only.
 - Preserve split-local missing-value handling.
 
 Scaler responsibilities:

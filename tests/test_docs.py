@@ -42,3 +42,30 @@ def test_phase11_exogenous_feature_links_are_documented() -> None:
     assert "## Exogenous Features" in readme
     assert "## Exogenous Feature Columns" in data_format
     assert "## Exogenous Feature Support" in model_zoo
+
+
+def test_phase13_release_docs_exist() -> None:
+    expected_paths = [
+        "docs/release_checklist.md",
+        "docs/demo_guide.md",
+        "docs/final_report_outline.md",
+    ]
+
+    for relative_path in expected_paths:
+        assert (ROOT / relative_path).is_file(), relative_path
+
+
+def test_phase13_readme_links_release_docs() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "docs/demo_guide.md" in readme
+    assert "docs/release_checklist.md" in readme
+    assert "docs/final_report_outline.md" in readme
+
+
+def test_phase13_changelog_mentions_release_capabilities() -> None:
+    changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert "Feature-aware training" in changelog
+    assert "Feature-aware compare" in changelog
+    assert "Checkpoint schema v2" in changelog
