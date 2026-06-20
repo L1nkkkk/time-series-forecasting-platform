@@ -74,6 +74,7 @@ API / CLI artifact request
   -> ExperimentStore reads artifacts.json
   -> safe artifact_name exact match in manifest
   -> manifest path resolves under runs root
+  -> manifest path resolves under current run_dir or compare_run_dir
   -> kind, checkpoint, file existence, and size checks
   -> FileResponse or CLI text output
 ```
@@ -211,10 +212,18 @@ experiment run.
 `ExperimentStore.read_artifacts()` so experiment and run id validation stay in
 one place, then requires `artifact_name` to be a safe path component and an
 exact manifest entry name. It never accepts a client path. The manifest path is
-resolved and checked against the fixed runs root, and the file must exist before
-kind policy and size policy allow access. JSON, YAML, CSV, and log files are
-downloadable by default. Checkpoints are denied unless policy explicitly enables
-them, and files over 5 MiB are rejected.
+resolved and checked against the fixed runs root, then checked against the
+current run boundary recorded in the same manifest: `run_dir` for train runs or
+`compare_run_dir` for compare parent runs. This double check rejects both
+outside-root paths and cross-run paths under the same root. The file must exist
+before kind policy and size policy allow access. JSON, YAML, CSV, and log files
+are downloadable by default. Checkpoints are denied unless policy explicitly
+enables them, and files over 5 MiB are rejected by the default policy.
+
+API routes build `ArtifactAccessPolicy` from `APISettings`, including
+`artifact_max_bytes`, `artifact_allowed_kinds`, and
+`allow_checkpoint_download`. CLI reads instantiate `ArtifactService` with the
+default safe policy, so the CLI continues to reject checkpoint downloads.
 
 ## Artifact Manifests
 

@@ -117,11 +117,25 @@ fixed runs root.
 - The requested name must match one `artifacts.json` entry exactly.
 - Clients never pass artifact paths.
 - The manifest path must resolve inside the fixed runs root.
+- The manifest path must also resolve inside the current run directory recorded
+  in the manifest: `run_dir` for train runs or `compare_run_dir` for compare
+  runs.
+- Cross-run manifest paths are rejected even when they stay under the same
+  runs root.
 - The file must exist and be a regular file.
 - Allowed kinds are `json`, `yaml`, `csv`, and `log` by default.
 - Checkpoint downloads are blocked by default because checkpoints can be large
   binary model state and may include sensitive training metadata.
 - Downloadable files are limited to 5 MiB by default.
+
+The API builds its artifact access policy from `APISettings`:
+
+- `artifact_max_bytes`: maximum downloadable artifact size.
+- `artifact_allowed_kinds`: allowed non-checkpoint artifact kinds.
+- `allow_checkpoint_download`: explicit checkpoint download switch.
+
+The CLI uses the default `ArtifactService` policy and does not expose a
+checkpoint download switch.
 
 The default media types are:
 

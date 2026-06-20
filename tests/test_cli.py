@@ -365,6 +365,49 @@ def test_cli_show_artifact_rejects_checkpoint_by_default(tmp_path) -> None:
         )
 
 
+def test_cli_show_artifact_rejects_cross_run_artifact_path(tmp_path) -> None:
+    run_dir = tmp_path / "cli_artifact" / "latest"
+    other_run_dir = tmp_path / "other_cli_artifact" / "latest"
+    run_dir.mkdir(parents=True)
+    other_run_dir.mkdir(parents=True)
+    other_artifact_path = other_run_dir / "secret.json"
+    other_artifact_path.write_text('{"secret": true}', encoding="utf-8")
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "compare",
+                "experiment_name": "cli_artifact",
+                "compare_run_id": "latest",
+                "compare_run_dir": str(run_dir),
+                "artifacts": [
+                    {
+                        "name": "secret",
+                        "kind": "json",
+                        "path": str(other_artifact_path),
+                        "description": "Cross-run artifact",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(UnsafePathComponentError, match="escapes run directory"):
+        main(
+            [
+                "show-artifact",
+                "--experiment",
+                "cli_artifact",
+                "--run",
+                "latest",
+                "--artifact",
+                "secret",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+
+
 def test_cli_show_results_rejects_unsafe_path_component(tmp_path) -> None:
     with pytest.raises(UnsafePathComponentError, match="experiment_name"):
         main(

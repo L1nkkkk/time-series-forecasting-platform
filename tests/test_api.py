@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
 from ts_platform.api.routes import experiments
+from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -480,6 +481,124 @@ def test_api_download_rejects_large_artifact(tmp_path, monkeypatch) -> None:
     response = client.get("/experiments/api_download_large/latest/artifacts/large_csv")
 
     assert response.status_code == 413
+
+
+def test_api_download_rejects_cross_run_artifact_path(tmp_path, monkeypatch) -> None:
+    other_run_dir = tmp_path / "api_download_other" / "latest"
+    other_run_dir.mkdir(parents=True)
+    other_artifact_path = other_run_dir / "secret.json"
+    other_artifact_path.write_text('{"secret": true}', encoding="utf-8")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_cross_run",
+        artifacts=[
+            {
+                "name": "secret",
+                "kind": "json",
+                "path": str(other_artifact_path),
+                "description": "Cross-run artifact",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_cross_run/latest/artifacts/secret")
+
+    assert response.status_code == 400
+    assert "escapes run directory" in response.text
+
+
+def test_api_download_uses_settings_max_bytes(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_settings_size" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "small.csv"
+    artifact_path.write_text("abcd", encoding="utf-8")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_settings_size",
+        artifacts=[
+            {
+                "name": "small_csv",
+                "kind": "csv",
+                "path": str(artifact_path),
+                "description": "Small CSV",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(experiments, "API_SETTINGS", APISettings(artifact_max_bytes=3))
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_settings_size/latest/artifacts/small_csv")
+
+    assert response.status_code == 413
+
+
+def test_api_download_checkpoint_allowed_when_settings_enable_it(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_settings_checkpoint" / "latest"
+    run_dir.mkdir(parents=True)
+    checkpoint_path = run_dir / "checkpoint.pt"
+    checkpoint_path.write_bytes(b"checkpoint")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_settings_checkpoint",
+        artifacts=[
+            {
+                "name": "checkpoint",
+                "kind": "checkpoint",
+                "path": str(checkpoint_path),
+                "description": "Checkpoint",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        experiments,
+        "API_SETTINGS",
+        APISettings(allow_checkpoint_download=True),
+    )
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/experiments/api_download_settings_checkpoint/latest/artifacts/checkpoint"
+    )
+
+    assert response.status_code == 200
+    assert response.content == b"checkpoint"
+    assert response.headers["content-type"].startswith("application/octet-stream")
+
+
+def test_api_download_rejects_kind_not_in_settings_allowed_kinds(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_settings_kind" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "leaderboard.csv"
+    artifact_path.write_text("rank,model\n1,naive\n", encoding="utf-8")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_settings_kind",
+        artifacts=[
+            {
+                "name": "leaderboard_csv",
+                "kind": "csv",
+                "path": str(artifact_path),
+                "description": "CSV payload",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    monkeypatch.setattr(
+        experiments,
+        "API_SETTINGS",
+        APISettings(artifact_allowed_kinds=("json",)),
+    )
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/experiments/api_download_settings_kind/latest/artifacts/leaderboard_csv"
+    )
+
+    assert response.status_code == 403
 
 
 def test_api_download_corrupt_manifest_returns_500(tmp_path, monkeypatch) -> None:

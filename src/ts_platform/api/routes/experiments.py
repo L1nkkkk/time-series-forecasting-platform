@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from ts_platform.api.services.artifact_service import (
     ArtifactAccessForbiddenError,
+    ArtifactAccessPolicy,
     ArtifactService,
     ArtifactTooLargeError,
 )
@@ -25,7 +26,8 @@ from ts_platform.config.compare_schema import CompareConfig
 from ts_platform.config.schema import PlatformConfig
 
 router = APIRouter()
-RUNS_ROOT = APISettings().runs_root
+API_SETTINGS = APISettings()
+RUNS_ROOT = API_SETTINGS.runs_root
 
 
 @router.get("/experiments")
@@ -86,7 +88,7 @@ def download_experiment_artifact(
     """Download one safe artifact registered in a run manifest."""
 
     try:
-        artifact = ArtifactService(RUNS_ROOT).resolve_artifact(
+        artifact = ArtifactService(RUNS_ROOT, policy=_artifact_access_policy()).resolve_artifact(
             experiment_name,
             run_id,
             artifact_name,
@@ -136,3 +138,11 @@ def _raise_http_error(
     if isinstance(exc, ArtifactTooLargeError):
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+def _artifact_access_policy() -> ArtifactAccessPolicy:
+    return ArtifactAccessPolicy(
+        max_bytes=API_SETTINGS.artifact_max_bytes,
+        allow_checkpoint_download=API_SETTINGS.allow_checkpoint_download,
+        allowed_kinds=frozenset(API_SETTINGS.artifact_allowed_kinds),
+    )
