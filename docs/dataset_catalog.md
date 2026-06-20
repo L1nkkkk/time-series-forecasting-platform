@@ -33,13 +33,16 @@ Recommended fields for local CSV entries:
 
 - `path`: local CSV path. Required when `dataset_type: csv`.
 - `timestamp_col`: optional timestamp column.
-- `target_cols`: optional list of target columns. If present, it must be a
-  list of strings.
+- `target_cols`: optional list of target columns for discovery-only metadata.
+  If present, it must be a list of strings. CSV profiling and
+  `make-config-from-catalog` require it; missing `target_cols` produces a
+  profile warning or a config-generation error.
 - `frequency`: optional documented frequency.
 - `license`: optional license label.
 
 `source` and `citation` are optional free-text metadata fields. When `source`
-is omitted, the loader uses `path` for CSV entries.
+is omitted, the loader uses `path` for CSV entries. A catalog is metadata only:
+loading it does not train a model, clean data, or download remote datasets.
 
 ## Validation
 

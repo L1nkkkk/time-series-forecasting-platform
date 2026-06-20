@@ -240,6 +240,7 @@ def test_api_profile_dataset_missing_file_returns_exists_false(tmp_path) -> None
 
     assert response.status_code == 200
     assert payload["exists"] is False
+    assert payload["can_build_windows"] is False
     assert "missing file" in payload["warnings"]
 
 
