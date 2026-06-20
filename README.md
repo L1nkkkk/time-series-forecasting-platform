@@ -6,7 +6,9 @@ by BasicTS: datasets, scalers, models, metrics, runners, and configs are
 separate modules with small public interfaces and registry-based extension
 points.
 
-The current MVP focuses on a runnable local training loop:
+## Project Capability Summary
+
+The current MVP focuses on a runnable local forecasting platform:
 
 - Synthetic forecasting dataset.
 - Local CSV forecasting dataset with time-based splits.
@@ -30,8 +32,16 @@ The current MVP focuses on a runnable local training loop:
 - Local `worker-once` prototype for queued SQLite jobs.
 - SQLite job events/attempts inspection and finite `worker-loop` prototype.
 - Explicit SQLite retry/timeout policy prototype for local jobs.
+- Feature-aware CSV training and feature-aware compare with target-only
+  metrics.
 
 No BasicTS code is copied into this project.
+
+## Demo Materials
+
+- [docs/demo_guide.md](docs/demo_guide.md)
+- [docs/release_checklist.md](docs/release_checklist.md)
+- [docs/final_report_outline.md](docs/final_report_outline.md)
 
 ## Installation
 
@@ -94,7 +104,8 @@ py -m ts_platform.cli.main compare --config configs/examples/compare_feature_for
 
 The feature-aware compare config uses target and feature columns together. The
 trainable models consume the full target-plus-feature history, while the
-statistical baselines stay target-only and ignore the feature slice.
+statistical baselines stay target-only and ignore the feature slice. Metrics
+remain target-only for both feature-aware training and feature-aware compare.
 
 ## Metrics
 

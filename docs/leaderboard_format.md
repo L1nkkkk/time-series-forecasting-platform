@@ -40,6 +40,10 @@ discovered through the artifact manifest API or CLI.
 - `test_<metric>`: one column per configured evaluation metric, populated from
   `test_metrics.original`.
 
+Target-only rows can report `feature_aware: false`, `feature_dim: 0`, and an
+empty `feature_cols` array. Synthetic or non-CSV rows can also have empty
+`target_cols` when no source column names exist.
+
 ## CSV Columns
 
 `leaderboard.csv` uses the same fields in this order:

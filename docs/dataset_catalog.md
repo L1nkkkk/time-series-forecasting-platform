@@ -109,6 +109,7 @@ return 200 with `exists: false` and a warning.
 - Local CSV only.
 - No parquet support.
 - No remote dataset download.
-- No exogenous `feature_cols`.
+- Catalog entries are discovery/config-generation metadata and do not
+  automatically launch feature-aware training.
 - No automatic training from catalog metadata.
 - No user-submitted arbitrary path profiling through the API.
