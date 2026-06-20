@@ -23,8 +23,8 @@ class JobStoreError(ValueError):
     """Raised when job metadata cannot be read or written safely."""
 
 
-class JobStore:
-    """Persist job metadata under one fixed jobs root."""
+class JsonJobStore:
+    """Persist job metadata as JSON under one fixed jobs root."""
 
     def __init__(self, jobs_root: Path) -> None:
         self.jobs_root = Path(jobs_root)
@@ -249,3 +249,6 @@ class JobStore:
         if not resolved_path.is_relative_to(self._resolved_root):
             msg = f"job path escapes jobs root: {path}"
             raise UnsafeJobIdError(msg)
+
+
+JobStore = JsonJobStore

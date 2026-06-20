@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 from typing import Any
@@ -10,9 +11,19 @@ from typing import Any
 import pytest
 
 from tests.helpers import tiny_config
+from ts_platform.api.jobs.base import JobStoreProtocol
+from ts_platform.api.jobs.factory import build_job_store
 from ts_platform.api.jobs.models import JOB_STATUS_VALUES, JobRecord, make_job_id, utc_now
 from ts_platform.api.jobs.runner import JobRunner
-from ts_platform.api.jobs.store import JobNotFoundError, JobStore, JobStoreError, UnsafeJobIdError
+from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
+from ts_platform.api.jobs.store import (
+    JobNotFoundError,
+    JobStore,
+    JobStoreError,
+    JsonJobStore,
+    UnsafeJobIdError,
+)
+from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -48,6 +59,10 @@ def _compare_config(tmp_path: Path, *, name: str = "job_compare") -> CompareConf
         primary_metric="mae",
         continue_on_error=True,
     )
+
+
+def _sqlite_store(tmp_path: Path) -> SQLiteJobStore:
+    return SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
 
 
 def test_job_record_serializes_roundtrip() -> None:
@@ -89,6 +104,42 @@ def test_job_status_values() -> None:
         "cancel_requested",
         "cancelled",
     }
+
+
+def test_json_job_store_implements_protocol(tmp_path: Path) -> None:
+    assert isinstance(JsonJobStore(tmp_path / "jobs"), JobStoreProtocol)
+
+
+def test_sqlite_job_store_implements_protocol(tmp_path: Path) -> None:
+    assert isinstance(_sqlite_store(tmp_path), JobStoreProtocol)
+
+
+def test_job_store_factory_builds_json_store(tmp_path: Path) -> None:
+    store = build_job_store(APISettings(job_backend="json", jobs_root=tmp_path / "jobs"))
+
+    assert isinstance(store, JsonJobStore)
+
+
+def test_job_store_factory_builds_sqlite_store(tmp_path: Path) -> None:
+    store = build_job_store(
+        APISettings(
+            job_backend="sqlite",
+            jobs_root=tmp_path / "jobs",
+            sqlite_jobs_db_path=tmp_path / "jobs.sqlite3",
+        )
+    )
+
+    assert isinstance(store, SQLiteJobStore)
+
+
+def test_job_store_factory_rejects_unknown_backend(tmp_path: Path) -> None:
+    settings = APISettings(
+        job_backend="memory",  # type: ignore[arg-type]
+        jobs_root=tmp_path / "jobs",
+    )
+
+    with pytest.raises(ValueError, match="unsupported job backend"):
+        build_job_store(settings)
 
 
 def test_job_store_creates_job_files(tmp_path: Path) -> None:
@@ -186,6 +237,230 @@ def test_job_store_request_cancel_for_running_job(tmp_path: Path) -> None:
 
     assert cancelled.status == "cancel_requested"
     assert cancelled.finished_at is None
+
+
+def test_sqlite_job_store_creates_db(tmp_path: Path) -> None:
+    db_path = tmp_path / "jobs.sqlite3"
+
+    SQLiteJobStore(tmp_path / "jobs", db_path)
+
+    assert db_path.is_file()
+
+
+def test_sqlite_job_store_creates_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    job = store.create_job("train", "sqlite_create", {"config": True})
+
+    assert job.status == "queued"
+    assert (tmp_path / "jobs" / job.job_id / "request_config.json").is_file()
+    assert not (tmp_path / "jobs" / job.job_id / "job.json").exists()
+
+
+def test_sqlite_job_store_reads_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    created = store.create_job("train", "sqlite_read", {"config": True})
+
+    read = store.get_job(created.job_id)
+
+    assert read == created
+
+
+def test_sqlite_job_store_lists_jobs(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    first = store.create_job("train", "sqlite_first", {"config": 1})
+    second = store.create_job("compare", "sqlite_second", {"config": 2})
+
+    jobs = store.list_jobs()
+
+    assert len(jobs) == 2
+    assert {job.job_id for job in jobs} == {first.job_id, second.job_id}
+
+
+def test_sqlite_job_store_updates_status(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_update", {"config": True})
+
+    updated = store.update_job(replace(job, status="running", started_at=utc_now()))
+
+    assert updated.status == "running"
+    assert store.get_job(job.job_id).status == "running"
+
+
+def test_sqlite_job_store_mark_succeeded(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_success", {"config": True})
+
+    succeeded = store.mark_succeeded(
+        job.job_id,
+        run_id="run_1",
+        compare_run_id=None,
+        result_path=str(tmp_path / "runs" / "results.json"),
+        artifacts_path=str(tmp_path / "runs" / "artifacts.json"),
+    )
+
+    assert succeeded.status == "succeeded"
+    assert succeeded.run_id == "run_1"
+    assert succeeded.finished_at is not None
+
+
+def test_sqlite_job_store_mark_failed(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_failed", {"config": True})
+
+    failed = store.mark_failed(job.job_id, "boom")
+
+    assert failed.status == "failed"
+    assert failed.error == "boom"
+    assert failed.finished_at is not None
+
+
+def test_sqlite_job_store_request_cancel_queued(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_cancel", {"config": True})
+
+    cancelled = store.request_cancel(job.job_id)
+
+    assert cancelled.status == "cancelled"
+    assert cancelled.finished_at is not None
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_cancelled",
+    ]
+
+
+def test_sqlite_job_store_request_cancel_running(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_cancel_running", {"config": True})
+    store.mark_running(job.job_id)
+
+    cancelled = store.request_cancel(job.job_id)
+
+    assert cancelled.status == "cancel_requested"
+    assert cancelled.finished_at is None
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_running",
+        "cancel_requested",
+    ]
+
+
+def test_sqlite_job_store_rejects_unsafe_job_id(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with pytest.raises(UnsafeJobIdError, match="job_id"):
+        store.get_job("../escape")
+
+
+def test_sqlite_job_store_missing_job_is_clear_error(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with pytest.raises(JobNotFoundError, match="does not exist"):
+        store.get_job("20260619T120000Z_a1b2c3")
+
+
+def test_sqlite_job_store_persists_across_instances(tmp_path: Path) -> None:
+    first_store = _sqlite_store(tmp_path)
+    job = first_store.create_job("train", "sqlite_persist", {"config": True})
+    second_store = _sqlite_store(tmp_path)
+
+    assert second_store.get_job(job.job_id) == job
+
+
+def test_sqlite_job_store_writes_request_config_snapshot(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("compare", "sqlite_snapshot", {"config": {"nested": True}})
+
+    snapshot_path = Path(job.config_snapshot_path)
+
+    assert snapshot_path.is_file()
+    assert json.loads(snapshot_path.read_text(encoding="utf-8")) == {"config": {"nested": True}}
+
+
+def test_sqlite_job_store_records_created_event(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_events_create", {"config": True})
+
+    events = store.list_events(job.job_id)
+
+    assert [event["event_type"] for event in events] == ["job_created"]
+    assert events[0]["payload"]["job_type"] == "train"
+
+
+def test_sqlite_job_store_records_status_transition_events(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_events", {"config": True})
+
+    store.mark_running(job.job_id)
+    store.mark_succeeded(
+        job.job_id,
+        run_id="run_1",
+        compare_run_id=None,
+        result_path=str(tmp_path / "runs" / "results.json"),
+        artifacts_path=str(tmp_path / "runs" / "artifacts.json"),
+    )
+
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_running",
+        "job_succeeded",
+    ]
+
+
+def test_sqlite_job_store_lists_events(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_events_list", {"config": True})
+    store.append_event(job.job_id, "custom_event", message="hello", payload={"ok": True})
+
+    events = store.list_events(job.job_id)
+
+    assert [event["event_type"] for event in events] == ["job_created", "custom_event"]
+    assert events[1]["message"] == "hello"
+    assert events[1]["payload"] == {"ok": True}
+
+
+def test_job_runner_accepts_sqlite_store(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    runner = JobRunner(store=store, runs_root=tmp_path / "runs")
+    try:
+        assert runner.store is store
+    finally:
+        runner.shutdown()
+
+
+def test_job_runner_train_succeeds_with_sqlite_store(tmp_path: Path) -> None:
+    runner = JobRunner(store=_sqlite_store(tmp_path), runs_root=tmp_path / "runs")
+    try:
+        job = runner.submit_train(tiny_config(tmp_path / "requested", name="sqlite_runner_train"))
+
+        finished = runner.wait(job.job_id, timeout=30)
+
+        assert finished.status == "succeeded"
+        assert finished.run_id
+        assert finished.result_path is not None
+        assert Path(finished.result_path).is_file()
+        assert [event["event_type"] for event in runner.store.list_events(job.job_id)] == [
+            "job_created",
+            "job_running",
+            "job_succeeded",
+        ]
+    finally:
+        runner.shutdown()
+
+
+def test_job_runner_compare_succeeds_with_sqlite_store(tmp_path: Path) -> None:
+    runner = JobRunner(store=_sqlite_store(tmp_path), runs_root=tmp_path / "runs")
+    try:
+        job = runner.submit_compare(_compare_config(tmp_path / "requested", name="sqlite_compare"))
+
+        finished = runner.wait(job.job_id, timeout=30)
+
+        assert finished.status == "succeeded"
+        assert finished.compare_run_id
+        assert finished.leaderboard_json_path is not None
+        assert Path(finished.leaderboard_json_path).is_file()
+    finally:
+        runner.shutdown()
 
 
 def test_job_runner_train_succeeds(tmp_path: Path) -> None:

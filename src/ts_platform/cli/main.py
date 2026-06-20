@@ -7,9 +7,11 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
-from ts_platform.api.jobs.store import JobStore
+from ts_platform.api.jobs.base import JobStoreProtocol
+from ts_platform.api.jobs.factory import build_job_store
 from ts_platform.api.services.artifact_service import ArtifactService
 from ts_platform.api.services.experiment_store import ExperimentStore
+from ts_platform.api.settings import APISettings
 from ts_platform.data import DATASET_CATALOG, DATASET_REGISTRY, register_dataset_catalog
 from ts_platform.models.registry import registered_model_names
 from ts_platform.runner.comparer import CompareRunner
@@ -93,17 +95,39 @@ def build_parser() -> argparse.ArgumentParser:
 
     list_jobs_parser = subparsers.add_parser("list-jobs", help="List local API jobs")
     list_jobs_parser.add_argument(
+        "--job-backend",
+        choices=("json", "sqlite"),
+        default="json",
+        help="Job backend to inspect",
+    )
+    list_jobs_parser.add_argument(
         "--jobs-root",
         default="runs/jobs",
         help="Jobs root to read from",
+    )
+    list_jobs_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to read when --job-backend sqlite",
     )
 
     show_job_parser = subparsers.add_parser("show-job", help="Show one local API job")
     show_job_parser.add_argument("--job-id", required=True, help="Job id to read")
     show_job_parser.add_argument(
+        "--job-backend",
+        choices=("json", "sqlite"),
+        default="json",
+        help="Job backend to inspect",
+    )
+    show_job_parser.add_argument(
         "--jobs-root",
         default="runs/jobs",
         help="Jobs root to read from",
+    )
+    show_job_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to read when --job-backend sqlite",
     )
     return parser
 
@@ -166,11 +190,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(content, end="")
         return 0
     if args.command == "list-jobs":
-        jobs_payload = [job.to_dict() for job in JobStore(Path(args.jobs_root)).list_jobs()]
+        jobs_payload = [job.to_dict() for job in _job_store_from_args(args).list_jobs()]
         print(json.dumps({"jobs": jobs_payload}, indent=2, sort_keys=True))
         return 0
     if args.command == "show-job":
-        job_payload = JobStore(Path(args.jobs_root)).get_job(args.job_id).to_dict()
+        job_payload = _job_store_from_args(args).get_job(args.job_id).to_dict()
         print(json.dumps(job_payload, indent=2, sort_keys=True))
         return 0
     parser.error(f"unknown command: {args.command}")
@@ -183,6 +207,16 @@ def _read_text_artifact(path: Path) -> str:
     except UnicodeDecodeError as exc:
         msg = f"artifact is not UTF-8 text: {path}"
         raise ValueError(msg) from exc
+
+
+def _job_store_from_args(args: argparse.Namespace) -> JobStoreProtocol:
+    return build_job_store(
+        APISettings(
+            job_backend=args.job_backend,
+            jobs_root=Path(args.jobs_root),
+            sqlite_jobs_db_path=Path(args.sqlite_db),
+        )
+    )
 
 
 if __name__ == "__main__":

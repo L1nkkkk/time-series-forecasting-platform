@@ -10,7 +10,9 @@ from fastapi.testclient import TestClient
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
 from ts_platform.api.jobs.runner import JobRunner
+from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.routes import jobs
+from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -215,6 +217,36 @@ def test_api_list_jobs(tmp_path: Path, monkeypatch: Any, request: Any) -> None:
 
     assert response.status_code == 200
     assert [job["job_id"] for job in response.json()["jobs"]] == [submitted["job_id"]]
+
+
+def test_api_jobs_can_use_sqlite_backend(tmp_path: Path, monkeypatch: Any, request: Any) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "API_SETTINGS",
+        APISettings(
+            job_backend="sqlite",
+            runs_root=tmp_path / "runs",
+            jobs_root=tmp_path / "jobs",
+            sqlite_jobs_db_path=tmp_path / "jobs.sqlite3",
+        ),
+    )
+    monkeypatch.setattr(jobs, "RUNS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    monkeypatch.setattr(jobs, "SQLITE_JOBS_DB_PATH", tmp_path / "jobs.sqlite3")
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", None)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_sqlite_job").model_dump(mode="json")
+
+    response = client.post("/jobs/train", json=config)
+    payload = response.json()
+    runner = jobs._JOB_RUNNER
+
+    assert response.status_code == 200
+    assert runner is not None
+    assert isinstance(runner.store, SQLiteJobStore)
+    assert runner.wait(payload["job_id"], timeout=30).status == "succeeded"
+    assert (tmp_path / "jobs.sqlite3").is_file()
 
 
 def test_api_list_jobs_skips_corrupt_metadata(

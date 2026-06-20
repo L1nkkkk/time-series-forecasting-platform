@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
+from ts_platform.api.jobs.base import JobStoreProtocol
 from ts_platform.api.jobs.models import JobRecord
 from ts_platform.api.jobs.store import JobStore
 from ts_platform.api.services.compare_service import compare_with_safe_output_dir
@@ -25,13 +26,19 @@ class JobRunner:
     def __init__(
         self,
         *,
-        jobs_root: Path,
         runs_root: Path,
+        jobs_root: Path | None = None,
+        store: JobStoreProtocol | None = None,
         max_workers: int = 1,
         train_func: TrainJobFunc | None = None,
         compare_func: CompareJobFunc | None = None,
     ) -> None:
-        self.store = JobStore(jobs_root)
+        if store is None:
+            if jobs_root is None:
+                msg = "jobs_root is required when store is not provided"
+                raise ValueError(msg)
+            store = JobStore(jobs_root)
+        self.store = store
         self.runs_root = Path(runs_root)
         self._resolved_runs_root = self.runs_root.resolve()
         self._executor = ThreadPoolExecutor(

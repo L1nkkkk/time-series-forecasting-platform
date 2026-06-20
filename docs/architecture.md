@@ -27,8 +27,9 @@ code, no third-party notice is required beyond documenting the design reference.
   and compare work to small service layers, read saved metadata through
   `ExperimentStore`, and resolve safe artifact downloads through
   `ArtifactService`.
-- `api/jobs`: Persist local job metadata and run train/compare jobs through a
-  small in-process executor for the demo API.
+- `api/jobs`: Define a job store protocol, persist local job metadata through
+  JSON or SQLite backends, and run train/compare jobs through a small
+  in-process executor for the demo API.
 
 ## Component Flow
 
@@ -84,18 +85,23 @@ Local async jobs reuse the same safe execution services:
 
 ```text
 POST /jobs/train or /jobs/compare
-  -> JobStore creates runs/jobs/<job_id>/job.json and request_config.json
+  -> JobStoreProtocol creates job metadata and request_config.json
+  -> JsonJobStore writes runs/jobs/<job_id>/job.json by default
+     or SQLiteJobStore writes runs/jobs.sqlite3 when configured
   -> JobRunner submits a ThreadPoolExecutor task
   -> training_service or compare_service overwrites output_dir with runs root
   -> Trainer or CompareRunner writes normal run artifacts
-  -> JobStore records succeeded, failed, result paths, and errors
+  -> JobStoreProtocol records succeeded, failed, result paths, and errors
 ```
 
 ## Production Evolution
 
 The current API uses the local `JobRunner` for demo and research workloads. It
 keeps job submission simple by running train and compare work in an in-process
-`ThreadPoolExecutor` and storing metadata under `runs/jobs/<job_id>/`.
+`ThreadPoolExecutor`. The default store is JSON under `runs/jobs/<job_id>/`.
+Phase 8A adds `SQLiteJobStore`, which stores the same `JobRecord` fields in
+`runs/jobs.sqlite3` while keeping request config snapshots under
+`runs/jobs/<job_id>/`.
 
 Future durable queue work should replace the internal job backend without
 breaking the `/jobs` API surface. The recommended path is SQLite-backed durable
@@ -198,17 +204,32 @@ preventing API clients from writing runs to arbitrary paths.
 `CompareConfig` and delegates to `CompareRunner`. The compare endpoint remains
 synchronous for the demo API.
 
-`api/jobs/store.py` owns local job persistence under `runs/jobs`. It validates
-job ids as safe path components, writes each `job.json` and
-`request_config.json` atomically, lists jobs newest first, skips corrupt job
-metadata during normal listing, and raises clear errors for missing, unsafe, or
-directly-read corrupt job metadata.
+`api/jobs/base.py` defines `JobStoreProtocol`, the storage interface consumed by
+`JobRunner` and the jobs route layer. It covers job creation, lookup, listing,
+updates, status transitions, and cancellation.
+
+`api/jobs/store.py` owns the default JSON job persistence under `runs/jobs`.
+`JsonJobStore` validates job ids as safe path components, writes each
+`job.json` and `request_config.json` atomically, lists jobs newest first, skips
+corrupt job metadata during normal listing, and raises clear errors for
+missing, unsafe, or directly-read corrupt job metadata. `JobStore` remains a
+backward-compatible alias for `JsonJobStore`.
+
+`api/jobs/sqlite_store.py` owns the Phase 8A SQLite prototype. It stores
+`JobRecord` fields in a `jobs` table, writes the same request config snapshots
+under `runs/jobs/<job_id>/request_config.json`, records lifecycle audit rows in
+`job_events`, and uses per-operation SQLite connections plus an `RLock` for
+simple multi-threaded access. It does not write a SQLite job's `job.json`
+compatibility copy.
+
+`api/jobs/factory.py` builds either `JsonJobStore` or `SQLiteJobStore` from
+`APISettings` and creates `JobRunner` with an injected store.
 
 `api/jobs/runner.py` owns in-process asynchronous execution. It uses a
-`ThreadPoolExecutor` with a conservative default of one worker, marks jobs
-queued/running/succeeded/failed, and records result, artifact, leaderboard, and
-error fields. It does not duplicate training or compare logic; it delegates to
-`training_service` and `compare_service`.
+`ThreadPoolExecutor` with a conservative default of one worker, depends on
+`JobStoreProtocol`, marks jobs queued/running/succeeded/failed, and records
+result, artifact, leaderboard, and error fields. It does not duplicate training
+or compare logic; it delegates to `training_service` and `compare_service`.
 
 `api/routes/jobs.py` exposes submit, list, get, result, logs, and cancel
 endpoints. It maps unsafe job ids to HTTP 400, missing jobs to HTTP 404, and
