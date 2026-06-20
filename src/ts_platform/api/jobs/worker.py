@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -46,11 +47,12 @@ class JobWorker:
             return None
 
         job = claimed.job
+        self.store.record_heartbeat(claimed.attempt_id)
         try:
             if job.job_type == "train":
-                finished = self._run_train(job)
+                finished = self._run_train(job, attempt_id=claimed.attempt_id)
             elif job.job_type == "compare":
-                finished = self._run_compare(job)
+                finished = self._run_compare(job, attempt_id=claimed.attempt_id)
             else:  # pragma: no cover - JobRecord validation prevents this.
                 msg = f"unsupported job_type: {job.job_type}"
                 raise ValueError(msg)
@@ -58,14 +60,16 @@ class JobWorker:
             return finished
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
+            self._record_heartbeat_safely(claimed.attempt_id)
             failed = self.store.mark_failed(job.job_id, error)
             self.store.mark_attempt_failed(claimed.attempt_id, error)
             return failed
 
-    def _run_train(self, job: JobRecord) -> JobRecord:
+    def _run_train(self, job: JobRecord, *, attempt_id: int) -> JobRecord:
         config = PlatformConfig.model_validate(self._read_config_snapshot(job))
         payload = self._train_func(config, self.runs_root)
         run_dir = self._payload_path(payload, "run_dir")
+        self._record_heartbeat_safely(attempt_id)
         return self.store.mark_succeeded(
             job.job_id,
             run_id=_optional_str(payload.get("run_id")),
@@ -74,13 +78,14 @@ class JobWorker:
             artifacts_path=str(run_dir / "artifacts.json"),
         )
 
-    def _run_compare(self, job: JobRecord) -> JobRecord:
+    def _run_compare(self, job: JobRecord, *, attempt_id: int) -> JobRecord:
         config = CompareConfig.model_validate(self._read_config_snapshot(job))
         payload = self._compare_func(config, self.runs_root)
         compare_run_dir = self._payload_path(payload, "compare_run_dir")
         leaderboard_json_path = _optional_str(payload.get("leaderboard_json_path"))
         if leaderboard_json_path is not None:
             self._assert_inside_runs_root(Path(leaderboard_json_path))
+        self._record_heartbeat_safely(attempt_id)
         return self.store.mark_succeeded(
             job.job_id,
             run_id=None,
@@ -89,6 +94,10 @@ class JobWorker:
             artifacts_path=str(compare_run_dir / "artifacts.json"),
             leaderboard_json_path=leaderboard_json_path,
         )
+
+    def _record_heartbeat_safely(self, attempt_id: int) -> None:
+        with suppress(Exception):
+            self.store.record_heartbeat(attempt_id)
 
     def _read_config_snapshot(self, job: JobRecord) -> dict[str, Any]:
         path = Path(job.config_snapshot_path)

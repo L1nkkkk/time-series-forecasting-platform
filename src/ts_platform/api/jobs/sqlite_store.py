@@ -7,6 +7,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import RLock
 from typing import Any, cast
@@ -305,6 +306,48 @@ class SQLiteJobStore:
                     msg = "job attempts cannot be read from SQLite"
                     raise JobStoreError(msg) from exc
             return [self._row_to_attempt(row) for row in rows]
+
+    def list_stale_running_jobs(self, *, older_than_seconds: int) -> list[JobRecord]:
+        """List running jobs whose latest observed activity is older than a threshold."""
+
+        if older_than_seconds <= 0:
+            msg = "older_than_seconds must be > 0"
+            raise ValueError(msg)
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=older_than_seconds)
+        job_columns = ", ".join(f"jobs.{column} AS {column}" for column in _JOB_COLUMNS)
+        with self._lock:
+            with self._connect() as conn:
+                try:
+                    rows = conn.execute(
+                        f"""
+                        SELECT {job_columns}, latest_attempt.heartbeat_at AS latest_heartbeat_at
+                        FROM jobs
+                        LEFT JOIN (
+                            SELECT attempts.job_id, attempts.heartbeat_at
+                            FROM job_attempts AS attempts
+                            INNER JOIN (
+                                SELECT job_id, MAX(attempt_id) AS attempt_id
+                                FROM job_attempts
+                                GROUP BY job_id
+                            ) AS latest
+                            ON latest.job_id = attempts.job_id
+                               AND latest.attempt_id = attempts.attempt_id
+                        ) AS latest_attempt
+                        ON latest_attempt.job_id = jobs.job_id
+                        WHERE jobs.status IN ('running', 'cancel_requested')
+                        ORDER BY jobs.updated_at ASC, jobs.job_id ASC
+                        """
+                    ).fetchall()
+                except sqlite3.Error as exc:
+                    msg = "stale running jobs cannot be read from SQLite"
+                    raise JobStoreError(msg) from exc
+            stale_jobs: list[JobRecord] = []
+            for row in rows:
+                job = self._row_to_job(row)
+                observed_at = cast(str | None, row["latest_heartbeat_at"]) or job.updated_at
+                if _parse_sqlite_timestamp(observed_at) < cutoff:
+                    stale_jobs.append(job)
+            return stale_jobs
 
     def mark_attempt_succeeded(self, attempt_id: int) -> dict[str, Any]:
         """Mark one worker attempt succeeded."""
@@ -721,3 +764,14 @@ class SQLiteJobStore:
         if not resolved_path.is_relative_to(self._resolved_root):
             msg = f"job path escapes jobs root: {path}"
             raise UnsafeJobIdError(msg)
+
+
+def _parse_sqlite_timestamp(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        msg = f"job timestamp is invalid in SQLite: {value}"
+        raise JobStoreError(msg) from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)

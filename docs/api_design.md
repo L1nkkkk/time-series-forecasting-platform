@@ -6,8 +6,10 @@ submission. The jobs layer is intentionally local and demo-grade: it uses an
 in-process `ThreadPoolExecutor` and defaults to JSON metadata under the fixed
 runs root. Phase 8A adds an optional SQLite job metadata backend without
 changing the `/jobs` API surface. Phase 8B adds an optional local
-`external_worker` execution mode and `worker-once` CLI. It still does not
-introduce Redis, Celery, RabbitMQ, Kubernetes, or a daemon worker.
+`external_worker` execution mode and `worker-once` CLI. Phase 8C adds
+SQLite-only events/attempts observability endpoints and a finite `worker-loop`
+CLI. It still does not introduce Redis, Celery, RabbitMQ, Kubernetes, or a
+daemon worker.
 
 ## Endpoints
 
@@ -236,6 +238,22 @@ Returns one persisted job record. `job_id` must be a safe path component.
 Corrupt metadata for the requested job returns HTTP 500 and requires manual
 cleanup.
 
+### GET /jobs/{job_id}/events
+
+Returns SQLite `job_events` rows for one job as a JSON array. This endpoint is
+SQLite-only because the JSON backend has no event table. When the configured
+backend is JSON, the endpoint returns HTTP 400 with
+`job events require sqlite backend`. Unsafe job ids return HTTP 400, missing
+jobs return HTTP 404, and SQLite store errors return HTTP 500.
+
+### GET /jobs/{job_id}/attempts
+
+Returns SQLite `job_attempts` rows for one job as a JSON array. This endpoint
+is SQLite-only because attempts are created by the external worker prototype.
+When the configured backend is JSON, the endpoint returns HTTP 400 with
+`job attempts require sqlite backend`. Unsafe job ids return HTTP 400, missing
+jobs return HTTP 404, and SQLite store errors return HTTP 500.
+
 ### GET /jobs/{job_id}/result
 
 Returns the saved `results.json` for a succeeded job. Jobs that are still
@@ -284,6 +302,10 @@ The external worker mode keeps the `/jobs` API response fields stable. The
 difference is when and where the transition from `queued` to `running` happens.
 `SQLiteJobStore.claim_next_queued_job()` performs that transition for the
 worker and records a `job_attempts` row plus `job_events` audit entries.
+`JobWorker` records minimal heartbeats at claim, success, and failure
+boundaries. `SQLiteJobStore.list_stale_running_jobs()` can inspect stale
+`running` or `cancel_requested` jobs by latest heartbeat or `updated_at`, but
+it does not mutate state or trigger recovery.
 
 ## Future Durable Jobs API Compatibility
 
@@ -300,6 +322,8 @@ Backend changes should preserve these endpoints:
 - `POST /jobs/compare`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/events`
+- `GET /jobs/{job_id}/attempts`
 - `GET /jobs/{job_id}/result`
 - `GET /jobs/{job_id}/logs`
 - `POST /jobs/{job_id}/cancel`
@@ -321,6 +345,8 @@ links should be added in a backward-compatible way. Existing fields such as
 - Artifact download paths that escape the current run directory return HTTP
   400.
 - Invalid `job_id` path components return HTTP 400.
+- JSON backend requests to SQLite-only job observability endpoints return HTTP
+  400.
 - Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
   return HTTP 404.
 - Missing registered artifact names or missing artifact files return HTTP 404.

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -132,6 +133,38 @@ def build_parser() -> argparse.ArgumentParser:
         help="SQLite jobs database to read when --job-backend sqlite",
     )
 
+    show_job_events_parser = subparsers.add_parser(
+        "show-job-events",
+        help="Show SQLite audit events for one job",
+    )
+    show_job_events_parser.add_argument("--job-id", required=True, help="Job id to read")
+    show_job_events_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root to read from",
+    )
+    show_job_events_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to read",
+    )
+
+    show_job_attempts_parser = subparsers.add_parser(
+        "show-job-attempts",
+        help="Show SQLite worker attempts for one job",
+    )
+    show_job_attempts_parser.add_argument("--job-id", required=True, help="Job id to read")
+    show_job_attempts_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root to read from",
+    )
+    show_job_attempts_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to read",
+    )
+
     worker_once_parser = subparsers.add_parser(
         "worker-once",
         help="Claim and run one queued SQLite job",
@@ -155,6 +188,49 @@ def build_parser() -> argparse.ArgumentParser:
         "--worker-id",
         default="local_worker",
         help="Safe worker id recorded in job attempts",
+    )
+
+    worker_loop_parser = subparsers.add_parser(
+        "worker-loop",
+        help="Claim and run queued SQLite jobs with finite local bounds",
+    )
+    worker_loop_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to claim from",
+    )
+    worker_loop_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root containing request snapshots",
+    )
+    worker_loop_parser.add_argument(
+        "--runs-root",
+        default="runs",
+        help="Runs root to write train or compare results",
+    )
+    worker_loop_parser.add_argument(
+        "--worker-id",
+        default="local_worker",
+        help="Safe worker id recorded in job attempts",
+    )
+    worker_loop_parser.add_argument(
+        "--max-jobs",
+        type=int,
+        default=1,
+        help="Maximum jobs to process before exiting",
+    )
+    worker_loop_parser.add_argument(
+        "--max-idle-cycles",
+        type=int,
+        default=1,
+        help="Maximum idle polls before exiting",
+    )
+    worker_loop_parser.add_argument(
+        "--sleep-seconds",
+        type=float,
+        default=1.0,
+        help="Seconds to sleep between idle polls",
     )
     return parser
 
@@ -224,6 +300,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         job_payload = _job_store_from_args(args).get_job(args.job_id).to_dict()
         print(json.dumps(job_payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "show-job-events":
+        store = _sqlite_store_from_args(args)
+        store.get_job(args.job_id)
+        print(json.dumps(store.list_events(args.job_id), indent=2, sort_keys=True))
+        return 0
+    if args.command == "show-job-attempts":
+        store = _sqlite_store_from_args(args)
+        store.get_job(args.job_id)
+        print(json.dumps(store.list_attempts(args.job_id), indent=2, sort_keys=True))
+        return 0
     if args.command == "worker-once":
         store = SQLiteJobStore(Path(args.jobs_root), Path(args.sqlite_db))
         worker = JobWorker(
@@ -233,6 +319,39 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         job = worker.run_once()
         payload = {"status": "idle"} if job is None else job.to_dict()
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "worker-loop":
+        if args.max_jobs < 1:
+            parser.error("--max-jobs must be >= 1")
+        if args.max_idle_cycles < 1:
+            parser.error("--max-idle-cycles must be >= 1")
+        if args.sleep_seconds < 0:
+            parser.error("--sleep-seconds must be >= 0")
+        store = SQLiteJobStore(Path(args.jobs_root), Path(args.sqlite_db))
+        worker = JobWorker(
+            store=store,
+            runs_root=Path(args.runs_root),
+            worker_id=args.worker_id,
+        )
+        loop_jobs_payload: list[dict[str, object]] = []
+        processed = 0
+        idle_cycles = 0
+        while processed < args.max_jobs and idle_cycles < args.max_idle_cycles:
+            job = worker.run_once()
+            if job is None:
+                idle_cycles += 1
+                if idle_cycles < args.max_idle_cycles:
+                    time.sleep(args.sleep_seconds)
+                continue
+            processed += 1
+            loop_jobs_payload.append(job.to_dict())
+        payload = {
+            "worker_id": worker.worker_id,
+            "processed": processed,
+            "idle_cycles": idle_cycles,
+            "jobs": loop_jobs_payload,
+        }
         print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     parser.error(f"unknown command: {args.command}")
@@ -255,6 +374,10 @@ def _job_store_from_args(args: argparse.Namespace) -> JobStoreProtocol:
             sqlite_jobs_db_path=Path(args.sqlite_db),
         )
     )
+
+
+def _sqlite_store_from_args(args: argparse.Namespace) -> SQLiteJobStore:
+    return SQLiteJobStore(Path(args.jobs_root), Path(args.sqlite_db))
 
 
 if __name__ == "__main__":

@@ -305,6 +305,93 @@ def test_api_submit_job_external_worker_does_not_execute_immediately(
     assert not (tmp_path / "runs" / "api_external_not_run" / "latest" / "results.json").exists()
 
 
+def test_api_get_job_events_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_events").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+
+    response = client.get(f"/jobs/{submitted['job_id']}/events")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert [event["event_type"] for event in payload] == ["job_created"]
+
+
+def test_api_get_job_attempts_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_attempts").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner = jobs.get_job_runner()
+    assert isinstance(runner.store, SQLiteJobStore)
+    claimed = runner.store.claim_next_queued_job(worker_id="api_worker")
+    assert claimed is not None
+
+    response = client.get(f"/jobs/{submitted['job_id']}/attempts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert isinstance(payload, list)
+    assert payload[0]["attempt_id"] == claimed.attempt_id
+    assert payload[0]["worker_id"] == "api_worker"
+
+
+def test_api_get_job_events_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("train", "api_events_json", {"config": True})
+    client = TestClient(create_app())
+
+    response = client.get(f"/jobs/{job.job_id}/events")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "job events require sqlite backend"
+
+
+def test_api_get_job_attempts_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("train", "api_attempts_json", {"config": True})
+    client = TestClient(create_app())
+
+    response = client.get(f"/jobs/{job.job_id}/attempts")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "job attempts require sqlite backend"
+
+
+def test_api_get_job_events_rejects_unsafe_job_id(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+
+    response = client.get("/jobs/bad%20id/events")
+
+    assert response.status_code == 400
+
+
 def test_api_external_worker_mode_requires_sqlite_backend(
     tmp_path: Path,
     monkeypatch: Any,

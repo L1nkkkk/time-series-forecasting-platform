@@ -4,7 +4,9 @@ Phase 5 adds a lightweight local job layer for API-driven train and compare
 work. It is designed for demos and tests, not production scheduling. Phase 8A
 adds an optional SQLite-backed job store prototype while keeping the JSON store
 as the default backend. Phase 8B adds a local `worker-once` process prototype
-that can claim and execute queued SQLite jobs outside the API process.
+that can claim and execute queued SQLite jobs outside the API process. Phase
+8C exposes SQLite events and attempts for inspection, adds a finite
+`worker-loop` CLI, and records minimal worker heartbeats.
 
 ## Storage Layout
 
@@ -160,8 +162,15 @@ then delegates to the same safe API execution services:
 
 The worker records a `job_attempts` row on claim, marks the attempt
 `succeeded` or `failed`, and updates the job to `succeeded` or `failed`.
-`worker-once` processes exactly one job and exits. It is not a daemon and does
-not implement polling loops, retries, timeout handling, or process supervision.
+`JobWorker.run_once()` records a heartbeat immediately after claim and again
+before a job is marked succeeded or failed. This is a minimal activity marker,
+not a periodic monitor for long-running training calls.
+
+`worker-once` processes exactly one job and exits. `worker-loop` repeatedly
+calls the same worker path with finite bounds such as `--max-jobs` and
+`--max-idle-cycles`, then exits with a JSON summary. It is not a daemon and
+does not implement retries, timeout handling, stale recovery, signal handling,
+or process supervision.
 
 ## Lifecycle
 
@@ -180,6 +189,8 @@ POST /jobs/train
 POST /jobs/compare
 GET /jobs
 GET /jobs/{job_id}
+GET /jobs/{job_id}/events
+GET /jobs/{job_id}/attempts
 GET /jobs/{job_id}/result
 GET /jobs/{job_id}/logs
 POST /jobs/{job_id}/cancel
@@ -197,6 +208,12 @@ the `train.log` text when a completed train run exposes one. Compare parent
 runs may not have a parent log.
 
 Unsafe job ids return HTTP 400. Missing jobs return HTTP 404.
+
+`GET /jobs/{job_id}/events` and `GET /jobs/{job_id}/attempts` are SQLite-only
+observability endpoints. They return JSON arrays of event or attempt rows. If
+the configured backend is JSON, they return HTTP 400 with a clear
+`job events require sqlite backend` or `job attempts require sqlite backend`
+message.
 
 Corrupt `job.json` metadata is skipped by `GET /jobs` so one damaged record
 does not hide other jobs. Reading the corrupt job directly with
@@ -222,10 +239,10 @@ The SQLite backend writes a minimal audit trail to `job_events`:
 - `attempt_succeeded`
 - `attempt_failed`
 
-Events are not exposed through a public API endpoint in Phase 8A/8B. They are
-available through the store for tests and local debugging. This is intentionally
-small: it records lifecycle transitions and local attempts, but does not yet
-add retries, timeouts, stale heartbeat handling, or recovery semantics.
+Events are exposed through the SQLite-only API endpoint and the
+`show-job-events` CLI command. This is intentionally small: it records
+lifecycle transitions and local attempts, but does not yet add retries,
+timeouts, stale heartbeat recovery, or automatic retry semantics.
 
 `job_attempts` stores:
 
@@ -238,6 +255,15 @@ add retries, timeouts, stale heartbeat handling, or recovery semantics.
 - `heartbeat_at`
 - `error`
 
+Attempts are exposed through the SQLite-only API endpoint and the
+`show-job-attempts` CLI command.
+
+`SQLiteJobStore.list_stale_running_jobs(older_than_seconds=...)` can inspect
+jobs in `running` or `cancel_requested` status whose latest activity timestamp
+is older than a threshold. It prefers the latest attempt `heartbeat_at` and
+falls back to the job `updated_at` when there is no attempt. The method is
+read-only; it does not reset, retry, fail, or cancel stale jobs.
+
 ## CLI
 
 The CLI supports read-only job inspection:
@@ -247,21 +273,28 @@ py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-backend sqlite --sqlite-db runs/jobs.sqlite3 --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main show-job-events --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main show-job-attempts --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --worker-id local_worker
+py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --worker-id local_worker --max-jobs 1 --max-idle-cycles 1 --sleep-seconds 1.0
 ```
 
 CLI job submission is intentionally not implemented. A CLI command is a
 one-shot process, so an in-process `ThreadPoolExecutor` would not continue
 running after the command exits. `worker-once` is an execution command for
-already queued SQLite jobs; it is not a general submit command.
+already queued SQLite jobs; it is not a general submit command. `worker-loop`
+is the finite local polling variant for SQLite jobs and prints
+`worker_id`, `processed`, `idle_cycles`, and processed job records as JSON.
 
 ## Limitations
 
 - Jobs are local to one API process.
 - Jobs are not recovered if the process stops mid-run.
 - There is no retry scheduler.
-- There is no daemon worker loop.
+- There is no unbounded daemon worker loop.
 - There is no timeout or stale-heartbeat recovery.
+- Worker heartbeat recording is minimal and only happens at claim, success, and
+  failure boundaries.
 - Running threads are not force-killed by cancellation.
 - Shutdown closes the local executor but does not resume interrupted running
   work.

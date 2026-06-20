@@ -45,7 +45,7 @@ A production job system needs stronger execution and audit guarantees:
 | Backend | Pros | Cons | Best For | Recommendation |
 | --- | --- | --- | --- | --- |
 | Current ThreadPoolExecutor | No external dependencies; easy tests; works locally; small implementation | Not durable; no restart recovery; no real kill; no multi-worker scheduling | Demo API, coursework, smoke tests, local research | Keep for the MVP and local development |
-| SQLite-backed queue | Durable metadata on one host; simple deployment; inspectable state; no Redis dependency | Single-host focus; limited concurrent write scaling; still needs worker discipline | Durable local prototype, production-like single-host deployments | Use for Phase 8A/8B |
+| SQLite-backed queue | Durable metadata on one host; simple deployment; inspectable state; no Redis dependency | Single-host focus; limited concurrent write scaling; still needs worker discipline | Durable local prototype, production-like single-host deployments | Use for Phase 8A-8D |
 | RQ + Redis | Simple worker model; mature Redis queue; lower complexity than Celery | Requires Redis; less feature-rich than Celery; operational dependency | Multi-worker deployments where simple scheduling is enough | Consider after SQLite proves the service boundary |
 | Celery + Redis/RabbitMQ | Powerful routing, retries, scheduling, and monitoring ecosystem | More moving parts; harder local setup; higher operational burden | Larger deployments with complex task orchestration | Defer until requirements justify complexity |
 | Kubernetes Jobs | Strong process isolation; resource requests; GPU scheduling; crash handling by platform | Requires Kubernetes; slower feedback loop; more deployment design | Long-running training jobs with resource isolation needs | Treat as a longer-term resource isolation option |
@@ -53,9 +53,10 @@ A production job system needs stronger execution and audit guarantees:
 Conclusion:
 
 - Keep the current `ThreadPoolExecutor` for the MVP.
-- Use a SQLite-backed queue as the next production-hardening step.
-- Consider Redis/RQ or Celery after the service boundary and durable metadata
-  model are proven.
+- Continue hardening the SQLite-backed queue through worker observability,
+  finite local loops, retry policy, and timeout policy prototypes.
+- Consider Redis/RQ or Celery after the service boundary, durable metadata
+  model, and local recovery semantics are proven.
 - Use Kubernetes Jobs later when resource isolation, long-running training, or
   GPU scheduling become primary requirements.
 
@@ -148,10 +149,81 @@ Implementation notes:
 - Schema migration remains future work; tables are created with
   `CREATE TABLE IF NOT EXISTS`.
 
-### Phase 8C: Redis/RQ or Celery backend
+### Phase 8C: Worker observability and loop prototype
+
+Goal: Make the local SQLite worker prototype easier to inspect and operate
+without introducing a true daemon or external queue infrastructure.
+
+Status: implemented as a local prototype with SQLite-only events/attempts
+APIs, read-only CLI inspection, minimal heartbeat recording, stale running job
+inspection, and finite `worker-loop`.
+
+Deliverables:
+
+- `GET /jobs/{job_id}/events` for SQLite event rows.
+- `GET /jobs/{job_id}/attempts` for SQLite attempt rows.
+- `show-job-events` and `show-job-attempts` CLI commands.
+- Minimal `JobWorker` heartbeat at claim, success, and failure boundaries.
+- `worker-loop` with `--max-jobs`, `--max-idle-cycles`, and
+  `--sleep-seconds`.
+- Read-only stale running job inspection through
+  `SQLiteJobStore.list_stale_running_jobs()`.
+
+Non-goals:
+
+- Redis, Celery, RabbitMQ, or Kubernetes.
+- Infinite daemon behavior.
+- Automatic stale recovery.
+- Retry scheduling.
+- Timeout enforcement.
+
+Acceptance criteria:
+
+- Existing `/jobs` endpoints keep their response shape.
+- JSON backend rejects events/attempts observability endpoints clearly.
+- Worker loop always has finite bounds.
+- Heartbeat failures in the failure path do not hide the original job error.
+- Stale inspection returns candidates only and never mutates job state.
+
+Implementation notes:
+
+- The observability API is intentionally SQLite-only because JSON jobs do not
+  have attempts or event tables.
+- Heartbeat is not periodic during long training calls; it marks key worker
+  lifecycle boundaries only.
+- `worker-loop` is a convenience wrapper around `JobWorker.run_once()`, not a
+  production supervisor.
+
+### Phase 8D: Retry and timeout policy prototype
+
+Goal: Define and test local retry, timeout, and stale heartbeat behavior before
+introducing an external queue backend.
+
+Deliverables:
+
+- Retry policy fields and defaults.
+- Timeout policy fields and defaults.
+- Explicit stale job transition rules.
+- Idempotency notes for result and artifact writes.
+- Tests for retry exhaustion and timeout classification.
+
+Non-goals:
+
+- Multi-host scheduling.
+- Kubernetes-native orchestration.
+- User permission model.
+- Full production daemon supervision.
+
+Acceptance criteria:
+
+- A stale or timed-out job can be classified without guessing.
+- Retryable and terminal failures have clear state transitions.
+- Existing API clients still receive compatible `JobRecord` payloads.
+
+### Phase 8E: Redis/RQ or Celery backend
 
 Goal: Introduce an external queue backend only after durable single-host
-semantics are proven.
+semantics and local retry rules are proven.
 
 Deliverables:
 
@@ -172,7 +244,7 @@ Acceptance criteria:
 - Job results and artifacts remain linked through stable paths or storage keys.
 - Existing API clients do not need to change.
 
-### Phase 8D: Kubernetes Jobs
+### Phase 8F: Kubernetes Jobs
 
 Goal: Support resource-isolated training jobs for longer-running and GPU-backed
 workloads.
@@ -279,6 +351,8 @@ Future queue backend changes must not break the existing `/jobs` API surface:
 - `POST /jobs/compare`
 - `GET /jobs`
 - `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/events`
+- `GET /jobs/{job_id}/attempts`
 - `GET /jobs/{job_id}/result`
 - `GET /jobs/{job_id}/logs`
 - `POST /jobs/{job_id}/cancel`
@@ -291,5 +365,7 @@ keep their names and meaning unless a versioned API migration is documented.
 This design does not require Redis, Celery, RabbitMQ, Kubernetes, a web
 frontend, user management, distributed training, or new model work. Phase 8A
 implements SQLite metadata and events. Phase 8B adds local worker claiming and
-attempts. Retry, timeout, stale heartbeat handling, and crash recovery
-hardening remain future work.
+attempts. Phase 8C adds SQLite observability endpoints, CLI inspection,
+minimal heartbeat recording, finite `worker-loop`, and read-only stale
+inspection. Retry, timeout, automatic stale heartbeat handling, and crash
+recovery hardening remain future work.
