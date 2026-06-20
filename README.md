@@ -376,3 +376,15 @@ API closes the local executor on application shutdown and can lazily create a
 new runner on the next jobs request, but interrupted running jobs are not
 recovered. Corrupt `job.json` metadata is skipped by job listing and returns an
 error when read directly. See [docs/jobs.md](docs/jobs.md).
+
+## Production Hardening Roadmap
+
+The current platform is a research/demo MVP. It now has local jobs, safe result
+lookup, artifact manifests, and safe artifact downloads, but it is not a
+multi-tenant production service. The production hardening design is documented
+in:
+
+- [docs/durable_queue_design.md](docs/durable_queue_design.md)
+- [docs/deployment_design.md](docs/deployment_design.md)
+- [docs/security_model.md](docs/security_model.md)
+- [docs/roadmap.md](docs/roadmap.md)
