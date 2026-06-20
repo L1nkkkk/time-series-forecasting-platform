@@ -63,9 +63,9 @@ Phase 12A reserves optional batch fields for later exogenous support:
 - `feature_x`: exogenous feature-history slice.
 - `metadata`: sample-level metadata.
 
-Current datasets still return only `x` and `y`. They also expose
-`dataset.dimensions` with `input_len`, `output_len`, `input_dim`, and
-`target_dim`. For target-only CSV and synthetic datasets,
+Current datasets and `ScaledForecastingDataset` still return only `x` and
+`y`. They also expose `dataset.dimensions` with `input_len`, `output_len`,
+`input_dim`, and `target_dim`. For target-only CSV and synthetic datasets,
 `input_dim == target_dim == num_features`.
 
 ## Missing Values

@@ -105,7 +105,8 @@ These models can migrate to consume `input_dim` and project to
 
 Phase 12A prepares this by allowing `BaseForecastModel` and `build_model` to
 resolve target-only `input_dim`/`target_dim` arguments, but the concrete model
-forward methods are not feature-aware yet.
+forward methods are not feature-aware yet. `build_model(input_dim !=
+target_dim)` remains rejected until the model interface migration phase.
 
 Statistical baselines remain target-only by default:
 
