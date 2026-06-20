@@ -49,13 +49,15 @@ class CSVForecastDataset(ForecastingDataset):
 
         self.input_len = input_len
         self.output_len = output_len
-        self.input_dim = len(csv_params.target_cols)
-        self.target_dim = len(csv_params.target_cols)
-        self.num_features = len(csv_params.target_cols)
+        self.target_cols = list(csv_params.target_cols)
+        self.feature_cols = list(csv_params.feature_cols or [])
+        self.target_dim = len(self.target_cols)
+        self.feature_dim = len(self.feature_cols)
+        self.input_dim = self.target_dim + self.feature_dim
+        self.num_features = self.target_dim
         self.mode = mode
         self.path = Path(csv_params.path)
         self.timestamp_col = csv_params.timestamp_col
-        self.target_cols = csv_params.target_cols
         self.missing_policy = csv_params.missing_policy
         self.sort_by_time = csv_params.sort_by_time
 
@@ -72,17 +74,27 @@ class CSVForecastDataset(ForecastingDataset):
         self.split_start = selected.start
         self.split_end = selected.stop
         raw_split_frame = frame.iloc[self.split_start : self.split_end].copy()
+        self._validate_feature_missing(raw_split_frame)
         self._split_frame = self._handle_missing(raw_split_frame).reset_index(drop=True)
         self._validate_split_min_length(
             row_count=len(self._split_frame),
             min_length=min_length,
             selected_ratio={"train": train_ratio, "val": val_ratio, "test": test_ratio}[mode],
         )
-        self._values = torch.tensor(
+        self._target_values = torch.tensor(
             self._split_frame[self.target_cols].to_numpy(dtype="float32"),
             dtype=torch.float32,
         )
-        self._starts = list(range(0, max(0, len(self._values) - min_length + 1)))
+        self._feature_values = (
+            torch.tensor(
+                self._split_frame[self.feature_cols].to_numpy(dtype="float32"),
+                dtype=torch.float32,
+            )
+            if self.feature_dim > 0
+            else None
+        )
+        self._values = self._target_values
+        self._starts = list(range(0, max(0, len(self._target_values) - min_length + 1)))
 
     @property
     def split_timestamps(self) -> list[str]:
@@ -118,7 +130,24 @@ class CSVForecastDataset(ForecastingDataset):
         start = self._starts[index]
         x_end = start + self.input_len
         y_end = x_end + self.output_len
-        return {"x": self._values[start:x_end], "y": self._values[x_end:y_end]}
+        target_x = self._target_values[start:x_end]
+        y = self._target_values[x_end:y_end]
+        if self._feature_values is None:
+            return {"x": target_x, "y": y}
+        feature_x = self._feature_values[start:x_end]
+        return {
+            "x": torch.cat([target_x, feature_x], dim=-1),
+            "y": y,
+            "target_x": target_x,
+            "feature_x": feature_x,
+            "metadata": {
+                "target_cols": self.target_cols,
+                "feature_cols": self.feature_cols,
+                "input_dim": self.input_dim,
+                "target_dim": self.target_dim,
+                "feature_dim": self.feature_dim,
+            },
+        }
 
     def scaler_fit_values(self) -> torch.Tensor:
         """Return values from this split for scaler fitting."""
@@ -136,6 +165,10 @@ class CSVForecastDataset(ForecastingDataset):
         missing_targets = [column for column in self.target_cols if column not in frame.columns]
         if missing_targets:
             msg = f"CSV target columns are missing: {missing_targets}"
+            raise ValueError(msg)
+        missing_features = [column for column in self.feature_cols if column not in frame.columns]
+        if missing_features:
+            msg = f"CSV feature columns are missing: {missing_features}"
             raise ValueError(msg)
         if self.timestamp_col is not None:
             if self.timestamp_col not in frame.columns:
@@ -155,7 +188,22 @@ class CSVForecastDataset(ForecastingDataset):
                 msg = f"CSV target column {column!r} must be numeric"
                 raise ValueError(msg) from exc
 
+        for column in self.feature_cols:
+            try:
+                frame[column] = pd.to_numeric(frame[column], errors="raise")
+            except ValueError as exc:
+                msg = f"CSV feature column {column!r} must be numeric"
+                raise ValueError(msg) from exc
+
         return frame.reset_index(drop=True)
+
+    def _validate_feature_missing(self, frame: pd.DataFrame) -> None:
+        if not self.feature_cols:
+            return
+        missing_count = int(frame[self.feature_cols].isna().sum().sum())
+        if missing_count:
+            msg = f"{self.mode} split feature columns contain missing values"
+            raise ValueError(msg)
 
     def _handle_missing(self, frame: pd.DataFrame) -> pd.DataFrame:
         missing_count = int(frame[self.target_cols].isna().sum().sum())

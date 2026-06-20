@@ -12,6 +12,9 @@ class ScaledForecastingDataset(ForecastingDataset):
     """Apply a fitted scaler to both inputs and targets."""
 
     def __init__(self, dataset: ForecastingDataset, scaler: BaseScaler) -> None:
+        if dataset.input_dim != dataset.target_dim:
+            msg = "feature-aware scaling is not implemented until Phase 12C"
+            raise NotImplementedError(msg)
         self.dataset = dataset
         self.scaler = scaler
         self.input_len = dataset.input_len

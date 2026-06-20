@@ -5,9 +5,14 @@ from pathlib import Path
 import pytest
 import torch
 
+from tests.helpers import tiny_config
 from ts_platform.data.csv_dataset import CSVForecastDataset
+from ts_platform.data.transforms import ScaledForecastingDataset
+from ts_platform.runner.trainer import Trainer
+from ts_platform.scaler.base import IdentityScaler
 
 FIXTURE = Path("tests/fixtures/tiny_series.csv")
+FEATURE_FIXTURE = Path("tests/fixtures/tiny_series_with_features.csv")
 
 
 def _dataset(mode: str = "train", **params) -> CSVForecastDataset:
@@ -27,11 +32,38 @@ def _dataset(mode: str = "train", **params) -> CSVForecastDataset:
     return CSVForecastDataset(**defaults)
 
 
+def _feature_dataset(mode: str = "train", **params) -> CSVForecastDataset:
+    defaults = {
+        "input_len": 8,
+        "output_len": 2,
+        "mode": mode,
+        "train_ratio": 0.5,
+        "val_ratio": 0.25,
+        "test_ratio": 0.25,
+        "path": FEATURE_FIXTURE,
+        "timestamp_col": "timestamp",
+        "target_cols": ["value"],
+        "feature_cols": ["temperature", "holiday"],
+        "missing_policy": "error",
+    }
+    defaults.update(params)
+    return CSVForecastDataset(**defaults)
+
+
 def _write_timestamp_csv(path: Path, values: list[float | None]) -> None:
     rows = ["timestamp,value"]
     for index, value in enumerate(values, start=1):
         rendered = "" if value is None else str(value)
         rows.append(f"2024-01-{index:02d},{rendered}")
+    path.write_text("\n".join(rows), encoding="utf-8")
+
+
+def _write_feature_csv(path: Path, temperatures: list[float | None]) -> None:
+    rows = ["timestamp,value,temperature,holiday"]
+    for index, temperature in enumerate(temperatures, start=1):
+        rendered_temperature = "" if temperature is None else str(temperature)
+        holiday = 1 if index % 7 == 0 else 0
+        rows.append(f"2024-01-{index:02d},{float(index)},{rendered_temperature},{holiday}")
     path.write_text("\n".join(rows), encoding="utf-8")
 
 
@@ -44,6 +76,220 @@ def test_csv_dataset_loads_windows() -> None:
     assert sample["y"].shape == (2, 1)
     assert sample["x"].dtype == torch.float32
     assert sample["y"].dtype == torch.float32
+
+
+def test_csv_dataset_with_feature_cols_shapes() -> None:
+    dataset = _feature_dataset()
+    sample = dataset[0]
+
+    assert sample["x"].shape == (8, 3)
+    assert sample["y"].shape == (2, 1)
+
+
+def test_csv_dataset_with_feature_cols_x_concatenation_order() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    sample = dataset[0]
+
+    assert sample["x"].tolist() == [
+        [1.0, 10.0, 1.0],
+        [2.0, 10.5, 0.0],
+        [3.0, 11.0, 0.0],
+    ]
+
+
+def test_csv_dataset_y_remains_target_only() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    sample = dataset[0]
+
+    assert sample["y"].shape == (2, 1)
+    assert sample["y"].flatten().tolist() == [4.0, 5.0]
+
+
+def test_csv_dataset_returns_target_x_and_feature_x() -> None:
+    dataset = _feature_dataset(input_len=3, output_len=2)
+    sample = dataset[0]
+
+    assert sample["target_x"].shape == (3, 1)
+    assert sample["feature_x"].shape == (3, 2)
+    assert sample["target_x"].flatten().tolist() == [1.0, 2.0, 3.0]
+    assert sample["feature_x"].tolist() == [
+        [10.0, 1.0],
+        [10.5, 0.0],
+        [11.0, 0.0],
+    ]
+
+
+def test_csv_dataset_metadata_contains_columns() -> None:
+    dataset = _feature_dataset()
+    sample = dataset[0]
+
+    assert sample["metadata"] == {
+        "target_cols": ["value"],
+        "feature_cols": ["temperature", "holiday"],
+        "input_dim": 3,
+        "target_dim": 1,
+        "feature_dim": 2,
+    }
+
+
+def test_csv_dataset_feature_cols_do_not_change_scaler_fit_values() -> None:
+    dataset = _feature_dataset()
+
+    values = dataset.scaler_fit_values()
+    assert values.shape == (20, 1)
+    assert values.flatten().tolist() == [float(value) for value in range(1, 21)]
+
+
+def test_csv_dataset_rejects_missing_feature_column() -> None:
+    with pytest.raises(ValueError, match="CSV feature columns are missing"):
+        _feature_dataset(feature_cols=["missing"])
+
+
+def test_csv_dataset_rejects_non_numeric_feature_column(tmp_path) -> None:
+    path = tmp_path / "non_numeric_feature.csv"
+    path.write_text(
+        "timestamp,value,temperature,holiday\n"
+        "2024-01-01,1,warm,0\n"
+        "2024-01-02,2,11.0,0\n"
+        "2024-01-03,3,12.0,0\n"
+        "2024-01-04,4,13.0,0\n"
+        "2024-01-05,5,14.0,0\n"
+        "2024-01-06,6,15.0,0\n"
+        "2024-01-07,7,16.0,1\n"
+        "2024-01-08,8,17.0,0\n"
+        "2024-01-09,9,18.0,0\n"
+        "2024-01-10,10,19.0,0\n"
+        "2024-01-11,11,20.0,0\n"
+        "2024-01-12,12,21.0,0\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="CSV feature column 'temperature' must be numeric"):
+        _feature_dataset(
+            path=path,
+            input_len=2,
+            output_len=1,
+            train_ratio=0.5,
+            val_ratio=0.25,
+            test_ratio=0.25,
+        )
+
+
+def test_csv_dataset_rejects_feature_missing_values(tmp_path) -> None:
+    path = tmp_path / "missing_feature.csv"
+    _write_feature_csv(
+        path, [10.0, None, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0, 21.0]
+    )
+
+    with pytest.raises(ValueError, match="feature columns contain missing values"):
+        _feature_dataset(
+            path=path,
+            input_len=2,
+            output_len=1,
+            train_ratio=0.5,
+            val_ratio=0.25,
+            test_ratio=0.25,
+        )
+
+
+def test_csv_dataset_feature_missing_is_split_local(tmp_path) -> None:
+    path = tmp_path / "split_missing_feature.csv"
+    _write_feature_csv(
+        path, [10.0, 11.0, 12.0, 13.0, 14.0, 15.0, None, 17.0, 18.0, 19.0, 20.0, 21.0]
+    )
+
+    train = _feature_dataset(
+        "train",
+        path=path,
+        input_len=2,
+        output_len=1,
+        train_ratio=0.5,
+        val_ratio=0.25,
+        test_ratio=0.25,
+    )
+    assert len(train) == 4
+
+    with pytest.raises(ValueError, match="val split feature columns contain missing values"):
+        _feature_dataset(
+            "val",
+            path=path,
+            input_len=2,
+            output_len=1,
+            train_ratio=0.5,
+            val_ratio=0.25,
+            test_ratio=0.25,
+        )
+
+
+def test_csv_dataset_target_only_shape_unchanged() -> None:
+    dataset = _dataset()
+    sample = dataset[0]
+
+    assert sample["x"].shape == (8, 1)
+    assert sample["y"].shape == (2, 1)
+    assert set(sample) == {"x", "y"}
+
+
+def test_csv_dataset_dimensions_with_feature_cols() -> None:
+    dataset = _feature_dataset()
+
+    assert dataset.target_dim == 1
+    assert dataset.feature_dim == 2
+    assert dataset.input_dim == 3
+    assert dataset.num_features == 1
+    assert dataset.dimensions.input_dim == 3
+    assert dataset.dimensions.target_dim == 1
+
+
+def test_scaled_dataset_rejects_feature_aware_dataset_until_phase12c() -> None:
+    dataset = _feature_dataset()
+
+    with pytest.raises(
+        NotImplementedError,
+        match="feature-aware scaling is not implemented until Phase 12C",
+    ):
+        ScaledForecastingDataset(dataset, IdentityScaler())
+
+
+def test_trainer_rejects_feature_aware_csv_until_phase12c(tmp_path) -> None:
+    config = tiny_config(tmp_path, name="feature_csv_blocked")
+    data = config.data.model_copy(
+        update={
+            "name": "csv",
+            "input_len": 2,
+            "output_len": 1,
+            "batch_size": 4,
+            "train_ratio": 0.5,
+            "val_ratio": 0.25,
+            "test_ratio": 0.25,
+            "params": {
+                "path": str(FEATURE_FIXTURE),
+                "timestamp_col": "timestamp",
+                "target_cols": ["value"],
+                "feature_cols": ["temperature"],
+                "missing_policy": "error",
+                "sort_by_time": True,
+            },
+        }
+    )
+    config = config.model_copy(update={"data": data})
+
+    with pytest.raises(
+        NotImplementedError,
+        match="feature-aware scaling is not implemented until Phase 12C",
+    ):
+        Trainer(config).run()
+
+
+def test_scaled_dataset_target_only_still_works() -> None:
+    dataset = _dataset()
+    scaled = ScaledForecastingDataset(dataset, IdentityScaler())
+    sample = scaled[0]
+
+    assert scaled.input_dim == 1
+    assert scaled.target_dim == 1
+    assert sample["x"].shape == (8, 1)
+    assert sample["y"].shape == (2, 1)
 
 
 def test_csv_dataset_time_split_no_overlap() -> None:
@@ -87,9 +333,35 @@ def test_csv_params_rejects_non_bool_sort_by_time() -> None:
         _dataset(sort_by_time="true")
 
 
-def test_csv_params_rejects_feature_cols_with_clear_error() -> None:
-    with pytest.raises(ValueError, match="exogenous feature_cols are not supported yet"):
-        _dataset(feature_cols=["temperature"])
+def test_csv_params_accepts_feature_cols() -> None:
+    dataset = _feature_dataset(feature_cols=["temperature"])
+
+    assert dataset.feature_cols == ["temperature"]
+
+
+def test_csv_params_accepts_empty_feature_cols() -> None:
+    dataset = _dataset(feature_cols=[])
+    sample = dataset[0]
+
+    assert dataset.feature_cols == []
+    assert sample["x"].shape == (8, 1)
+    assert sample["y"].shape == (2, 1)
+    assert set(sample) == {"x", "y"}
+
+
+def test_csv_params_rejects_feature_cols_string() -> None:
+    with pytest.raises(ValueError, match="feature_cols must be a list of strings or None"):
+        _dataset(feature_cols="temperature")
+
+
+def test_csv_params_rejects_empty_feature_col_name() -> None:
+    with pytest.raises(ValueError, match="feature_cols must contain non-empty strings"):
+        _dataset(feature_cols=[""])
+
+
+def test_csv_params_rejects_feature_target_overlap() -> None:
+    with pytest.raises(ValueError, match="feature_cols must not overlap target_cols"):
+        _dataset(feature_cols=["value"])
 
 
 def test_csv_dataset_rejects_missing_file(tmp_path) -> None:

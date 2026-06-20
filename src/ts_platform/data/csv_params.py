@@ -74,20 +74,28 @@ class CSVDatasetParams(BaseModel):
     @field_validator("feature_cols", mode="before")
     @classmethod
     def validate_feature_cols_shape(cls, value: object) -> object:
-        """Require feature_cols to be absent, null, or a list of strings."""
+        """Require feature_cols to be absent, null, or a list of non-empty strings."""
 
         if value is None:
             return value
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        if not isinstance(value, list):
             msg = "feature_cols must be a list of strings or None"
+            raise ValueError(msg)
+        if not all(isinstance(item, str) for item in value):
+            msg = "feature_cols must be a list of strings or None"
+            raise ValueError(msg)
+        if not all(item for item in value):
+            msg = "feature_cols must contain non-empty strings"
             raise ValueError(msg)
         return value
 
     @model_validator(mode="after")
-    def reject_exogenous_features(self) -> CSVDatasetParams:
-        """Reject exogenous features until model/data support is implemented."""
+    def validate_feature_targets_do_not_overlap(self) -> CSVDatasetParams:
+        """Keep target columns distinct from input-only feature columns."""
 
-        if self.feature_cols:
-            msg = "exogenous feature_cols are not supported yet"
+        feature_cols = self.feature_cols or []
+        overlap = sorted(set(self.target_cols).intersection(feature_cols))
+        if overlap:
+            msg = f"feature_cols must not overlap target_cols: {overlap}"
             raise ValueError(msg)
         return self

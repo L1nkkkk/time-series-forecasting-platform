@@ -45,28 +45,51 @@ data:
   no missing values.
 - `sort_by_time`: strict boolean. When true, sort by `timestamp_col` before
   splitting.
-
-`feature_cols` are rejected with `exogenous feature_cols are not supported yet`
-when non-empty.
+- `feature_cols`: optional list of numeric input-only feature columns. When
+  provided, every column must exist, must be numeric or safely convertible to
+  numeric values, and must not overlap with `target_cols`.
 
 ## ForecastBatch and Dimensions
 
 Datasets return `ForecastBatch` dictionaries. The current required runtime
 fields are:
 
-- `x`: history tensor shaped `[input_len, num_features]`
-- `y`: target tensor shaped `[output_len, num_features]`
+- `x`: history tensor shaped `[input_len, input_dim]`.
+- `y`: target tensor shaped `[output_len, target_dim]`.
 
-Phase 12A reserves optional batch fields for later exogenous support:
+For target-only datasets, `input_dim == target_dim == num_features` and the
+batch remains exactly:
+
+```python
+{"x": x, "y": y}
+```
+
+CSV datasets with `feature_cols` use:
+
+- `target_dim = len(target_cols)`
+- `feature_dim = len(feature_cols)`
+- `input_dim = target_dim + feature_dim`
+- `num_features = target_dim`
+
+For feature-aware CSV samples, `x` is target history followed by feature
+history, while `y` remains future targets only:
+
+```text
+x = concat(target_cols history, feature_cols history)
+y = target_cols future
+```
+
+The concat order is always all `target_cols` first, then all `feature_cols`.
+Feature-aware CSV samples also include:
 
 - `target_x`: target-history slice.
 - `feature_x`: exogenous feature-history slice.
-- `metadata`: sample-level metadata.
+- `metadata`: target columns, feature columns, and dimension metadata.
 
-Current datasets and `ScaledForecastingDataset` still return only `x` and
-`y`. They also expose `dataset.dimensions` with `input_len`, `output_len`,
-`input_dim`, and `target_dim`. For target-only CSV and synthetic datasets,
-`input_dim == target_dim == num_features`.
+`ScaledForecastingDataset` still supports target-only datasets only. It rejects
+feature-aware datasets with `feature-aware scaling is not implemented until
+Phase 12C`, so feature-aware CSV configs are not silently trained before the
+split target/feature scaler migration.
 
 ## Missing Values
 
@@ -81,6 +104,10 @@ full CSV, computes raw train/validation/test row boundaries, selects the current
 split, and only then applies the missing policy. This prevents `forward_fill`
 from crossing train/validation/test boundaries and prevents `drop` from
 changing another split's rows.
+
+Feature columns are not filled or dropped by `missing_policy`. If any selected
+split contains missing values in `feature_cols`, dataset construction fails
+with an error containing `feature columns contain missing values`.
 
 After the policy runs, each non-empty split must still contain at least
 `input_len + output_len` rows so it can create one sliding window. Errors report
@@ -170,30 +197,31 @@ behavior explicit.
 
 ## Future Exogenous Feature Columns
 
-Future CSV support will distinguish forecast targets from input-only
-exogenous features:
+Phase 12B CSV support distinguishes forecast targets from input-only
+exogenous features at the dataset and batch layer:
 
 - `target_cols`: columns predicted by the model.
 - `feature_cols`: columns used only as model inputs.
 - `y`: future values for `target_cols` only.
 - `x`: target history concatenated with feature history.
 
-In the planned design, metrics, inverse transforms, and original-scale result
-reporting remain target-only. Feature columns do not enter `y`, target scaler
-inverse transforms, or target metrics.
+Metrics, inverse transforms, and original-scale result reporting remain
+target-only in the planned end state. Feature columns do not enter `y`, target
+scaler inverse transforms, or target metrics.
 
-This is design-only in the current phase. `feature_cols` are still not
-implemented; passing non-empty `feature_cols` to the CSV dataset currently
-raises `exogenous feature_cols are not supported yet`.
+Full feature-aware training is intentionally still blocked. The current single
+`ScaledForecastingDataset` cannot scale target and feature slices separately,
+so feature-aware CSV configs raise `feature-aware scaling is not implemented
+until Phase 12C`.
 
 See [exogenous_features_design.md](exogenous_features_design.md) for the full
 interface, scaler, checkpoint, and migration plan.
 
 ## Current Limits
 
-Exogenous `feature_cols` are not currently supported. Passing feature columns
-raises an explicit error. This keeps model inputs shaped as
-`[input_len, num_targets]` and targets shaped as `[output_len, num_targets]`.
+Feature-aware CSV datasets can be constructed and inspected directly, but
+training with `feature_cols` is blocked until Phase 12C adds split target and
+feature scaling and later phases migrate model/checkpoint integration.
 
 Profiling currently supports local CSV files only. Remote URLs and parquet
 files are not supported.
