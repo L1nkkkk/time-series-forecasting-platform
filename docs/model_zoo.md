@@ -78,6 +78,38 @@ The example config uses one epoch, small hidden sizes, `primary_metric: mae`,
 `continue_on_error: true`, and `include_scaled_metrics: false` so it can act as
 a quick CPU smoke test for model registration and compare output.
 
+## Future Exogenous Feature Support
+
+The planned exogenous feature interface separates model input width from target
+output width:
+
+- `input_dim = len(target_cols) + len(feature_cols)`
+- `target_dim = len(target_cols)`
+
+Trainable models are expected to become feature-aware:
+
+- `linear`
+- `mlp`
+- `rnn`
+- `gru`
+- `lstm`
+- `tcn`
+
+These models can migrate to consume `input_dim` and project to
+`output_len * target_dim`.
+
+Statistical baselines remain target-only by default:
+
+- `naive`
+- `moving_average`
+- `seasonal_naive`
+
+When features are present, these baselines should ignore the feature slice and
+forecast only from target history. Current models do not support
+`feature_cols`; this section documents the planned migration only. See
+[exogenous_features_design.md](exogenous_features_design.md) for the detailed
+design.
+
 ## Current Limitations
 
 - Probabilistic forecasting is not supported.

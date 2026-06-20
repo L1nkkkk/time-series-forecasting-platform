@@ -22,3 +22,23 @@ def test_readme_contains_production_hardening_roadmap() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "## Production Hardening Roadmap" in readme
+
+
+def test_phase11_exogenous_feature_design_docs_exist() -> None:
+    expected_paths = [
+        "docs/exogenous_features_design.md",
+        "docs/adr/0003-exogenous-feature-interface.md",
+    ]
+
+    for relative_path in expected_paths:
+        assert (ROOT / relative_path).is_file(), relative_path
+
+
+def test_phase11_exogenous_feature_links_are_documented() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    data_format = (ROOT / "docs/data_format.md").read_text(encoding="utf-8")
+    model_zoo = (ROOT / "docs/model_zoo.md").read_text(encoding="utf-8")
+
+    assert "## Future: Exogenous Features" in readme
+    assert "## Future Exogenous Feature Columns" in data_format
+    assert "## Future Exogenous Feature Support" in model_zoo
