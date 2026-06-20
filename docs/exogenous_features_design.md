@@ -7,36 +7,46 @@ holiday flags, prices, promotions, sensor context, load indicators, and other
 auxiliary variables can explain future target movement even when they are not
 themselves forecast targets.
 
-The current platform supports CSV `target_cols` only. That is enough for
-target-only baselines and early model comparison, but it cannot represent
-datasets where the model should learn from exogenous columns without predicting
-those columns.
+The current trainable platform supports CSV `target_cols` only. That is enough
+for target-only baselines and early model comparison, but full training still
+cannot represent datasets where the model should learn from exogenous columns
+without predicting those columns. Phase 12B adds the CSV dataset/batch layer for
+those columns while leaving scaler and model migration to later phases.
 
 ## Current State
 
-CSV configs currently declare target columns through `data.params.target_cols`.
+CSV configs declare target columns through `data.params.target_cols`.
 `CSVForecastDataset` reads those columns, validates them as numeric targets,
-and yields samples shaped as:
+and target-only configs yield samples shaped as:
 
 ```text
 x: Tensor[input_len, num_features]
 y: Tensor[output_len, num_features]
 ```
 
-At this stage, `num_features == len(target_cols)`. Model constructors receive
-`num_features`, and models are expected to return predictions with the same
-last dimension as `y`.
+For target-only configs, `num_features == len(target_cols)`. Model constructors
+receive `num_features`, and models are expected to return predictions with the
+same last dimension as `y`.
 
-`feature_cols` is present only as a rejected CSV parameter. Passing non-empty
-`feature_cols` currently raises a clear validation error.
+Phase 12B enables `feature_cols` in `CSVForecastDataset` only. The dataset
+validates numeric feature columns, builds `x` from target history plus feature
+history, keeps `y` target-only, and exposes `target_x`, `feature_x`, and column
+metadata for feature-aware samples. `num_features` remains a compatibility
+alias for `target_dim`.
 
-Phase 12A starts the implementation by adding compatibility dimensions without
-enabling exogenous runtime behavior. Target-only datasets now expose
+Phase 12A started the implementation by adding compatibility dimensions without
+enabling exogenous runtime behavior. Target-only datasets expose
 `input_dim == target_dim == num_features`, `ForecastBatch` reserves optional
 `target_x`, `feature_x`, and `metadata` fields, and model construction can
 resolve either old `num_features` arguments or target-only
-`input_dim`/`target_dim` arguments. CSV `feature_cols`, scaler splitting,
-feature-aware forwards, and checkpoint schema expansion remain later phases.
+`input_dim`/`target_dim` arguments.
+
+Phase 12B does not enable full feature-aware training. The current
+`ScaledForecastingDataset` rejects `input_dim != target_dim` with
+`feature-aware scaling is not implemented until Phase 12C`, so Trainer fails
+clearly instead of silently scaling feature and target columns as one tensor.
+Scaler splitting, feature-aware model forwards, and checkpoint schema expansion
+remain later phases.
 
 ## Proposed Semantics
 
@@ -281,6 +291,10 @@ Phase 12B: `CSVForecastDataset` feature_cols support
 - Build `x` from target history plus feature history.
 - Keep `y` target-only.
 - Preserve split-local missing-value boundaries.
+- Return optional target/feature history slices and metadata for feature-aware
+  CSV samples.
+- Block `ScaledForecastingDataset` and Trainer for feature-aware CSV configs
+  until split target/feature scaling exists.
 
 Phase 12C: Scaler split support
 

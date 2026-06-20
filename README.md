@@ -143,6 +143,9 @@ CSV parameters:
   rows before splitting.
 - `target_cols`: one or more numeric target columns. Models receive only these
   columns in this phase. A plain string or empty list is rejected.
+- `feature_cols`: optional numeric input-only columns for the CSV dataset and
+  batch layer. Feature-aware samples use `x = target history + feature history`
+  and `y = target future only`.
 - `missing_policy`: `error`, `drop`, `forward_fill`, or `zero_fill`.
 - `sort_by_time`: boolean flag to sort rows by timestamp before splitting.
 
@@ -155,8 +158,10 @@ the selected split. For example, `forward_fill` cannot propagate the final train
 row into the first validation row, and `drop` cannot change another split's row
 boundaries.
 
-Exogenous `feature_cols` are intentionally not supported yet; passing them
-raises a clear error. That scope is deferred to a later phase.
+Feature-aware CSV configs are still blocked from training until Phase 12C adds
+separate target and feature scaler support. `ScaledForecastingDataset` raises a
+clear `feature-aware scaling is not implemented until Phase 12C` error instead
+of silently training with the wrong scaling semantics.
 
 Dataset catalog files such as
 [configs/datasets/local_csv.yaml](configs/datasets/local_csv.yaml) describe
@@ -193,13 +198,14 @@ The generated config is a normal training YAML. It is not run automatically.
 
 ## Future: Exogenous Features
 
-Current CSV training supports `target_cols` only. The planned `feature_cols`
-interface is documented in
+Current CSV dataset construction supports `feature_cols` at the batch layer, but
+full feature-aware training is still deferred. The planned end-to-end interface
+is documented in
 [docs/exogenous_features_design.md](docs/exogenous_features_design.md), and
-implementation is intentionally split into Phase 12 steps. Phase 12A adds only
-schema and compatibility infrastructure: `input_dim`/`target_dim` attributes,
-`ForecastDimensions`, and optional future `ForecastBatch` fields. Passing
-non-empty `feature_cols` still raises a validation error today.
+implementation is intentionally split into Phase 12 steps. Phase 12A adds
+schema and compatibility infrastructure; Phase 12B adds CSV data-layer
+`feature_cols` support; Phase 12C and Phase 12D will handle split scalers and
+feature-aware model migration.
 
 ## Discovery Commands
 
