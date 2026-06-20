@@ -124,13 +124,11 @@ Delivered:
 
 Notes: Manifest `run_dir` and `compare_run_dir` are metadata only.
 
-## Recommended Next Phases
-
 ### Phase 7: Production Hardening Design
 
 Goal: Document the production evolution path without adding infrastructure.
 
-Deliverables:
+Delivered:
 
 - Durable queue design.
 - Deployment design.
@@ -138,37 +136,43 @@ Deliverables:
 - Roadmap.
 - ADR for local JobRunner and production path.
 
-Non-goals:
-
-- Redis, Celery, database, Kubernetes, auth, UI, or new model implementation.
-
-Acceptance criteria:
-
-- Design docs cover queue, deployment, security, and roadmap.
-- Existing tests and quality gates continue to pass.
+Notes: This phase intentionally avoided Redis, Celery, Kubernetes, auth, UI,
+and new model implementation.
 
 ### Phase 8: Durable Queue Prototype
 
 Goal: Prototype a SQLite-backed queue while preserving the `/jobs` API.
 
-Deliverables:
+Delivered:
 
-- SQLite jobs, attempts, and events tables.
-- Queue repository abstraction.
-- Durable metadata tests.
-- Backward-compatible API responses.
+- SQLite job metadata backend.
+- External `worker-once` path.
+- Job events, attempts, heartbeat, stale inspection, and finite `worker-loop`.
+- Explicit retry and timeout policy operations.
 
-Non-goals:
+Notes: The queue remains a local prototype. Automatic retry scheduling,
+supervision, distributed workers, and Kubernetes integration remain out of
+scope.
 
-- Redis, Celery, Kubernetes, multi-tenant auth, or distributed workers.
+### Phase 9: Model Zoo Expansion Lite
 
-Acceptance criteria:
+Goal: Add classic, testable deep-learning forecasting baselines behind the
+existing model registry.
 
-- Job metadata survives API restart.
-- Corrupt or partial metadata has clear behavior.
-- Existing local JobRunner can remain available for demos.
+Delivered:
 
-### Phase 9: Dataset Catalog Expansion
+- RNN, GRU, LSTM, and TCN forecasting baselines.
+- Model zoo compare config.
+- Shape, validation, registry, compare, and tiny training smoke tests.
+- Model zoo docs.
+
+Notes: Phase 9 keeps the existing `Trainer`, `CompareRunner`, CLI, and config
+system boundaries. It does not add Transformer-style models, distributed
+training, or new infrastructure.
+
+## Recommended Next Phases
+
+### Phase 10: Dataset Catalog Expansion
 
 Goal: Improve dataset discovery and controlled local dataset use.
 
@@ -189,27 +193,33 @@ Acceptance criteria:
 - Users can discover and run documented local datasets safely.
 - Invalid catalog entries fail clearly.
 
-### Phase 10: Model Zoo Expansion
+### Phase 11: Exogenous Features
 
-Goal: Add more baseline and neural forecasting models behind the registry.
+Goal: Add controlled support for exogenous feature columns without breaking the
+existing target-only CSV path.
 
 Deliverables:
 
-- Additional model implementations.
-- Model-specific config examples.
-- Compare coverage for new models.
+- CSV `feature_cols` parsing and validation.
+- Dataset batch schema updates for target and feature tensors.
+- Model compatibility policy for models that can or cannot consume exogenous
+  features.
+- Tests that prove split-local missing-value handling still cannot leak across
+  train/validation/test boundaries.
 
 Non-goals:
 
-- Large distributed training.
-- GPU scheduling platform.
+- Remote feature stores.
+- Multi-tenant dataset permissions.
+- Probabilistic forecasting.
 
 Acceptance criteria:
 
-- New models run through the existing Trainer and CompareRunner.
-- Model configs remain stable and validated.
+- Existing target-only configs keep working.
+- Feature-aware configs fail clearly when a selected model does not support
+  exogenous inputs.
 
-### Phase 11: Observability and Release
+### Phase 12: Observability and Release
 
 Goal: Make operations and releases easier to inspect.
 
@@ -227,10 +237,10 @@ Non-goals:
 
 Acceptance criteria:
 
-- Job lifecycle and failures are auditable.
+- Job lifecycle, compare outcomes, and model zoo failures are auditable.
 - Releases have repeatable checks and documented changes.
 
-### Phase 12: Optional UI / Dashboard
+### Phase 13: Optional UI / Dashboard
 
 Goal: Provide a small dashboard only after API and storage boundaries are
 stable.

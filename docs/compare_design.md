@@ -56,6 +56,13 @@ continue_on_error: true
 `evaluation.metrics`; when omitted it defaults to the first evaluation metric.
 Aliases are optional and must be safe path components.
 
+`configs/examples/compare_model_zoo.yaml` uses the same compare schema as a
+lightweight model zoo benchmark. It keeps the dataset synthetic and tiny
+(`length: 48`, `input_len: 4`, `output_len: 2`, `epochs: 1`) while running the
+classical baselines, linear/MLP baselines, recurrent baselines, and TCN through
+the same `Trainer` path. This makes it useful as a quick registry, config, and
+leaderboard smoke test rather than a model-quality benchmark.
+
 ## Output Directory Structure
 
 ```text
@@ -129,6 +136,11 @@ serializes only that column as a JSON string so the CSV remains a flat table.
 the existing `Trainer`. It only coordinates config expansion, output directory
 layout, result collection, and leaderboard writing. It does not duplicate
 training, evaluation, checkpoint, or scaler logic.
+
+Because each model entry is only a registry name plus params, compare can also
+run model zoo benchmarks. `compare_model_zoo.yaml` includes `naive`,
+`moving_average`, `seasonal_naive`, `linear`, `mlp`, `rnn`, `gru`, `lstm`, and
+`tcn` with small hidden sizes so it remains fast on CPU.
 
 ## API Compare Endpoint
 
