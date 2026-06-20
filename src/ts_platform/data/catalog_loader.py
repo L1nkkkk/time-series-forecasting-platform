@@ -63,6 +63,9 @@ def _metadata_from_entry(entry: dict[str, Any], index: int) -> DatasetMetadata:
     if path is not None and not isinstance(path, str):
         msg = f"Dataset catalog entry {index} field 'path' must be a string"
         raise ValueError(msg)
+    if entry["dataset_type"] == "csv" and not path:
+        msg = f"Dataset catalog entry {index} field 'path' is required for csv datasets"
+        raise ValueError(msg)
     license_name = entry.get("license")
     if license_name is not None and not isinstance(license_name, str):
         msg = f"Dataset catalog entry {index} field 'license' must be a string"

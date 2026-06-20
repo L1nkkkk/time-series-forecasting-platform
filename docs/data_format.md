@@ -89,8 +89,69 @@ validation while still computing test metrics.
 
 When `timestamp_col` is omitted, timestamp metadata is `null`.
 
+## Dataset Profiling
+
+`profile-dataset` reads a local CSV and reports metadata without cleaning data,
+writing files, or training a model:
+
+```bash
+py -m ts_platform.cli.main profile-dataset --path tests/fixtures/tiny_series.csv --target-cols value --timestamp-col timestamp --input-len 8 --output-len 2
+```
+
+The profile payload contains:
+
+- `name`: optional dataset name.
+- `dataset_type`: currently `csv`.
+- `path`: local CSV path.
+- `exists`: whether the file exists.
+- `row_count` and `column_count`.
+- `columns`: CSV column names.
+- `timestamp_col`, `start_timestamp`, and `end_timestamp`.
+- `target_cols`.
+- `target_missing_counts`: missing-value count per available target column.
+- `target_dtypes`: pandas dtype per available target column.
+- `duplicate_timestamp_count`.
+- `inferred_frequency`: pandas-inferred frequency when available.
+- `min_required_rows`: `input_len + output_len` when both values are provided.
+- `can_build_windows`: whether the raw row count can produce at least one
+  window for the requested lengths.
+- `warnings`: non-fatal data or metadata issues.
+
+Warnings include missing files, missing target columns, missing timestamp
+columns, missing target values, duplicate timestamps, frequency inference
+failure, and insufficient rows for windows. Profiling does not apply
+`missing_policy`, does not sort rows, and does not validate numeric
+convertibility as strictly as training does; it is an inspection step before
+building or running a config.
+
+## Catalog Metadata
+
+Dataset catalogs are YAML metadata documents. They are for discovery,
+profiling, and config generation; they do not download data and the trainer
+does not automatically infer config from them.
+
+Recommended local CSV fields:
+
+- `name`: non-empty catalog name.
+- `dataset_type`: `csv`.
+- `domain`: broad domain label.
+- `description`: human-readable description.
+- `path`: local CSV path. Required for CSV entries.
+- `timestamp_col`: optional timestamp column name.
+- `target_cols`: optional list of target column names. It must be a list when
+  present; a plain string is rejected.
+- `frequency`: optional documented frequency.
+- `license`: optional license label.
+
+Catalog entries with the same normalized name overwrite previous metadata when
+registered. This keeps local catalog files easy to override while making the
+behavior explicit.
+
 ## Current Limits
 
-Exogenous `feature_cols` are not supported in Phase 2. Passing feature columns
+Exogenous `feature_cols` are not currently supported. Passing feature columns
 raises an explicit error. This keeps model inputs shaped as
 `[input_len, num_targets]` and targets shaped as `[output_len, num_targets]`.
+
+Profiling currently supports local CSV files only. Remote URLs and parquet
+files are not supported.

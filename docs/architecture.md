@@ -13,7 +13,7 @@ code, no third-party notice is required beyond documenting the design reference.
 
 - `config`: Load YAML or JSON and validate all user input with Pydantic.
 - `data`: Define forecasting datasets, dataset registries, catalog metadata,
-  catalog loading, split helpers, and transforms.
+  catalog loading, dataset profiling, split helpers, and transforms.
 - `scaler`: Normalize and inverse-normalize tensors, and serialize scaler state
   for checkpoints.
 - `models`: Define forecasting models and model registry. Built-in models use
@@ -57,6 +57,16 @@ Compare YAML/JSON config
   -> One PlatformConfig per model
   -> Existing Trainer for each model
   -> parent results.json + leaderboard.json + leaderboard.csv + artifacts.json
+```
+
+Catalog profiling and config generation are read-side utilities:
+
+```text
+Catalog YAML or explicit CSV path
+  -> Catalog loader validation or profile-dataset CLI args
+  -> DatasetProfile for local CSV inspection
+  -> optional make-config-from-catalog writes a normal PlatformConfig YAML
+  -> user explicitly runs train or compare later
 ```
 
 Result lookup uses one fixed root:
@@ -211,6 +221,24 @@ discovery and API listing, but they do not replace explicit training configs.
 The API loads `configs/datasets/*.yaml` during app creation and skips damaged
 catalog files with a warning. `DatasetCatalog.register` overwrites metadata
 with the same normalized name.
+
+`data/profile.py` owns `DatasetProfile` and local CSV profiling. Profiling
+reads CSV headers, row counts, target missing counts and dtypes, optional
+timestamp range, duplicate timestamp count, inferred frequency, and whether a
+requested `input_len + output_len` can build at least one window. It is
+intentionally non-mutating: it does not apply missing policies, clean data,
+write configs, or start training.
+
+`make-config-from-catalog` is the only Phase 10 path that turns catalog
+metadata into a runnable config. It requires a CSV catalog entry, writes a
+normal `PlatformConfig` YAML, and leaves training as an explicit later command.
+The trainer still builds datasets only from config files and never pulls
+parameters from the catalog implicitly.
+
+The dataset API exposes catalog detail and profile read paths. `GET
+/datasets/{dataset_name}/profile` profiles only catalog-backed CSV entries and
+does not accept user-provided paths, so API callers cannot turn the profile
+endpoint into arbitrary local file reads.
 
 ## API Training Boundary
 

@@ -170,33 +170,54 @@ Notes: Phase 9 keeps the existing `Trainer`, `CompareRunner`, CLI, and config
 system boundaries. It does not add Transformer-style models, distributed
 training, or new infrastructure.
 
-## Recommended Next Phases
-
-### Phase 10: Dataset Catalog Expansion
+### Phase 10: Dataset Catalog & Profiling Expansion
 
 Goal: Improve dataset discovery and controlled local dataset use.
 
+Delivered:
+
+- CSV `DatasetProfile`.
+- `profile-dataset` and `profile-catalog` CLI commands.
+- `make-config-from-catalog` CLI command.
+- Enhanced catalog metadata validation.
+- Dataset detail/profile API endpoints.
+- Dataset catalog and profiling docs.
+
+Notes: Catalog metadata remains discovery/config-generation input only. The
+trainer does not automatically infer config from catalog entries, the API does
+not accept arbitrary profile paths, and this phase does not add remote dataset
+downloads or exogenous feature columns.
+
+## Recommended Next Phases
+
+### Phase 11: Exogenous Feature Design
+
+Goal: Design controlled support for exogenous feature columns without breaking
+the existing target-only CSV path.
+
 Deliverables:
 
-- More catalog examples.
-- Dataset validation docs.
-- Optional dataset allowlist design.
-- Additional CSV fixtures.
+- Input/output schema design for target and exogenous tensors.
+- Model compatibility policy for feature-aware and target-only models.
+- Missing-value handling design for target columns versus feature columns.
+- Config and API validation plan.
 
 Non-goals:
 
-- Remote dataset crawling.
+- Implementing exogenous features in the runner.
+- Remote feature stores.
 - Multi-tenant dataset permissions.
+- Probabilistic forecasting.
 
 Acceptance criteria:
 
-- Users can discover and run documented local datasets safely.
-- Invalid catalog entries fail clearly.
+- The design keeps existing target-only configs working.
+- Unsupported model/feature combinations have clear planned errors.
 
-### Phase 11: Exogenous Features
+### Phase 12: Exogenous Features Implementation
 
-Goal: Add controlled support for exogenous feature columns without breaking the
-existing target-only CSV path.
+Goal: Add controlled support for exogenous feature columns after the design is
+accepted.
 
 Deliverables:
 
@@ -219,7 +240,7 @@ Acceptance criteria:
 - Feature-aware configs fail clearly when a selected model does not support
   exogenous inputs.
 
-### Phase 12: Observability and Release
+### Phase 13: Observability and Release
 
 Goal: Make operations and releases easier to inspect.
 
@@ -240,7 +261,7 @@ Acceptance criteria:
 - Job lifecycle, compare outcomes, and model zoo failures are auditable.
 - Releases have repeatable checks and documented changes.
 
-### Phase 13: Optional UI / Dashboard
+### Phase 14: Optional UI / Dashboard
 
 Goal: Provide a small dashboard only after API and storage boundaries are
 stable.

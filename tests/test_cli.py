@@ -17,6 +17,7 @@ from ts_platform.api.services.experiment_store import (
     UnsafePathComponentError,
 )
 from ts_platform.cli.main import main
+from ts_platform.config.loader import load_config
 
 
 def test_cli_train_runs(tmp_path, capsys) -> None:
@@ -56,6 +57,260 @@ def test_cli_list_datasets_with_catalog(capsys) -> None:
 
     assert exit_code == 0
     assert any(item["name"] == "tiny_csv" for item in payload["datasets"])
+
+
+def test_cli_profile_dataset(capsys) -> None:
+    exit_code = main(
+        [
+            "profile-dataset",
+            "--path",
+            "tests/fixtures/tiny_series.csv",
+            "--target-cols",
+            "value",
+            "--timestamp-col",
+            "timestamp",
+            "--input-len",
+            "8",
+            "--output-len",
+            "2",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["exists"] is True
+    assert payload["row_count"] == 90
+    assert payload["can_build_windows"] is True
+    assert payload["warnings"] == []
+
+
+def test_cli_profile_dataset_missing_file(tmp_path, capsys) -> None:
+    exit_code = main(
+        [
+            "profile-dataset",
+            "--path",
+            str(tmp_path / "missing.csv"),
+            "--target-cols",
+            "value",
+            "--timestamp-col",
+            "timestamp",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["exists"] is False
+    assert "missing file" in payload["warnings"]
+
+
+def test_cli_profile_dataset_detects_insufficient_rows(tmp_path, capsys) -> None:
+    path = tmp_path / "short.csv"
+    path.write_text("timestamp,value\n2024-01-01,1\n2024-01-02,2\n", encoding="utf-8")
+
+    exit_code = main(
+        [
+            "profile-dataset",
+            "--path",
+            str(path),
+            "--target-cols",
+            "value",
+            "--timestamp-col",
+            "timestamp",
+            "--input-len",
+            "2",
+            "--output-len",
+            "2",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["can_build_windows"] is False
+    assert "insufficient rows for windows" in payload["warnings"]
+
+
+def test_cli_profile_catalog(capsys) -> None:
+    exit_code = main(
+        [
+            "profile-catalog",
+            "--catalog",
+            "configs/datasets/local_csv.yaml",
+            "--input-len",
+            "8",
+            "--output-len",
+            "2",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert len(payload["profiles"]) == 1
+    assert payload["profiles"][0]["name"] == "tiny_csv"
+    assert payload["profiles"][0]["exists"] is True
+
+
+def test_cli_profile_catalog_skips_unsupported_dataset_type(tmp_path, capsys) -> None:
+    catalog_path = tmp_path / "synthetic_catalog.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: synthetic_entry\n"
+        "    dataset_type: synthetic\n"
+        "    domain: demo\n"
+        "    description: Synthetic metadata\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["profile-catalog", "--catalog", str(catalog_path)])
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["profiles"][0]["name"] == "synthetic_entry"
+    assert "unsupported dataset_type: synthetic" in payload["profiles"][0]["warnings"]
+
+
+def test_cli_profile_catalog_reports_warnings(tmp_path, capsys) -> None:
+    catalog_path = tmp_path / "missing_file_catalog.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: missing_file\n"
+        "    dataset_type: csv\n"
+        "    domain: demo\n"
+        "    description: Missing file metadata\n"
+        f"    path: {tmp_path / 'missing.csv'}\n"
+        "    target_cols: [value]\n",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["profile-catalog", "--catalog", str(catalog_path)])
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert "missing file" in payload["profiles"][0]["warnings"]
+
+
+def test_cli_make_config_from_catalog(tmp_path, capsys) -> None:
+    output_path = tmp_path / "tiny_csv_config.yaml"
+
+    exit_code = main(
+        [
+            "make-config-from-catalog",
+            "--catalog",
+            "configs/datasets/local_csv.yaml",
+            "--dataset",
+            "tiny_csv",
+            "--output",
+            str(output_path),
+            "--input-len",
+            "8",
+            "--output-len",
+            "2",
+            "--model",
+            "linear",
+            "--epochs",
+            "1",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert output_path.exists()
+    assert payload["output"] == str(output_path)
+    assert payload["config"]["experiment"]["name"] == "train_tiny_csv_linear"
+    assert payload["config"]["data"]["params"]["path"] == "tests/fixtures/tiny_series.csv"
+
+
+def test_make_config_from_catalog_output_loads(tmp_path, capsys) -> None:
+    output_path = tmp_path / "loadable_config.yaml"
+    main(
+        [
+            "make-config-from-catalog",
+            "--catalog",
+            "configs/datasets/local_csv.yaml",
+            "--dataset",
+            "tiny_csv",
+            "--output",
+            str(output_path),
+            "--input-len",
+            "8",
+            "--output-len",
+            "2",
+            "--model",
+            "linear",
+            "--epochs",
+            "1",
+        ]
+    )
+    capsys.readouterr()
+
+    config = load_config(output_path)
+
+    assert config.experiment.name == "train_tiny_csv_linear"
+    assert config.data.name == "csv"
+    assert config.data.params["target_cols"] == ["value"]
+    assert config.training.epochs == 1
+
+
+def test_make_config_from_catalog_rejects_missing_dataset(tmp_path) -> None:
+    with pytest.raises(KeyError, match="unknown dataset metadata: missing"):
+        main(
+            [
+                "make-config-from-catalog",
+                "--catalog",
+                "configs/datasets/local_csv.yaml",
+                "--dataset",
+                "missing",
+                "--output",
+                str(tmp_path / "config.yaml"),
+                "--input-len",
+                "8",
+                "--output-len",
+                "2",
+                "--model",
+                "linear",
+                "--epochs",
+                "1",
+            ]
+        )
+
+
+def test_make_config_from_catalog_rejects_non_csv_dataset(tmp_path) -> None:
+    catalog_path = tmp_path / "synthetic_catalog.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: synthetic_entry\n"
+        "    dataset_type: synthetic\n"
+        "    domain: demo\n"
+        "    description: Synthetic metadata\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="only supports csv"):
+        main(
+            [
+                "make-config-from-catalog",
+                "--catalog",
+                str(catalog_path),
+                "--dataset",
+                "synthetic_entry",
+                "--output",
+                str(tmp_path / "config.yaml"),
+                "--input-len",
+                "8",
+                "--output-len",
+                "2",
+                "--model",
+                "linear",
+                "--epochs",
+                "1",
+            ]
+        )
 
 
 def test_cli_list_models(capsys) -> None:

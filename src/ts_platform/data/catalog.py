@@ -47,6 +47,11 @@ class DatasetCatalog:
             msg = f"unknown dataset metadata: {normalized}"
             raise KeyError(msg) from exc
 
+    def names(self) -> list[str]:
+        """Return registered metadata names."""
+
+        return sorted(self._items)
+
     def list(self) -> list[dict[str, str | None]]:
         """Return catalog metadata as serializable dictionaries."""
 
