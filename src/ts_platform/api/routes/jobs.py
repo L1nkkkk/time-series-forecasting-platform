@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from threading import RLock
 from typing import Any, NoReturn
 
 from fastapi import APIRouter, HTTPException
 
+from ts_platform.api.jobs.factory import build_job_runner
 from ts_platform.api.jobs.runner import JobRunner
 from ts_platform.api.jobs.store import (
     JobNotFoundError,
@@ -20,8 +22,10 @@ from ts_platform.config.compare_schema import CompareConfig
 from ts_platform.config.schema import PlatformConfig
 
 router = APIRouter()
-RUNS_ROOT = APISettings().runs_root
-JOBS_ROOT = RUNS_ROOT / "jobs"
+API_SETTINGS = APISettings()
+RUNS_ROOT = API_SETTINGS.runs_root
+JOBS_ROOT = API_SETTINGS.jobs_root
+SQLITE_JOBS_DB_PATH = API_SETTINGS.sqlite_jobs_db_path
 _JOB_RUNNER: JobRunner | None = None
 _JOB_RUNNER_LOCK = RLock()
 
@@ -122,7 +126,7 @@ def get_job_runner() -> JobRunner:
     global _JOB_RUNNER
     with _JOB_RUNNER_LOCK:
         if _JOB_RUNNER is None:
-            _JOB_RUNNER = JobRunner(jobs_root=JOBS_ROOT, runs_root=RUNS_ROOT)
+            _JOB_RUNNER = build_job_runner(_runner_settings())
         return _JOB_RUNNER
 
 
@@ -156,6 +160,15 @@ def _assert_inside_root(path: Path, runs_root: Path) -> None:
     resolved_path = path.resolve()
     if not resolved_path.is_relative_to(Path(runs_root).resolve()):
         raise HTTPException(status_code=500, detail=f"job path escapes runs root: {path}")
+
+
+def _runner_settings() -> APISettings:
+    return replace(
+        API_SETTINGS,
+        runs_root=RUNS_ROOT,
+        jobs_root=JOBS_ROOT,
+        sqlite_jobs_db_path=SQLITE_JOBS_DB_PATH,
+    )
 
 
 def _raise_job_error(exc: UnsafeJobIdError | JobNotFoundError | JobStoreError) -> NoReturn:

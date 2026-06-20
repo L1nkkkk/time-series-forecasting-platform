@@ -66,10 +66,13 @@ Conclusion:
 Goal: Replace JSON-only local job metadata with a durable SQLite queue while
 preserving the existing `/jobs` API surface.
 
+Status: implemented as a prototype behind the current in-process
+`ThreadPoolExecutor` runner.
+
 Deliverables:
 
-- SQLite schema for jobs, attempts, and events.
-- Queue repository abstraction behind the jobs service layer.
+- SQLite schema for jobs and events.
+- `JobStoreProtocol` abstraction behind the jobs service layer.
 - Migration path from current `JobRecord` shape to SQLite rows.
 - API responses compatible with current `/jobs` endpoints.
 - Tests for restart-safe metadata reads and corrupted-row behavior.
@@ -87,6 +90,19 @@ Acceptance criteria:
 - Job metadata survives API process restart.
 - Corrupt or partial queue records are handled with clear errors.
 - Local test setup does not require external services.
+- `request_config.json` snapshots remain under `runs/jobs/<job_id>/`.
+
+Implementation notes:
+
+- The default backend remains JSON for compatibility.
+- SQLite is selected with `APISettings.job_backend = "sqlite"`.
+- SQLite stores job metadata in `runs/jobs.sqlite3`.
+- `SQLiteJobStore` writes `job_events` rows for the minimum Phase 8A audit
+  trail.
+- Phase 8A does not write a compatibility `job.json` copy for SQLite jobs; the
+  `jobs` table is authoritative.
+- The current runner is still in-process. Durable metadata is not the same as
+  full worker crash recovery.
 
 ### Phase 8B: Separate worker process
 
@@ -180,12 +196,12 @@ Acceptance criteria:
 - `run_id`
 - `compare_run_id`
 - `result_path`
-- `artifacts_path`
 - `leaderboard_json_path`
+- `artifacts_path`
 - `error`
 - `config_snapshot_path`
 
-`job_attempts`:
+`job_attempts` (Phase 8B):
 
 - `attempt_id`
 - `job_id`
@@ -256,5 +272,7 @@ keep their names and meaning unless a versioned API migration is documented.
 
 ## Non-goals
 
-This phase does not implement a durable queue. It only documents the production
-job design, target state machine, data model, and migration path.
+This design does not require Redis, Celery, RabbitMQ, Kubernetes, a web
+frontend, user management, distributed training, or new model work. Phase 8A
+implements the SQLite metadata prototype only; Phase 8B is still responsible
+for a separate worker process, attempts, heartbeat, retry, and crash recovery.

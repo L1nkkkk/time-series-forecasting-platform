@@ -24,6 +24,7 @@ The current MVP focuses on a runnable local training loop:
 - Artifact manifests that make train and compare outputs discoverable.
 - Safe manifest-based artifact downloads for JSON, YAML, CSV, and log files.
 - Local asynchronous train/compare jobs for the demo API.
+- Optional SQLite job metadata backend prototype for local jobs.
 
 No BasicTS code is copied into this project.
 
@@ -176,6 +177,7 @@ py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run 
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
 py -m ts_platform.cli.main list-jobs
+py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 ```
 
@@ -186,7 +188,10 @@ py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 It prints JSON, YAML, CSV, and log artifacts to stdout by default, or writes
 them to `--output` when provided. Checkpoints are intentionally blocked by
 default in the CLI, and artifact files larger than 5 MiB are rejected.
-`list-jobs` and `show-job` inspect local API job metadata under `runs/jobs`.
+`list-jobs` and `show-job` inspect local API job metadata under `runs/jobs` by
+default. The default job backend is JSON. The Phase 8A SQLite prototype stores
+metadata in `runs/jobs.sqlite3`; use `--job-backend sqlite` with
+`--sqlite-db runs/jobs.sqlite3` for read-only CLI inspection of SQLite jobs.
 CLI job submission is intentionally not provided because a one-shot CLI process
 cannot keep an in-process background executor alive after exit.
 
@@ -307,6 +312,7 @@ py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run 
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
 py -m ts_platform.cli.main list-jobs
+py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 ```
 
 ## API Demo
@@ -366,7 +372,10 @@ switch.
 The `/jobs/*` endpoints add a lightweight local async layer on top of the same
 safe train and compare services. A submitted job immediately returns a
 `JobRecord` with status `queued` or `running`; background execution uses a
-local `ThreadPoolExecutor` and persists metadata to `runs/jobs/<job_id>/`.
+local `ThreadPoolExecutor`. By default the runner persists JSON metadata to
+`runs/jobs/<job_id>/`. The optional SQLite prototype can store the same
+metadata in `runs/jobs.sqlite3` behind the unchanged `/jobs` API while still
+writing request snapshots under `runs/jobs/<job_id>/request_config.json`.
 `GET /jobs/{job_id}/result` returns the saved `results.json` only after the job
 has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
 current status and error field. Cancelling a queued job marks it `cancelled`.

@@ -8,6 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from tests.helpers import tiny_config
+from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.jobs.store import JobStore
 from ts_platform.api.services.artifact_service import ArtifactAccessForbiddenError
 from ts_platform.api.services.experiment_store import (
@@ -504,3 +505,58 @@ def test_cli_show_job(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert payload["job_id"] == job.job_id
     assert payload["job_type"] == "compare"
+
+
+def test_cli_list_jobs_sqlite_backend(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_sqlite_list", {"config": True})
+
+    exit_code = main(
+        [
+            "list-jobs",
+            "--job-backend",
+            "sqlite",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert [item["job_id"] for item in payload["jobs"]] == [job.job_id]
+
+
+def test_cli_show_job_sqlite_backend(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("compare", "cli_sqlite_show", {"config": True})
+
+    exit_code = main(
+        [
+            "show-job",
+            "--job-id",
+            job.job_id,
+            "--job-backend",
+            "sqlite",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["job_id"] == job.job_id
+    assert payload["job_type"] == "compare"
+
+
+def test_cli_list_jobs_rejects_unknown_backend(capsys) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        main(["list-jobs", "--job-backend", "memory"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err

@@ -3,8 +3,10 @@
 The MVP API keeps the original synchronous train and compare endpoints for
 simple demos, and also exposes a lightweight local jobs layer for asynchronous
 submission. The jobs layer is intentionally local and demo-grade: it uses an
-in-process `ThreadPoolExecutor` and JSON metadata under the fixed runs root, not
-Redis, Celery, Kubernetes, or a database.
+in-process `ThreadPoolExecutor` and defaults to JSON metadata under the fixed
+runs root. Phase 8A adds an optional SQLite job metadata backend without
+changing the `/jobs` API surface. It still does not introduce Redis, Celery,
+RabbitMQ, Kubernetes, or a separate worker process.
 
 ## Endpoints
 
@@ -186,6 +188,10 @@ Accepts the same `PlatformConfig` request body as `POST /experiments/train`,
 creates a local job under `runs/jobs/<job_id>/`, and returns immediately with a
 `JobRecord`. The background job calls the same API training service, so
 `experiment.output_dir` is still overwritten with the safe API runs root.
+With the default JSON backend, job metadata is stored in
+`runs/jobs/<job_id>/job.json`. With the SQLite backend, metadata is stored in
+`runs/jobs.sqlite3` and the request snapshot still lives under
+`runs/jobs/<job_id>/request_config.json`.
 
 ### POST /jobs/compare
 
@@ -197,7 +203,8 @@ background job delegates to the same safe compare service.
 
 Returns persisted job records newest first by `created_at`. Corrupt `job.json`
 metadata is skipped so a single damaged job does not prevent other jobs from
-being listed.
+being listed. SQLite backend reads use the same response shape and return clear
+job-store errors for SQLite database or schema failures.
 
 ```json
 {
@@ -258,12 +265,17 @@ The FastAPI app closes the local JobRunner executor during lifespan shutdown
 and resets the lazy singleton. A subsequent jobs request can create a fresh
 runner, but interrupted running jobs are not recovered.
 
+`APISettings.job_backend` selects the store backend. The default value is
+`"json"`, preserving existing behavior. Setting it to `"sqlite"` builds
+`SQLiteJobStore` through the job store factory. Unsupported values are rejected
+with a clear backend error.
+
 ## Future Durable Jobs API Compatibility
 
 The existing `/jobs` API is the stable external shape for asynchronous work.
-The current backend is a local `ThreadPoolExecutor` with JSON metadata under
-`runs/jobs/<job_id>/`, but future implementations may use SQLite, Redis/RQ, or
-Celery behind the same service boundary.
+The current runner is still a local `ThreadPoolExecutor`, and the backend can
+be JSON or SQLite behind the same service boundary. Future implementations may
+add a separate worker, Redis/RQ, or Celery after the SQLite boundary is proven.
 
 Backend changes should preserve these endpoints:
 

@@ -1,11 +1,14 @@
 # Local Jobs
 
 Phase 5 adds a lightweight local job layer for API-driven train and compare
-work. It is designed for demos and tests, not production scheduling.
+work. It is designed for demos and tests, not production scheduling. Phase 8A
+adds an optional SQLite-backed job store prototype while keeping the JSON store
+as the default backend.
 
 ## Storage Layout
 
-Jobs are stored under the API runs root:
+The default backend is still the JSON job store. Jobs are stored under the API
+runs root:
 
 ```text
 runs/
@@ -20,6 +23,21 @@ the current job metadata and is updated as the local runner progresses.
 
 `runs/jobs/<job_id>` is internal metadata. `ExperimentStore.list_experiments()`
 skips it so jobs do not appear as incomplete experiment runs.
+
+The optional SQLite backend stores job metadata in:
+
+```text
+runs/jobs.sqlite3
+```
+
+It still writes `request_config.json` under `runs/jobs/<job_id>/` so request
+payload snapshots remain inspectable on disk. It does not write a compatibility
+`job.json` copy; the SQLite `jobs` table is the source of truth for metadata.
+
+| Backend | Default | Metadata source | Request snapshot | Notes |
+| --- | --- | --- | --- | --- |
+| JSON | Yes | `runs/jobs/<job_id>/job.json` | `runs/jobs/<job_id>/request_config.json` | Simple local store used by existing behavior and tests |
+| SQLite | No | `runs/jobs.sqlite3` table `jobs` | `runs/jobs/<job_id>/request_config.json` | Phase 8A prototype for durable metadata and audit events |
 
 ## Job Ids
 
@@ -102,14 +120,19 @@ succeeded or failed result.
 ## Runner
 
 `JobRunner` uses `ThreadPoolExecutor` with `max_workers=1` by default. It
-creates the job through `JobStore`, submits work to the executor, and delegates
-the actual execution to:
+creates the job through a `JobStoreProtocol`, submits work to the executor, and
+delegates the actual execution to:
 
 - `train_with_safe_output_dir` for train jobs
 - `compare_with_safe_output_dir` for compare jobs
 
 Both services overwrite `experiment.output_dir` with the safe API runs root,
 so API callers cannot choose arbitrary output locations.
+
+`JsonJobStore` implements the default JSON backend. `JobStore` remains a
+backward-compatible alias for `JsonJobStore`. `SQLiteJobStore` implements the
+same protocol and can be injected into `JobRunner` or selected through
+`APISettings.job_backend = "sqlite"`.
 
 ## Lifecycle
 
@@ -151,6 +174,26 @@ does not hide other jobs. Reading the corrupt job directly with
 `GET /jobs/{job_id}` returns HTTP 500 and the metadata should be cleaned up
 manually.
 
+When the SQLite backend is selected, the `/jobs` response shape and status
+semantics are unchanged. SQLite schema or database errors are returned as job
+store errors instead of silently falling back to JSON.
+
+## SQLite Events
+
+The SQLite backend writes a minimal audit trail to `job_events`:
+
+- `job_created`
+- `job_running`
+- `job_succeeded`
+- `job_failed`
+- `job_cancelled`
+- `cancel_requested`
+
+Events are not exposed through a public API endpoint in Phase 8A. They are
+available through the store for tests and local debugging. This is intentionally
+small: it records lifecycle transitions but does not yet add worker attempts,
+heartbeats, retries, or recovery semantics.
+
 ## CLI
 
 The CLI supports read-only job inspection:
@@ -158,6 +201,8 @@ The CLI supports read-only job inspection:
 ```bash
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
+py -m ts_platform.cli.main show-job --job-backend sqlite --sqlite-db runs/jobs.sqlite3 --job-id 20260619T120000Z_a1b2c3
 ```
 
 CLI job submission is intentionally not implemented. A CLI command is a
@@ -172,7 +217,9 @@ running after the command exits.
 - Running threads are not force-killed by cancellation.
 - Shutdown closes the local executor but does not resume interrupted running
   work.
-- Job metadata is JSON on local disk, not a database.
+- The default job metadata backend is JSON on local disk.
+- The SQLite backend makes metadata durable in one local database file, but it
+  does not by itself provide worker crash recovery or restart-safe execution.
 
 Future production hardening should move execution to a durable worker or queue,
 add heartbeat/retry semantics, make cancellation cooperative at the runner
