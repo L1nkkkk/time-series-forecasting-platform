@@ -23,6 +23,7 @@ from ts_platform.api.jobs.store import (
     JsonJobStore,
     UnsafeJobIdError,
 )
+from ts_platform.api.jobs.worker import JobWorker
 from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
@@ -63,6 +64,37 @@ def _compare_config(tmp_path: Path, *, name: str = "job_compare") -> CompareConf
 
 def _sqlite_store(tmp_path: Path) -> SQLiteJobStore:
     return SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+
+
+def _write_train_result(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+    run_dir = runs_root / config.experiment.name / "latest"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_type": "train",
+        "experiment_name": config.experiment.name,
+        "run_id": "worker_train_run",
+        "run_dir": str(run_dir),
+    }
+    (run_dir / "results.json").write_text(json.dumps(payload), encoding="utf-8")
+    (run_dir / "artifacts.json").write_text("{}", encoding="utf-8")
+    return payload
+
+
+def _write_compare_result(config: CompareConfig, runs_root: Path) -> dict[str, Any]:
+    run_dir = runs_root / config.experiment.name / "latest"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    leaderboard_path = run_dir / "leaderboard.json"
+    leaderboard_path.write_text("[]", encoding="utf-8")
+    payload = {
+        "run_type": "compare",
+        "experiment_name": config.experiment.name,
+        "compare_run_id": "worker_compare_run",
+        "compare_run_dir": str(run_dir),
+        "leaderboard_json_path": str(leaderboard_path),
+    }
+    (run_dir / "results.json").write_text(json.dumps(payload), encoding="utf-8")
+    (run_dir / "artifacts.json").write_text("{}", encoding="utf-8")
+    return payload
 
 
 def test_job_record_serializes_roundtrip() -> None:
@@ -417,6 +449,273 @@ def test_sqlite_job_store_lists_events(tmp_path: Path) -> None:
     assert [event["event_type"] for event in events] == ["job_created", "custom_event"]
     assert events[1]["message"] == "hello"
     assert events[1]["payload"] == {"ok": True}
+
+
+def test_sqlite_job_store_creates_attempts_table(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    with store._connect() as conn:
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'job_attempts'"
+        ).fetchone()
+
+    assert row is not None
+
+
+def test_sqlite_job_store_creates_attempt_on_claim(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_attempt", {"config": True})
+
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+
+    assert claimed is not None
+    attempts = store.list_attempts(job.job_id)
+    assert len(attempts) == 1
+    assert attempts[0]["attempt_id"] == claimed.attempt_id
+    assert attempts[0]["status"] == "running"
+    assert attempts[0]["worker_id"] == "worker_1"
+
+
+def test_sqlite_job_store_updates_attempt_on_success(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_attempt_success", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+
+    attempt = store.mark_attempt_succeeded(claimed.attempt_id)
+
+    assert attempt["status"] == "succeeded"
+    assert attempt["finished_at"] is not None
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_claimed",
+        "attempt_succeeded",
+    ]
+
+
+def test_sqlite_job_store_updates_attempt_on_failure(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_attempt_failure", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+
+    attempt = store.mark_attempt_failed(claimed.attempt_id, "boom")
+
+    assert attempt["status"] == "failed"
+    assert attempt["error"] == "boom"
+    assert attempt["finished_at"] is not None
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_claimed",
+        "attempt_failed",
+    ]
+
+
+def test_sqlite_job_store_records_heartbeat_event(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_heartbeat", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+    assert claimed is not None
+
+    attempt = store.record_heartbeat(claimed.attempt_id)
+
+    assert attempt["heartbeat_at"] is not None
+    assert [event["event_type"] for event in store.list_events(job.job_id)] == [
+        "job_created",
+        "job_claimed",
+        "heartbeat",
+    ]
+
+
+def test_sqlite_claim_next_queued_job_returns_oldest(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    first = store.create_job("train", "sqlite_oldest_first", {"config": 1})
+    second = store.create_job("train", "sqlite_oldest_second", {"config": 2})
+    first = store.update_job(
+        replace(first, created_at="2026-01-01T00:00:00+00:00"),
+        touch=False,
+    )
+    store.update_job(
+        replace(second, created_at="2026-01-02T00:00:00+00:00"),
+        touch=False,
+    )
+
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+
+    assert claimed is not None
+    assert claimed.job.job_id == first.job_id
+    assert store.get_job(second.job_id).status == "queued"
+
+
+def test_sqlite_claim_next_queued_job_marks_running(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_claim_running", {"config": True})
+
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+
+    assert claimed is not None
+    assert claimed.job.status == "running"
+    assert claimed.job.started_at is not None
+    assert store.get_job(job.job_id).status == "running"
+
+
+def test_sqlite_claim_next_queued_job_ignores_cancelled(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    cancelled = store.create_job("train", "sqlite_cancelled_claim", {"config": 1})
+    queued = store.create_job("train", "sqlite_queued_claim", {"config": 2})
+    store.request_cancel(cancelled.job_id)
+
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+
+    assert claimed is not None
+    assert claimed.job.job_id == queued.job_id
+
+
+def test_sqlite_claim_next_queued_job_returns_none_when_empty(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+
+    assert store.claim_next_queued_job(worker_id="worker_1") is None
+
+
+def test_sqlite_claim_next_queued_job_records_event(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    job = store.create_job("train", "sqlite_claim_event", {"config": True})
+
+    claimed = store.claim_next_queued_job(worker_id="worker_1")
+
+    assert claimed is not None
+    events = store.list_events(job.job_id)
+    assert [event["event_type"] for event in events] == ["job_created", "job_claimed"]
+    assert events[1]["payload"] == {"attempt_id": claimed.attempt_id, "worker_id": "worker_1"}
+
+
+def test_sqlite_claim_next_queued_job_rejects_unsafe_worker_id(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    store.create_job("train", "sqlite_bad_worker", {"config": True})
+
+    with pytest.raises(UnsafeJobIdError, match="worker_id"):
+        store.claim_next_queued_job(worker_id="bad worker")
+
+
+def test_job_worker_run_once_returns_none_when_empty(tmp_path: Path) -> None:
+    worker = JobWorker(
+        store=_sqlite_store(tmp_path),
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+    )
+
+    assert worker.run_once() is None
+
+
+def test_job_worker_run_once_executes_train_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_train")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=_write_train_result,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.job_id == job.job_id
+    assert finished.status == "succeeded"
+    assert finished.run_id == "worker_train_run"
+    assert Path(finished.result_path or "").is_file()
+    assert store.list_attempts(job.job_id)[0]["status"] == "succeeded"
+
+
+def test_job_worker_run_once_executes_compare_job(tmp_path: Path) -> None:
+    store = _sqlite_store(tmp_path)
+    config = _compare_config(tmp_path / "requested", name="worker_compare")
+    job = store.create_job("compare", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        compare_func=_write_compare_result,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.job_id == job.job_id
+    assert finished.status == "succeeded"
+    assert finished.compare_run_id == "worker_compare_run"
+    assert finished.leaderboard_json_path is not None
+    assert Path(finished.leaderboard_json_path).is_file()
+
+
+def test_job_worker_records_failure(tmp_path: Path) -> None:
+    def fail_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        raise RuntimeError("worker boom")
+
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_failure")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=fail_train,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.status == "failed"
+    assert finished.error is not None
+    assert "worker boom" in finished.error
+    assert store.list_attempts(job.job_id)[0]["status"] == "failed"
+
+
+def test_job_worker_uses_safe_runs_root(tmp_path: Path) -> None:
+    safe_root = tmp_path / "safe_runs"
+    requested_root = tmp_path / "requested_runs"
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(requested_root, name="worker_safe")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=safe_root,
+        worker_id="worker_1",
+        train_func=_write_train_result,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert finished.result_path is not None
+    assert Path(finished.result_path).is_relative_to(safe_root)
+    assert not (requested_root / "worker_safe" / "latest" / "results.json").exists()
+    assert store.get_job(job.job_id).status == "succeeded"
+
+
+def test_job_worker_reads_request_config_snapshot(tmp_path: Path) -> None:
+    seen_name: str | None = None
+
+    def capture_train(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        nonlocal seen_name
+        seen_name = config.experiment.name
+        return _write_train_result(config, runs_root)
+
+    store = _sqlite_store(tmp_path)
+    config = tiny_config(tmp_path / "requested", name="worker_snapshot")
+    store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+    worker = JobWorker(
+        store=store,
+        runs_root=tmp_path / "runs",
+        worker_id="worker_1",
+        train_func=capture_train,
+    )
+
+    finished = worker.run_once()
+
+    assert finished is not None
+    assert seen_name == "worker_snapshot"
 
 
 def test_job_runner_accepts_sqlite_store(tmp_path: Path) -> None:

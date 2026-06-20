@@ -3,7 +3,8 @@
 Phase 5 adds a lightweight local job layer for API-driven train and compare
 work. It is designed for demos and tests, not production scheduling. Phase 8A
 adds an optional SQLite-backed job store prototype while keeping the JSON store
-as the default backend.
+as the default backend. Phase 8B adds a local `worker-once` process prototype
+that can claim and execute queued SQLite jobs outside the API process.
 
 ## Storage Layout
 
@@ -37,7 +38,7 @@ payload snapshots remain inspectable on disk. It does not write a compatibility
 | Backend | Default | Metadata source | Request snapshot | Notes |
 | --- | --- | --- | --- | --- |
 | JSON | Yes | `runs/jobs/<job_id>/job.json` | `runs/jobs/<job_id>/request_config.json` | Simple local store used by existing behavior and tests |
-| SQLite | No | `runs/jobs.sqlite3` table `jobs` | `runs/jobs/<job_id>/request_config.json` | Phase 8A prototype for durable metadata and audit events |
+| SQLite | No | `runs/jobs.sqlite3` table `jobs` | `runs/jobs/<job_id>/request_config.json` | Phase 8A/8B prototype for durable metadata, audit events, attempts, and local worker claiming |
 
 ## Job Ids
 
@@ -134,6 +135,34 @@ backward-compatible alias for `JsonJobStore`. `SQLiteJobStore` implements the
 same protocol and can be injected into `JobRunner` or selected through
 `APISettings.job_backend = "sqlite"`.
 
+## Execution Modes
+
+`APISettings.job_execution_mode` controls how submitted API jobs are executed:
+
+- `in_process` is the default. `POST /jobs/train` and `POST /jobs/compare`
+  create a job and immediately submit it to the in-process `ThreadPoolExecutor`.
+- `external_worker` requires `job_backend = "sqlite"`. The API creates only a
+  `queued` job record and request snapshot. A separate worker process must
+  claim and execute the job.
+
+The `/jobs` endpoint surface and `JobRecord` response shape are unchanged in
+both modes.
+
+## Worker
+
+`JobWorker` is the Phase 8B local worker prototype. It calls
+`SQLiteJobStore.claim_next_queued_job(worker_id=...)`, reads
+`request_config.json`, validates it as `PlatformConfig` or `CompareConfig`,
+then delegates to the same safe API execution services:
+
+- `train_with_safe_output_dir`
+- `compare_with_safe_output_dir`
+
+The worker records a `job_attempts` row on claim, marks the attempt
+`succeeded` or `failed`, and updates the job to `succeeded` or `failed`.
+`worker-once` processes exactly one job and exits. It is not a daemon and does
+not implement polling loops, retries, timeout handling, or process supervision.
+
 ## Lifecycle
 
 The FastAPI app registers a lifespan shutdown hook that calls
@@ -188,11 +217,26 @@ The SQLite backend writes a minimal audit trail to `job_events`:
 - `job_failed`
 - `job_cancelled`
 - `cancel_requested`
+- `job_claimed`
+- `heartbeat`
+- `attempt_succeeded`
+- `attempt_failed`
 
-Events are not exposed through a public API endpoint in Phase 8A. They are
+Events are not exposed through a public API endpoint in Phase 8A/8B. They are
 available through the store for tests and local debugging. This is intentionally
-small: it records lifecycle transitions but does not yet add worker attempts,
-heartbeats, retries, or recovery semantics.
+small: it records lifecycle transitions and local attempts, but does not yet
+add retries, timeouts, stale heartbeat handling, or recovery semantics.
+
+`job_attempts` stores:
+
+- `attempt_id`
+- `job_id`
+- `status`
+- `worker_id`
+- `started_at`
+- `finished_at`
+- `heartbeat_at`
+- `error`
 
 ## CLI
 
@@ -203,23 +247,28 @@ py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-backend sqlite --sqlite-db runs/jobs.sqlite3 --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --worker-id local_worker
 ```
 
 CLI job submission is intentionally not implemented. A CLI command is a
 one-shot process, so an in-process `ThreadPoolExecutor` would not continue
-running after the command exits.
+running after the command exits. `worker-once` is an execution command for
+already queued SQLite jobs; it is not a general submit command.
 
 ## Limitations
 
 - Jobs are local to one API process.
 - Jobs are not recovered if the process stops mid-run.
 - There is no retry scheduler.
+- There is no daemon worker loop.
+- There is no timeout or stale-heartbeat recovery.
 - Running threads are not force-killed by cancellation.
 - Shutdown closes the local executor but does not resume interrupted running
   work.
 - The default job metadata backend is JSON on local disk.
 - The SQLite backend makes metadata durable in one local database file, but it
-  does not by itself provide worker crash recovery or restart-safe execution.
+  does not by itself provide full worker crash recovery or restart-safe
+  execution.
 
 Future production hardening should move execution to a durable worker or queue,
 add heartbeat/retry semantics, make cancellation cooperative at the runner

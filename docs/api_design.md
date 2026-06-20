@@ -5,8 +5,9 @@ simple demos, and also exposes a lightweight local jobs layer for asynchronous
 submission. The jobs layer is intentionally local and demo-grade: it uses an
 in-process `ThreadPoolExecutor` and defaults to JSON metadata under the fixed
 runs root. Phase 8A adds an optional SQLite job metadata backend without
-changing the `/jobs` API surface. It still does not introduce Redis, Celery,
-RabbitMQ, Kubernetes, or a separate worker process.
+changing the `/jobs` API surface. Phase 8B adds an optional local
+`external_worker` execution mode and `worker-once` CLI. It still does not
+introduce Redis, Celery, RabbitMQ, Kubernetes, or a daemon worker.
 
 ## Endpoints
 
@@ -186,8 +187,10 @@ present only when `evaluation.include_scaled_metrics` is true.
 
 Accepts the same `PlatformConfig` request body as `POST /experiments/train`,
 creates a local job under `runs/jobs/<job_id>/`, and returns immediately with a
-`JobRecord`. The background job calls the same API training service, so
-`experiment.output_dir` is still overwritten with the safe API runs root.
+`JobRecord`. In the default `in_process` mode, the background job calls the
+same API training service, so `experiment.output_dir` is still overwritten with
+the safe API runs root. In `external_worker` mode, the endpoint only creates a
+`queued` SQLite job; `worker-once` must claim and execute it.
 With the default JSON backend, job metadata is stored in
 `runs/jobs/<job_id>/job.json`. With the SQLite backend, metadata is stored in
 `runs/jobs.sqlite3` and the request snapshot still lives under
@@ -197,7 +200,9 @@ With the default JSON backend, job metadata is stored in
 
 Accepts the same `CompareConfig` request body as `POST /experiments/compare`,
 creates a local compare job, and returns immediately with a `JobRecord`. The
-background job delegates to the same safe compare service.
+default `in_process` background job delegates to the same safe compare service.
+In `external_worker` mode, the endpoint only queues the job for the SQLite
+worker.
 
 ### GET /jobs
 
@@ -270,12 +275,24 @@ runner, but interrupted running jobs are not recovered.
 `SQLiteJobStore` through the job store factory. Unsupported values are rejected
 with a clear backend error.
 
+`APISettings.job_execution_mode` selects execution behavior:
+
+- `in_process`: default; submit through the local `ThreadPoolExecutor`.
+- `external_worker`: queue-only API submit; requires `job_backend = "sqlite"`.
+
+The external worker mode keeps the `/jobs` API response fields stable. The
+difference is when and where the transition from `queued` to `running` happens.
+`SQLiteJobStore.claim_next_queued_job()` performs that transition for the
+worker and records a `job_attempts` row plus `job_events` audit entries.
+
 ## Future Durable Jobs API Compatibility
 
 The existing `/jobs` API is the stable external shape for asynchronous work.
-The current runner is still a local `ThreadPoolExecutor`, and the backend can
-be JSON or SQLite behind the same service boundary. Future implementations may
-add a separate worker, Redis/RQ, or Celery after the SQLite boundary is proven.
+The default runner is still a local `ThreadPoolExecutor`, and the backend can
+be JSON or SQLite behind the same service boundary. Phase 8B also supports a
+local SQLite worker process through `worker-once`. Future implementations may
+add retries, timeout handling, Redis/RQ, or Celery after the SQLite boundary is
+proven.
 
 Backend changes should preserve these endpoints:
 

@@ -560,3 +560,63 @@ def test_cli_list_jobs_rejects_unknown_backend(capsys) -> None:
 
     assert exc_info.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_cli_worker_once_idle(tmp_path, capsys) -> None:
+    exit_code = main(
+        [
+            "worker-once",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert json.loads(stdout) == {"status": "idle"}
+
+
+def test_cli_worker_once_runs_train_job(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    config = tiny_config(tmp_path / "requested", name="cli_worker_train")
+    job = store.create_job("train", config.experiment.name, config.model_dump(mode="json"))
+
+    exit_code = main(
+        [
+            "worker-once",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--worker-id",
+            "cli_worker",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["job_id"] == job.job_id
+    assert payload["status"] == "succeeded"
+    assert Path(payload["result_path"]).is_file()
+
+
+def test_cli_worker_once_rejects_unsafe_worker_id(tmp_path) -> None:
+    with pytest.raises(ValueError, match="worker_id"):
+        main(
+            [
+                "worker-once",
+                "--jobs-root",
+                str(tmp_path / "jobs"),
+                "--sqlite-db",
+                str(tmp_path / "jobs.sqlite3"),
+                "--worker-id",
+                "bad worker",
+            ]
+        )

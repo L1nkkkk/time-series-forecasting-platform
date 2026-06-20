@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Literal
 
 JobBackend = Literal["json", "sqlite"]
+JobExecutionMode = Literal["in_process", "external_worker"]
 
 
 @dataclass(frozen=True)
@@ -19,5 +20,6 @@ class APISettings:
     allow_checkpoint_download: bool = False
     artifact_allowed_kinds: tuple[str, ...] = ("json", "yaml", "csv", "log")
     job_backend: JobBackend = "json"
+    job_execution_mode: JobExecutionMode = "in_process"
     sqlite_jobs_db_path: Path = Path("runs/jobs.sqlite3")
     jobs_root: Path = Path("runs/jobs")

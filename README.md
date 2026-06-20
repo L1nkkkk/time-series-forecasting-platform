@@ -25,6 +25,7 @@ The current MVP focuses on a runnable local training loop:
 - Safe manifest-based artifact downloads for JSON, YAML, CSV, and log files.
 - Local asynchronous train/compare jobs for the demo API.
 - Optional SQLite job metadata backend prototype for local jobs.
+- Local `worker-once` prototype for queued SQLite jobs.
 
 No BasicTS code is copied into this project.
 
@@ -179,6 +180,7 @@ py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run lat
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
 ```
 
 `show-results` returns a train run `results.json` or a compare parent
@@ -192,6 +194,7 @@ default in the CLI, and artifact files larger than 5 MiB are rejected.
 default. The default job backend is JSON. The Phase 8A SQLite prototype stores
 metadata in `runs/jobs.sqlite3`; use `--job-backend sqlite` with
 `--sqlite-db runs/jobs.sqlite3` for read-only CLI inspection of SQLite jobs.
+`worker-once` claims and runs at most one queued SQLite job, then exits.
 CLI job submission is intentionally not provided because a one-shot CLI process
 cannot keep an in-process background executor alive after exit.
 
@@ -313,6 +316,7 @@ py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run la
 py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
+py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
 ```
 
 ## API Demo
@@ -376,6 +380,8 @@ local `ThreadPoolExecutor`. By default the runner persists JSON metadata to
 `runs/jobs/<job_id>/`. The optional SQLite prototype can store the same
 metadata in `runs/jobs.sqlite3` behind the unchanged `/jobs` API while still
 writing request snapshots under `runs/jobs/<job_id>/request_config.json`.
+`APISettings.job_execution_mode = "external_worker"` makes SQLite-backed submit
+endpoints queue only; `worker-once` then claims and executes one queued job.
 `GET /jobs/{job_id}/result` returns the saved `results.json` only after the job
 has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
 current status and error field. Cancelling a queued job marks it `cancelled`.

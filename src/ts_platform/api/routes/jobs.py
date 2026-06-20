@@ -10,7 +10,7 @@ from typing import Any, NoReturn
 
 from fastapi import APIRouter, HTTPException
 
-from ts_platform.api.jobs.factory import build_job_runner
+from ts_platform.api.jobs.factory import build_job_runner, validate_job_execution_settings
 from ts_platform.api.jobs.runner import JobRunner
 from ts_platform.api.jobs.store import (
     JobNotFoundError,
@@ -34,14 +34,30 @@ _JOB_RUNNER_LOCK = RLock()
 def submit_train_job(config: PlatformConfig) -> dict[str, Any]:
     """Submit a training job to the local runner."""
 
-    return get_job_runner().submit_train(config).to_dict()
+    try:
+        settings = _runner_settings()
+        validate_job_execution_settings(settings)
+        runner = get_job_runner()
+        if settings.job_execution_mode == "external_worker":
+            return runner.enqueue_train(config).to_dict()
+        return runner.submit_train(config).to_dict()
+    except (UnsafeJobIdError, JobStoreError, ValueError) as exc:
+        _raise_job_error(exc)
 
 
 @router.post("/jobs/compare")
 def submit_compare_job(config: CompareConfig) -> dict[str, Any]:
     """Submit a compare job to the local runner."""
 
-    return get_job_runner().submit_compare(config).to_dict()
+    try:
+        settings = _runner_settings()
+        validate_job_execution_settings(settings)
+        runner = get_job_runner()
+        if settings.job_execution_mode == "external_worker":
+            return runner.enqueue_compare(config).to_dict()
+        return runner.submit_compare(config).to_dict()
+    except (UnsafeJobIdError, JobStoreError, ValueError) as exc:
+        _raise_job_error(exc)
 
 
 @router.get("/jobs")
@@ -171,7 +187,9 @@ def _runner_settings() -> APISettings:
     )
 
 
-def _raise_job_error(exc: UnsafeJobIdError | JobNotFoundError | JobStoreError) -> NoReturn:
+def _raise_job_error(
+    exc: UnsafeJobIdError | JobNotFoundError | JobStoreError | ValueError,
+) -> NoReturn:
     if isinstance(exc, UnsafeJobIdError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, JobNotFoundError):

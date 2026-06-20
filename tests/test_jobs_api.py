@@ -13,6 +13,7 @@ from ts_platform.api.jobs.runner import JobRunner
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.routes import jobs
 from ts_platform.api.settings import APISettings
+from ts_platform.cli.main import main as cli_main
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -69,6 +70,24 @@ def _install_runner(
     if request is not None:
         request.addfinalizer(lambda: runner.shutdown(wait=False))
     return runner
+
+
+def _configure_external_worker_mode(monkeypatch: Any, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "API_SETTINGS",
+        APISettings(
+            job_backend="sqlite",
+            job_execution_mode="external_worker",
+            runs_root=tmp_path / "runs",
+            jobs_root=tmp_path / "jobs",
+            sqlite_jobs_db_path=tmp_path / "jobs.sqlite3",
+        ),
+    )
+    monkeypatch.setattr(jobs, "RUNS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    monkeypatch.setattr(jobs, "SQLITE_JOBS_DB_PATH", tmp_path / "jobs.sqlite3")
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", None)
 
 
 def _write_train_result(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
@@ -247,6 +266,108 @@ def test_api_jobs_can_use_sqlite_backend(tmp_path: Path, monkeypatch: Any, reque
     assert isinstance(runner.store, SQLiteJobStore)
     assert runner.wait(payload["job_id"], timeout=30).status == "succeeded"
     assert (tmp_path / "jobs.sqlite3").is_file()
+
+
+def test_api_submit_job_external_worker_mode_returns_queued(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_external_queued").model_dump(mode="json")
+
+    response = client.post("/jobs/train", json=config)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+
+
+def test_api_submit_job_external_worker_does_not_execute_immediately(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_external_not_run").model_dump(
+        mode="json"
+    )
+
+    submitted = client.post("/jobs/train", json=config).json()
+    response = client.get(f"/jobs/{submitted['job_id']}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert response.json()["result_path"] is None
+    assert not (tmp_path / "runs" / "api_external_not_run" / "latest" / "results.json").exists()
+
+
+def test_api_external_worker_mode_requires_sqlite_backend(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    monkeypatch.setattr(
+        jobs,
+        "API_SETTINGS",
+        APISettings(
+            job_backend="json",
+            job_execution_mode="external_worker",
+            runs_root=tmp_path / "runs",
+            jobs_root=tmp_path / "jobs",
+        ),
+    )
+    monkeypatch.setattr(jobs, "RUNS_ROOT", tmp_path / "runs")
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", None)
+    client = TestClient(create_app(), raise_server_exceptions=False)
+    config = tiny_config(tmp_path / "requested", name="api_external_bad_backend").model_dump(
+        mode="json"
+    )
+
+    response = client.post("/jobs/train", json=config)
+
+    assert response.status_code == 500
+    assert "requires sqlite job backend" in response.json()["detail"]
+
+
+def test_worker_once_processes_api_submitted_queued_job(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+    capsys: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    request.addfinalizer(jobs.shutdown_job_runner)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_external_worker_once").model_dump(
+        mode="json"
+    )
+    submitted = client.post("/jobs/train", json=config).json()
+
+    exit_code = cli_main(
+        [
+            "worker-once",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--runs-root",
+            str(tmp_path / "runs"),
+            "--worker-id",
+            "api_worker",
+        ]
+    )
+    worker_payload = json.loads(capsys.readouterr().out)
+    response = client.get(f"/jobs/{submitted['job_id']}")
+
+    assert exit_code == 0
+    assert worker_payload["job_id"] == submitted["job_id"]
+    assert response.status_code == 200
+    assert response.json()["status"] == "succeeded"
+    assert Path(response.json()["result_path"]).is_file()
 
 
 def test_api_list_jobs_skips_corrupt_metadata(
