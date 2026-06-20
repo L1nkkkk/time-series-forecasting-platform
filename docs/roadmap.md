@@ -188,8 +188,6 @@ trainer does not automatically infer config from catalog entries, the API does
 not accept arbitrary profile paths, and this phase does not add remote dataset
 downloads or exogenous feature columns.
 
-## Recommended Next Phases
-
 ### Phase 11: Exogenous Feature Design
 
 Goal: Design controlled support for exogenous feature columns without breaking
@@ -197,34 +195,61 @@ the existing target-only CSV path.
 
 Deliverables:
 
-- Input/output schema design for target and exogenous tensors.
-- Model compatibility policy for feature-aware and target-only models.
-- Missing-value handling design for target columns versus feature columns.
-- Config and API validation plan.
+- `docs/exogenous_features_design.md`.
+- ADR 0003 for the exogenous feature interface.
+- Target/input tensor semantics.
+- ForecastBatch migration plan.
+- Target and feature scaler strategy.
+- Model compatibility policy.
+- Checkpoint/results impact.
+- Phase 12 migration and testing plan.
 
 Non-goals:
 
-- Implementing exogenous features in the runner.
-- Remote feature stores.
-- Multi-tenant dataset permissions.
-- Probabilistic forecasting.
+- Runtime `feature_cols` support.
+- Changes to `CSVForecastDataset`, `BaseForecastModel`, `Trainer`,
+  `Evaluator`, model `forward` logic, or checkpoint schema.
+- Future-known covariate decoders.
+- Remote feature stores or remote datasets.
+- Automatic feature generation.
 
 Acceptance criteria:
 
 - The design keeps existing target-only configs working.
-- Unsupported model/feature combinations have clear planned errors.
+- `target_cols` and `feature_cols` semantics are documented.
+- `input_dim` and `target_dim` migration is documented.
+- Phase 12A through 12F are defined.
+- Lightweight docs tests confirm the design docs are present.
+
+Notes: Phase 11 is design-only. Non-empty `feature_cols` remain rejected until
+the implementation phases begin.
+
+## Recommended Next Phases
 
 ### Phase 12: Exogenous Features Implementation
 
 Goal: Add controlled support for exogenous feature columns after the design is
 accepted.
 
+Staged plan:
+
+- Phase 12A: Data schema and ForecastBatch migration.
+- Phase 12B: `CSVForecastDataset` feature_cols support.
+- Phase 12C: Scaler split support.
+- Phase 12D: Model interface migration.
+- Phase 12E: Trainer/Evaluator/checkpoint integration.
+- Phase 12F: Compare/model zoo exogenous smoke tests.
+
 Deliverables:
 
 - CSV `feature_cols` parsing and validation.
-- Dataset batch schema updates for target and feature tensors.
-- Model compatibility policy for models that can or cannot consume exogenous
-  features.
+- Target/input dimension tracking with `input_dim` and `target_dim`.
+- `x` built from target history plus feature history.
+- `y` kept target-only.
+- Target scaler and feature scaler plumbing.
+- Feature-aware model support for trainable models.
+- Target-only behavior for statistical baselines.
+- Checkpoint/result metadata for target and feature columns.
 - Tests that prove split-local missing-value handling still cannot leak across
   train/validation/test boundaries.
 
@@ -233,12 +258,16 @@ Non-goals:
 - Remote feature stores.
 - Multi-tenant dataset permissions.
 - Probabilistic forecasting.
+- Automatic holiday/calendar feature generation.
+- Future-known covariate decoding.
 
 Acceptance criteria:
 
 - Existing target-only configs keep working.
-- Feature-aware configs fail clearly when a selected model does not support
-  exogenous inputs.
+- Feature-aware configs train with supported models.
+- Target-only baselines ignore feature slices and report target-only metrics.
+- Checkpoint resume validates dimensions and column metadata.
+- Compare/model zoo smoke tests cover exogenous configurations.
 
 ### Phase 13: Observability and Release
 

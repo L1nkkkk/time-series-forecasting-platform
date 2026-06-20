@@ -149,6 +149,27 @@ Catalog entries with the same normalized name overwrite previous metadata when
 registered. This keeps local catalog files easy to override while making the
 behavior explicit.
 
+## Future Exogenous Feature Columns
+
+Future CSV support will distinguish forecast targets from input-only
+exogenous features:
+
+- `target_cols`: columns predicted by the model.
+- `feature_cols`: columns used only as model inputs.
+- `y`: future values for `target_cols` only.
+- `x`: target history concatenated with feature history.
+
+In the planned design, metrics, inverse transforms, and original-scale result
+reporting remain target-only. Feature columns do not enter `y`, target scaler
+inverse transforms, or target metrics.
+
+This is design-only in the current phase. `feature_cols` are still not
+implemented; passing non-empty `feature_cols` to the CSV dataset currently
+raises `exogenous feature_cols are not supported yet`.
+
+See [exogenous_features_design.md](exogenous_features_design.md) for the full
+interface, scaler, checkpoint, and migration plan.
+
 ## Current Limits
 
 Exogenous `feature_cols` are not currently supported. Passing feature columns

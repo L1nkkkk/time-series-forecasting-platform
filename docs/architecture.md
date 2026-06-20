@@ -186,6 +186,58 @@ original-scale metrics by inverse-transforming both predictions and targets
 before calling the metrics registry. When configured, scaled-space metrics are
 also recorded under a separate `scaled` key.
 
+## Planned Exogenous Feature Architecture
+
+Phase 11 only documents the future exogenous feature interface. Runtime
+support remains target-only until a later implementation phase.
+
+Data layer responsibilities:
+
+- Keep `target_cols` as the forecast target definition.
+- Add `feature_cols` later as input-only CSV columns.
+- Build future `x` tensors from target history plus feature history.
+- Keep future `y` tensors target-only.
+- Preserve split-local missing-value handling.
+
+Scaler responsibilities:
+
+- Fit a target scaler from training target values only.
+- Fit a feature scaler from training feature values only.
+- Apply inverse transforms only through the target scaler.
+- Keep original-scale metrics target-only.
+
+Model interface migration:
+
+- Replace the single `num_features` concept with `input_dim` and `target_dim`.
+- Preserve `num_features` as a target-only compatibility alias during the
+  migration.
+- Move trainable models to consume `input_dim` and output `target_dim`.
+- Keep naive, moving-average, and seasonal-naive baselines target-only by
+  slicing target history from `x`.
+
+Runner and evaluator impact:
+
+- `Trainer` will need to pass both dimensions and column metadata to model
+  construction, evaluation, results, and checkpoints.
+- `Evaluator` will need a target-only inverse-transform path.
+- Compare runs should continue ranking target metrics.
+
+Checkpoint impact:
+
+- Future checkpoints should record `input_dim`, `target_dim`, `target_cols`,
+  `feature_cols`, target scaler state, and feature scaler state.
+- Resume validation should reject mismatched target columns, feature columns,
+  dimensions, and scaler configs.
+
+Backward compatibility:
+
+- Configs without `feature_cols` must keep the current shapes and behavior.
+- Old single-scaler configs continue to mean target scaler.
+- Existing target-only model zoo and compare smoke tests must stay green.
+
+The detailed design and phased migration plan live in
+[exogenous_features_design.md](exogenous_features_design.md).
+
 ## Checkpoint and Resume Boundaries
 
 - `runner/checkpoint.py` owns checkpoint schema validation, save/load, model

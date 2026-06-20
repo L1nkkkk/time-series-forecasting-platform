@@ -191,6 +191,14 @@ py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/l
 
 The generated config is a normal training YAML. It is not run automatically.
 
+## Future: Exogenous Features
+
+Current CSV training supports `target_cols` only. The planned `feature_cols`
+interface is documented in
+[docs/exogenous_features_design.md](docs/exogenous_features_design.md), and
+implementation is intentionally split into later Phase 12 steps. Passing
+non-empty `feature_cols` still raises a validation error today.
+
 ## Discovery Commands
 
 List datasets and models as JSON for scripts:
