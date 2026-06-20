@@ -30,6 +30,14 @@ last dimension as `y`.
 `feature_cols` is present only as a rejected CSV parameter. Passing non-empty
 `feature_cols` currently raises a clear validation error.
 
+Phase 12A starts the implementation by adding compatibility dimensions without
+enabling exogenous runtime behavior. Target-only datasets now expose
+`input_dim == target_dim == num_features`, `ForecastBatch` reserves optional
+`target_x`, `feature_x`, and `metadata` fields, and model construction can
+resolve either old `num_features` arguments or target-only
+`input_dim`/`target_dim` arguments. CSV `feature_cols`, scaler splitting,
+feature-aware forwards, and checkpoint schema expansion remain later phases.
+
 ## Proposed Semantics
 
 Future CSV support should separate forecast targets from input-only features:
@@ -264,6 +272,8 @@ Phase 12A: Data schema and ForecastBatch migration
 - Introduce `input_dim`, `target_dim`, and optional batch metadata types.
 - Keep target-only behavior unchanged.
 - Add tests for old `num_features` compatibility.
+- Do not enable `feature_cols`, scaler splitting, feature-aware model forwards,
+  or checkpoint schema changes.
 
 Phase 12B: `CSVForecastDataset` feature_cols support
 

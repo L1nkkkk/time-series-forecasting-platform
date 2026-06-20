@@ -7,6 +7,11 @@ same `BaseForecastModel` contract:
 - Output: `[batch, output_len, num_features]`
 - Forecast style: direct multi-step forecast in a single forward pass
 
+Phase 12A adds compatibility attributes to every built-in model:
+`input_dim`, `target_dim`, and `num_features`. For the current target-only
+runtime, all three dimensions are equal and forwards still return
+`[batch, output_len, num_features]`.
+
 All models are available through `MODEL_REGISTRY`, so they can be selected from
 training configs, compare configs, the CLI, `Trainer`, and `CompareRunner`.
 
@@ -98,6 +103,10 @@ Trainable models are expected to become feature-aware:
 These models can migrate to consume `input_dim` and project to
 `output_len * target_dim`.
 
+Phase 12A prepares this by allowing `BaseForecastModel` and `build_model` to
+resolve target-only `input_dim`/`target_dim` arguments, but the concrete model
+forward methods are not feature-aware yet.
+
 Statistical baselines remain target-only by default:
 
 - `naive`
@@ -106,7 +115,7 @@ Statistical baselines remain target-only by default:
 
 When features are present, these baselines should ignore the feature slice and
 forecast only from target history. Current models do not support
-`feature_cols`; this section documents the planned migration only. See
+`feature_cols`; Phase 12A only adds compatibility dimensions. See
 [exogenous_features_design.md](exogenous_features_design.md) for the detailed
 design.
 

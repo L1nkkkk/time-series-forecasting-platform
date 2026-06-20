@@ -224,6 +224,37 @@ Acceptance criteria:
 Notes: Phase 11 is design-only. Non-empty `feature_cols` remain rejected until
 the implementation phases begin.
 
+### Phase 12A: Data Schema and ForecastBatch Migration
+
+Goal: Introduce dimension compatibility infrastructure without enabling
+exogenous feature columns.
+
+Delivered:
+
+- `ForecastDimensions` for `input_len`, `output_len`, `input_dim`, and
+  `target_dim`.
+- Optional `ForecastBatch` fields for future `target_x`, `feature_x`, and
+  `metadata`.
+- `ForecastingDataset.dimensions` plus target-only `input_dim` and
+  `target_dim` on built-in datasets and scaled wrappers.
+- `BaseForecastModel` compatibility for old `num_features` and new
+  `input_dim`/`target_dim` constructor paths.
+- `build_model` compatibility for old `num_features` and target-only
+  `input_dim`/`target_dim` calls.
+- Tests proving target-only dataset shapes, model attributes, and registry
+  construction remain compatible.
+
+Non-goals:
+
+- Runtime `feature_cols` support.
+- CSV feature-column validation or tensor concatenation.
+- Target/feature scaler splitting.
+- Feature-aware model forward logic.
+- Trainer, evaluator, results, or checkpoint schema migration.
+
+Notes: `num_features` remains the active target-only runtime path for
+`Trainer`, `CompareRunner`, jobs, artifacts, and checkpoint schema version `1`.
+
 ## Recommended Next Phases
 
 ### Phase 12: Exogenous Features Implementation
@@ -233,7 +264,8 @@ accepted.
 
 Staged plan:
 
-- Phase 12A: Data schema and ForecastBatch migration.
+- Phase 12A: Data schema and ForecastBatch migration. Completed as a
+  compatibility-only layer.
 - Phase 12B: `CSVForecastDataset` feature_cols support.
 - Phase 12C: Scaler split support.
 - Phase 12D: Model interface migration.

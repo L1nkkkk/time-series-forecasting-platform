@@ -49,6 +49,8 @@ class CSVForecastDataset(ForecastingDataset):
 
         self.input_len = input_len
         self.output_len = output_len
+        self.input_dim = len(csv_params.target_cols)
+        self.target_dim = len(csv_params.target_cols)
         self.num_features = len(csv_params.target_cols)
         self.mode = mode
         self.path = Path(csv_params.path)

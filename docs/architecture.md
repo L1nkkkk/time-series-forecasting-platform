@@ -154,7 +154,8 @@ layer and must not affect core runner behavior.
    restore scaler/model/optimizer state. Otherwise fit scaler on the training
    split.
 7. Wrap splits with transforms and build deterministic DataLoaders.
-8. Build or restore model using sequence lengths and feature count.
+8. Build or restore model using sequence lengths and the target-only feature
+   count compatibility path.
 9. Train from `checkpoint epoch + 1` through the target final epoch.
 10. Evaluate validation metrics after every epoch when validation data exists.
 11. Evaluate test metrics and record final results.
@@ -164,10 +165,27 @@ layer and must not affect core runner behavior.
 
 ## Data Flow
 
-Datasets yield dictionaries with:
+Datasets expose `ForecastDimensions` through `dataset.dimensions`:
+
+- `input_len`: history window length.
+- `output_len`: forecast horizon length.
+- `input_dim`: model input width.
+- `target_dim`: forecast target width.
+- `num_features`: target-only compatibility alias for `target_dim`.
+
+In the current target-only runtime, `input_dim == target_dim == num_features`.
+`Trainer` still uses `dataset.num_features` when building models, and existing
+configs, compare runs, jobs, artifacts, profiling, and checkpoints keep their
+old behavior.
+
+Datasets yield `ForecastBatch` dictionaries with required fields:
 
 - `x`: history tensor shaped `[input_len, num_features]`
 - `y`: target tensor shaped `[output_len, num_features]`
+
+The batch type reserves optional `target_x`, `feature_x`, and `metadata`
+fields for later exogenous phases. Current datasets still return only `x` and
+`y`, and runner code still consumes only those fields.
 
 DataLoader batches become:
 
@@ -188,8 +206,9 @@ also recorded under a separate `scaled` key.
 
 ## Planned Exogenous Feature Architecture
 
-Phase 11 only documents the future exogenous feature interface. Runtime
-support remains target-only until a later implementation phase.
+Phase 11 documented the future exogenous feature interface. Phase 12A adds the
+compatibility dimension layer (`input_dim`, `target_dim`, and optional
+ForecastBatch fields) while runtime support remains target-only.
 
 Data layer responsibilities:
 
@@ -208,9 +227,13 @@ Scaler responsibilities:
 
 Model interface migration:
 
-- Replace the single `num_features` concept with `input_dim` and `target_dim`.
+- `BaseForecastModel` accepts either the old `num_features` constructor
+  argument or the new `input_dim`/`target_dim` pair.
 - Preserve `num_features` as a target-only compatibility alias during the
   migration.
+- `build_model` keeps accepting `num_features`; target-only
+  `input_dim`/`target_dim` calls are resolved back to that old path until
+  concrete models become feature-aware.
 - Move trainable models to consume `input_dim` and output `target_dim`.
 - Keep naive, moving-average, and seasonal-naive baselines target-only by
   slicing target history from `x`.
@@ -224,6 +247,7 @@ Runner and evaluator impact:
 
 Checkpoint impact:
 
+- Phase 12A does not change checkpoint schema version `1`.
 - Future checkpoints should record `input_dim`, `target_dim`, `target_cols`,
   `feature_cols`, target scaler state, and feature scaler state.
 - Resume validation should reject mismatched target columns, feature columns,
