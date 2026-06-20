@@ -9,7 +9,11 @@ from pydantic import ValidationError
 
 from tests.helpers import tiny_config
 from ts_platform.api.jobs.store import JobStore
-from ts_platform.api.services.experiment_store import UnsafePathComponentError
+from ts_platform.api.services.artifact_service import ArtifactAccessForbiddenError
+from ts_platform.api.services.experiment_store import (
+    ExperimentArtifactNotFoundError,
+    UnsafePathComponentError,
+)
 from ts_platform.cli.main import main
 
 
@@ -110,6 +114,41 @@ def _write_compare_cli_config(tmp_path, *, bad: bool = False) -> Path:
     config_path = tmp_path / ("bad_compare.yaml" if bad else "compare.yaml")
     config_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return config_path
+
+
+def _write_cli_artifact_run(tmp_path) -> Path:
+    run_dir = tmp_path / "cli_artifact" / "latest"
+    run_dir.mkdir(parents=True)
+    leaderboard_path = run_dir / "leaderboard.json"
+    leaderboard_path.write_text('[{"rank": 1, "model": "naive"}]', encoding="utf-8")
+    checkpoint_path = run_dir / "checkpoint.pt"
+    checkpoint_path.write_bytes(b"checkpoint")
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "compare",
+                "experiment_name": "cli_artifact",
+                "compare_run_id": "latest",
+                "compare_run_dir": str(run_dir),
+                "artifacts": [
+                    {
+                        "name": "leaderboard_json",
+                        "kind": "json",
+                        "path": str(leaderboard_path),
+                        "description": "Leaderboard",
+                    },
+                    {
+                        "name": "checkpoint",
+                        "kind": "checkpoint",
+                        "path": str(checkpoint_path),
+                        "description": "Checkpoint",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
 
 
 def test_cli_compare_runs(tmp_path, capsys) -> None:
@@ -219,6 +258,111 @@ def test_cli_show_artifacts(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert payload["run_type"] == "compare"
     assert any(artifact["name"] == "leaderboard_json" for artifact in payload["artifacts"])
+
+
+def test_cli_show_artifact_prints_content(tmp_path, capsys) -> None:
+    _write_cli_artifact_run(tmp_path)
+
+    exit_code = main(
+        [
+            "show-artifact",
+            "--experiment",
+            "cli_artifact",
+            "--run",
+            "latest",
+            "--artifact",
+            "leaderboard_json",
+            "--runs-root",
+            str(tmp_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert stdout == '[{"rank": 1, "model": "naive"}]'
+
+
+def test_cli_show_artifact_writes_output_file(tmp_path, capsys) -> None:
+    _write_cli_artifact_run(tmp_path)
+    output_path = tmp_path / "downloads" / "leaderboard.json"
+
+    exit_code = main(
+        [
+            "show-artifact",
+            "--experiment",
+            "cli_artifact",
+            "--run",
+            "latest",
+            "--artifact",
+            "leaderboard_json",
+            "--runs-root",
+            str(tmp_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert stdout == ""
+    assert output_path.read_text(encoding="utf-8") == '[{"rank": 1, "model": "naive"}]'
+
+
+def test_cli_show_artifact_rejects_unknown_artifact(tmp_path) -> None:
+    _write_cli_artifact_run(tmp_path)
+
+    with pytest.raises(ExperimentArtifactNotFoundError, match="not registered"):
+        main(
+            [
+                "show-artifact",
+                "--experiment",
+                "cli_artifact",
+                "--run",
+                "latest",
+                "--artifact",
+                "missing",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+
+
+def test_cli_show_artifact_rejects_unsafe_artifact_name(tmp_path) -> None:
+    _write_cli_artifact_run(tmp_path)
+
+    with pytest.raises(UnsafePathComponentError, match="artifact_name"):
+        main(
+            [
+                "show-artifact",
+                "--experiment",
+                "cli_artifact",
+                "--run",
+                "latest",
+                "--artifact",
+                "../secret",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
+
+
+def test_cli_show_artifact_rejects_checkpoint_by_default(tmp_path) -> None:
+    _write_cli_artifact_run(tmp_path)
+
+    with pytest.raises(ArtifactAccessForbiddenError, match="checkpoint"):
+        main(
+            [
+                "show-artifact",
+                "--experiment",
+                "cli_artifact",
+                "--run",
+                "latest",
+                "--artifact",
+                "checkpoint",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
 
 
 def test_cli_show_results_rejects_unsafe_path_component(tmp_path) -> None:

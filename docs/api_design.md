@@ -99,6 +99,28 @@ Returns the stored `artifacts.json` manifest for a train or compare run.
 `run_id` can be `latest` or a recorded `run_id` / `compare_run_id`. This
 endpoint returns only manifest metadata and does not download arbitrary files.
 
+### GET /experiments/{experiment_name}/{run_id}/artifacts/{artifact_name}
+
+Downloads one file registered in the run `artifacts.json` manifest.
+`artifact_name` is a safe path component such as `results`,
+`leaderboard_json`, `leaderboard_csv`, or `train_log`; it is not a file path.
+The endpoint looks up the matching manifest entry by exact `name`, resolves the
+manifest path under the fixed runs root, checks kind policy and file size, and
+returns a `FileResponse` with the artifact media type and filename.
+
+Default downloadable kinds are:
+
+- `json`: `application/json`
+- `yaml`: `text/yaml`
+- `csv`: `text/csv`
+- `log`: `text/plain`
+
+Checkpoint artifacts are blocked by default. They are model-state binaries and
+may be much larger or more sensitive than result metadata, so enabling them
+requires an explicit service policy change. Files larger than 5 MiB are
+rejected before response creation. The endpoint ignores arbitrary path query
+parameters; clients can only request a manifest `artifact_name`.
+
 ### POST /experiments/compare
 
 Accepts a validated `CompareConfig` payload and runs a synchronous demo compare
@@ -233,11 +255,17 @@ runner, but interrupted running jobs are not recovered.
 - API training and compare override unsafe output roots instead of returning
   HTTP 400.
 - Invalid `experiment_name` or `run_id` lookup path components return HTTP 400.
+- Invalid artifact download `artifact_name` path components return HTTP 400.
 - Invalid `job_id` path components return HTTP 400.
 - Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
   return HTTP 404.
+- Missing registered artifact names or missing artifact files return HTTP 404.
+- Forbidden artifact kinds, including default checkpoint downloads, return HTTP
+  403.
+- Artifact files larger than the configured download limit return HTTP 413.
 - Missing jobs return HTTP 404.
 - Damaged result, leaderboard, or artifact manifest JSON returns HTTP 500.
+- Damaged artifact manifest entries return HTTP 500.
 - Corrupt `job.json` records are skipped by `GET /jobs`, but direct
   `GET /jobs/{job_id}` lookup returns HTTP 500.
 - Job result lookup returns HTTP 409 until the job has succeeded, and also
