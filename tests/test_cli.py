@@ -8,6 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from tests.helpers import tiny_config
+from ts_platform.api.jobs.store import JobStore
 from ts_platform.api.services.experiment_store import UnsafePathComponentError
 from ts_platform.cli.main import main
 
@@ -248,3 +249,28 @@ def test_cli_show_artifacts_rejects_unsafe_path_component(tmp_path) -> None:
                 str(tmp_path),
             ]
         )
+
+
+def test_cli_list_jobs(tmp_path, capsys) -> None:
+    store = JobStore(tmp_path / "jobs")
+    job = store.create_job("train", "cli_job_list", {"config": True})
+
+    exit_code = main(["list-jobs", "--jobs-root", str(tmp_path / "jobs")])
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert [item["job_id"] for item in payload["jobs"]] == [job.job_id]
+
+
+def test_cli_show_job(tmp_path, capsys) -> None:
+    store = JobStore(tmp_path / "jobs")
+    job = store.create_job("compare", "cli_job_show", {"config": True})
+
+    exit_code = main(["show-job", "--job-id", job.job_id, "--jobs-root", str(tmp_path / "jobs")])
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["job_id"] == job.job_id
+    assert payload["job_type"] == "compare"

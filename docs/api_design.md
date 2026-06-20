@@ -1,7 +1,10 @@
 # API Design
 
-The MVP API is intentionally synchronous. It is designed to make later async job
-execution straightforward without putting queue details into the trainer.
+The MVP API keeps the original synchronous train and compare endpoints for
+simple demos, and also exposes a lightweight local jobs layer for asynchronous
+submission. The jobs layer is intentionally local and demo-grade: it uses an
+in-process `ThreadPoolExecutor` and JSON metadata under the fixed runs root, not
+Redis, Celery, Kubernetes, or a database.
 
 ## Endpoints
 
@@ -146,15 +149,89 @@ Response includes run metadata, artifact paths, history, and metrics:
 Metrics under `original` are the default authoritative values. `scaled` is
 present only when `evaluation.include_scaled_metrics` is true.
 
+### POST /jobs/train
+
+Accepts the same `PlatformConfig` request body as `POST /experiments/train`,
+creates a local job under `runs/jobs/<job_id>/`, and returns immediately with a
+`JobRecord`. The background job calls the same API training service, so
+`experiment.output_dir` is still overwritten with the safe API runs root.
+
+### POST /jobs/compare
+
+Accepts the same `CompareConfig` request body as `POST /experiments/compare`,
+creates a local compare job, and returns immediately with a `JobRecord`. The
+background job delegates to the same safe compare service.
+
+### GET /jobs
+
+Returns all persisted job records newest first by `created_at`:
+
+```json
+{
+  "jobs": [
+    {
+      "job_id": "20260619T120000Z_a1b2c3",
+      "job_type": "train",
+      "status": "succeeded",
+      "experiment_name": "api_train",
+      "run_id": "20260619T120001Z_d4e5f6",
+      "compare_run_id": null,
+      "result_path": "runs/api_train/latest/results.json",
+      "leaderboard_json_path": null,
+      "artifacts_path": "runs/api_train/latest/artifacts.json",
+      "error": null
+    }
+  ]
+}
+```
+
+### GET /jobs/{job_id}
+
+Returns one persisted job record. `job_id` must be a safe path component.
+
+### GET /jobs/{job_id}/result
+
+Returns the saved `results.json` for a succeeded job. Jobs that are still
+`queued`, `running`, `cancel_requested`, `cancelled`, or `failed` return HTTP
+409 with a detail payload containing the current status and error field. Missing
+job ids return 404 and unsafe ids return 400.
+
+### GET /jobs/{job_id}/logs
+
+Returns a JSON wrapper with `job_id`, `status`, `error`, `log_path`, and `log`.
+When the completed run has a `train.log`, the log text is included. Compare
+parent runs may not have a parent log, so `log` can be `null`; failures are
+still visible through the job `error` field.
+
+### POST /jobs/{job_id}/cancel
+
+Requests local cancellation. A queued job becomes `cancelled`. A running job
+becomes `cancel_requested`; the platform does not force-kill the Python thread,
+so the underlying training or compare call may still complete and record a
+successful result. Terminal jobs return their current record unchanged.
+
+Job statuses are:
+
+- `queued`
+- `running`
+- `succeeded`
+- `failed`
+- `cancel_requested`
+- `cancelled`
+
 ## Error Handling
 
 - Invalid configs return HTTP 422 through Pydantic validation.
 - API training and compare override unsafe output roots instead of returning
   HTTP 400.
 - Invalid `experiment_name` or `run_id` lookup path components return HTTP 400.
+- Invalid `job_id` path components return HTTP 400.
 - Missing `results.json`, `leaderboard.json`, or `artifacts.json` artifacts
   return HTTP 404.
+- Missing jobs return HTTP 404.
 - Damaged result, leaderboard, or artifact manifest JSON returns HTTP 500.
+- Job result lookup returns HTTP 409 until the job has succeeded, and also
+  returns HTTP 409 for failed or cancelled jobs.
 - Runtime training or compare failures should return clear HTTP 500 responses
   with a concise message and server-side logs.
 
@@ -178,3 +255,6 @@ The store supports direct directory lookup, `latest`, and lookup by recorded
 `run_id` / `compare_run_id` when the physical directory is `latest`.
 It reads `results.json`, `leaderboard.json`, and `artifacts.json` with the same
 fixed-root safety checks.
+
+`runs/jobs/<job_id>` is internal job metadata and is skipped by experiment
+listing so job records do not appear as incomplete experiment runs.

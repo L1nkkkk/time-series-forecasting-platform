@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 
 from ts_platform import __version__
-from ts_platform.api.routes import datasets, experiments, models
+from ts_platform.api.routes import datasets, experiments, jobs, models
 from ts_platform.api.settings import APISettings
 from ts_platform.data.catalog_loader import register_dataset_catalog
 
@@ -30,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets.router)
     app.include_router(models.router)
     app.include_router(experiments.router)
+    app.include_router(jobs.router)
     return app
 
 

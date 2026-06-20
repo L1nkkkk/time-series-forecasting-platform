@@ -22,6 +22,7 @@ The current MVP focuses on a runnable local training loop:
   dataset catalog discovery.
 - Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
 - Artifact manifests that make train and compare outputs discoverable.
+- Local asynchronous train/compare jobs for the demo API.
 
 No BasicTS code is copied into this project.
 
@@ -172,11 +173,16 @@ Read saved train or compare results as JSON:
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
+py -m ts_platform.cli.main list-jobs
+py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
 ```
 
 `show-results` returns a train run `results.json` or a compare parent
 `results.json`. `show-leaderboard` is meaningful for compare runs and reads
 `leaderboard.json`. `show-artifacts` reads the run `artifacts.json` manifest.
+`list-jobs` and `show-job` inspect local API job metadata under `runs/jobs`.
+CLI job submission is intentionally not provided because a one-shot CLI process
+cannot keep an in-process background executor alive after exit.
 
 ## Compare Runs
 
@@ -284,6 +290,9 @@ ruff format --check .
 mypy src
 py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
+py -m ts_platform.cli.main list-datasets
+py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
+py -m ts_platform.cli.main list-models
 py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
@@ -307,6 +316,13 @@ Available endpoints:
 - `GET /experiments/{experiment_name}/{run_id}/leaderboard`
 - `POST /experiments/train`
 - `POST /experiments/compare`
+- `POST /jobs/train`
+- `POST /jobs/compare`
+- `GET /jobs`
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/result`
+- `GET /jobs/{job_id}/logs`
+- `POST /jobs/{job_id}/cancel`
 
 The API keeps experiment discovery under the fixed safe `runs` root. For
 `POST /experiments/train` and `POST /experiments/compare`, the API ignores any
@@ -324,3 +340,14 @@ letters, numbers, `_`, `-`, and `.`. `run_id` also accepts `latest`. Path
 separators, whitespace, `..`, absolute paths, and path escapes are rejected.
 The artifacts endpoint returns only the manifest; it does not download arbitrary
 files.
+
+The `/jobs/*` endpoints add a lightweight local async layer on top of the same
+safe train and compare services. A submitted job immediately returns a
+`JobRecord` with status `queued` or `running`; background execution uses a
+local `ThreadPoolExecutor` and persists metadata to `runs/jobs/<job_id>/`.
+`GET /jobs/{job_id}/result` returns the saved `results.json` only after the job
+has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
+current status and error field. Cancelling a queued job marks it `cancelled`.
+Cancelling a running job marks it `cancel_requested`; Python threads are not
+force-killed, so the underlying run may still finish and record results. See
+[docs/jobs.md](docs/jobs.md).

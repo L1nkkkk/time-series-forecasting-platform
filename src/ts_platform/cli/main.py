@@ -7,6 +7,7 @@ import json
 from collections.abc import Sequence
 from pathlib import Path
 
+from ts_platform.api.jobs.store import JobStore
 from ts_platform.api.services.experiment_store import ExperimentStore
 from ts_platform.data import DATASET_CATALOG, DATASET_REGISTRY, register_dataset_catalog
 from ts_platform.models.registry import registered_model_names
@@ -71,6 +72,21 @@ def build_parser() -> argparse.ArgumentParser:
         default="runs",
         help="Runs root to read from",
     )
+
+    list_jobs_parser = subparsers.add_parser("list-jobs", help="List local API jobs")
+    list_jobs_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root to read from",
+    )
+
+    show_job_parser = subparsers.add_parser("show-job", help="Show one local API job")
+    show_job_parser.add_argument("--job-id", required=True, help="Job id to read")
+    show_job_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root to read from",
+    )
     return parser
 
 
@@ -116,6 +132,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.run,
         )
         print(json.dumps(artifacts_payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "list-jobs":
+        jobs_payload = [job.to_dict() for job in JobStore(Path(args.jobs_root)).list_jobs()]
+        print(json.dumps({"jobs": jobs_payload}, indent=2, sort_keys=True))
+        return 0
+    if args.command == "show-job":
+        job_payload = JobStore(Path(args.jobs_root)).get_job(args.job_id).to_dict()
+        print(json.dumps(job_payload, indent=2, sort_keys=True))
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2
