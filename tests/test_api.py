@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -42,6 +43,29 @@ def _compare_config(tmp_path, *, name: str = "api_compare") -> CompareConfig:
         primary_metric="mae",
         continue_on_error=True,
     )
+
+
+def _write_download_run(
+    runs_root: Path,
+    *,
+    experiment_name: str,
+    artifacts: list[dict[str, str]],
+) -> Path:
+    run_dir = runs_root / experiment_name / "latest"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "artifacts.json").write_text(
+        json.dumps(
+            {
+                "run_type": "train",
+                "experiment_name": experiment_name,
+                "run_id": "latest",
+                "run_dir": str(run_dir),
+                "artifacts": artifacts,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
 
 
 def test_api_health_datasets_and_models() -> None:
@@ -304,6 +328,202 @@ def test_api_get_artifacts_rejects_unsafe_path_component(tmp_path, monkeypatch) 
     response = client.get("/experiments/bad%20name/latest/artifacts")
 
     assert response.status_code == 400
+
+
+def test_api_download_json_artifact(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_json" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "payload.json"
+    artifact_path.write_text('{"ok": true}', encoding="utf-8")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_json",
+        artifacts=[
+            {
+                "name": "payload",
+                "kind": "json",
+                "path": str(artifact_path),
+                "description": "JSON payload",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_json/latest/artifacts/payload")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert response.headers["content-type"].startswith("application/json")
+    assert "payload.json" in response.headers["content-disposition"]
+
+
+def test_api_download_csv_artifact(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_csv" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "leaderboard.csv"
+    artifact_path.write_bytes(b"rank,model\n1,naive\n")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_csv",
+        artifacts=[
+            {
+                "name": "leaderboard_csv",
+                "kind": "csv",
+                "path": str(artifact_path),
+                "description": "CSV payload",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_csv/latest/artifacts/leaderboard_csv")
+
+    assert response.status_code == 200
+    assert response.text == "rank,model\n1,naive\n"
+    assert response.headers["content-type"].startswith("text/csv")
+
+
+def test_api_download_log_artifact(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_log" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "train.log"
+    artifact_path.write_bytes(b"training complete\n")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_log",
+        artifacts=[
+            {
+                "name": "train_log",
+                "kind": "log",
+                "path": str(artifact_path),
+                "description": "Log payload",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_log/latest/artifacts/train_log")
+
+    assert response.status_code == 200
+    assert response.text == "training complete\n"
+    assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_api_download_unknown_artifact_returns_404(tmp_path, monkeypatch) -> None:
+    _write_download_run(tmp_path, experiment_name="api_download_missing", artifacts=[])
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_missing/latest/artifacts/missing")
+
+    assert response.status_code == 404
+
+
+def test_api_download_rejects_unsafe_artifact_name(tmp_path, monkeypatch) -> None:
+    _write_download_run(tmp_path, experiment_name="api_download_unsafe", artifacts=[])
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_unsafe/latest/artifacts/bad%20name")
+
+    assert response.status_code == 400
+
+
+def test_api_download_rejects_checkpoint_by_default(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_checkpoint" / "latest"
+    run_dir.mkdir(parents=True)
+    checkpoint_path = run_dir / "checkpoint.pt"
+    checkpoint_path.write_bytes(b"checkpoint")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_checkpoint",
+        artifacts=[
+            {
+                "name": "checkpoint",
+                "kind": "checkpoint",
+                "path": str(checkpoint_path),
+                "description": "Checkpoint",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_checkpoint/latest/artifacts/checkpoint")
+
+    assert response.status_code == 403
+
+
+def test_api_download_rejects_large_artifact(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_large" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "large.csv"
+    artifact_path.write_bytes(b"x" * (5 * 1024 * 1024 + 1))
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_large",
+        artifacts=[
+            {
+                "name": "large_csv",
+                "kind": "csv",
+                "path": str(artifact_path),
+                "description": "Large CSV",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_large/latest/artifacts/large_csv")
+
+    assert response.status_code == 413
+
+
+def test_api_download_corrupt_manifest_returns_500(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_corrupt" / "latest"
+    run_dir.mkdir(parents=True)
+    (run_dir / "artifacts.json").write_text("{not-json", encoding="utf-8")
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_corrupt/latest/artifacts/results")
+
+    assert response.status_code == 500
+
+
+def test_api_download_does_not_allow_path_query(tmp_path, monkeypatch) -> None:
+    run_dir = tmp_path / "api_download_query" / "latest"
+    run_dir.mkdir(parents=True)
+    artifact_path = run_dir / "allowed.json"
+    artifact_path.write_text('{"allowed": true}', encoding="utf-8")
+    outside_path = tmp_path.parent / "secret.json"
+    outside_path.write_text('{"secret": true}', encoding="utf-8")
+    _write_download_run(
+        tmp_path,
+        experiment_name="api_download_query",
+        artifacts=[
+            {
+                "name": "allowed",
+                "kind": "json",
+                "path": str(artifact_path),
+                "description": "Allowed JSON",
+            }
+        ],
+    )
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get(
+        "/experiments/api_download_query/latest/artifacts/allowed",
+        params={"path": str(outside_path)},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"allowed": True}
+    assert "secret" not in response.text
 
 
 def test_api_get_results_supports_latest(tmp_path, monkeypatch) -> None:

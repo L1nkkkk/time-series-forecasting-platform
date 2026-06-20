@@ -24,8 +24,9 @@ code, no third-party notice is required beyond documenting the design reference.
   reproducibility metadata, record results, and write artifact manifests.
 - `cli`: Parse command-line input and delegate to the runner.
 - `api`: Expose platform endpoints, load discovery metadata, delegate training
-  and compare work to small service layers, and read saved artifacts through
-  `ExperimentStore`.
+  and compare work to small service layers, read saved metadata through
+  `ExperimentStore`, and resolve safe artifact downloads through
+  `ArtifactService`.
 - `api/jobs`: Persist local job metadata and run train/compare jobs through a
   small in-process executor for the demo API.
 
@@ -63,6 +64,18 @@ API / CLI lookup request
   -> safe experiment_name and run_id validation
   -> resolved path stays under runs root
   -> train results.json, compare results.json, leaderboard.json, or artifacts.json
+```
+
+Artifact downloads add one policy layer:
+
+```text
+API / CLI artifact request
+  -> ArtifactService
+  -> ExperimentStore reads artifacts.json
+  -> safe artifact_name exact match in manifest
+  -> manifest path resolves under runs root
+  -> kind, checkpoint, file existence, and size checks
+  -> FileResponse or CLI text output
 ```
 
 Local async jobs reuse the same safe execution services:
@@ -185,14 +198,23 @@ JobRunner executor and clears the lazy singleton during app shutdown. The next
 jobs request can create a fresh runner. This is cleanup only; interrupted
 running jobs are not recovered.
 
-`api/services/experiment_store.py` owns read-side artifact access for API and
+`api/services/experiment_store.py` owns read-side metadata access for API and
 CLI callers. It validates `experiment_name` and `run_id` as safe path
 components, accepts `latest`, resolves all candidate paths, and rejects any
 resolved path outside the fixed runs root. It can list train, compare, and
-incomplete runs; read train or compare `results.json`; and read compare
-`leaderboard.json`; and read train or compare `artifacts.json`.
-The store skips `runs/jobs/<job_id>` because that tree is internal job metadata,
-not an experiment run.
+incomplete runs; read train or compare `results.json`; read compare
+`leaderboard.json`; and read train or compare `artifacts.json`. The store skips
+`runs/jobs/<job_id>` because that tree is internal job metadata, not an
+experiment run.
+
+`api/services/artifact_service.py` owns safe file download lookup. It reuses
+`ExperimentStore.read_artifacts()` so experiment and run id validation stay in
+one place, then requires `artifact_name` to be a safe path component and an
+exact manifest entry name. It never accepts a client path. The manifest path is
+resolved and checked against the fixed runs root, and the file must exist before
+kind policy and size policy allow access. JSON, YAML, CSV, and log files are
+downloadable by default. Checkpoints are denied unless policy explicitly enables
+them, and files over 5 MiB are rejected.
 
 ## Artifact Manifests
 

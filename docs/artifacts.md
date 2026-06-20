@@ -6,7 +6,8 @@ CLI commands, and downstream tools can discover outputs without guessing file
 names.
 
 The manifest is read-only metadata. The API returns the manifest only; it does
-not provide arbitrary file download.
+not provide arbitrary file download. File reads use a separate named artifact
+download API that still starts from the manifest.
 
 ## Train Manifest
 
@@ -110,16 +111,45 @@ directory before writing. `ExperimentStore` also validates `experiment_name` and
 `run_id`, supports `latest`, and verifies resolved lookup paths remain under the
 fixed runs root.
 
+`ArtifactService` adds download-time checks on top of the manifest:
+
+- `artifact_name` must be a safe path component.
+- The requested name must match one `artifacts.json` entry exactly.
+- Clients never pass artifact paths.
+- The manifest path must resolve inside the fixed runs root.
+- The file must exist and be a regular file.
+- Allowed kinds are `json`, `yaml`, `csv`, and `log` by default.
+- Checkpoint downloads are blocked by default because checkpoints can be large
+  binary model state and may include sensitive training metadata.
+- Downloadable files are limited to 5 MiB by default.
+
+The default media types are:
+
+- `json`: `application/json`
+- `yaml`: `text/yaml`
+- `csv`: `text/csv`
+- `log`: `text/plain`
+- `checkpoint`: `application/octet-stream`, only when an explicit policy
+  enables checkpoint downloads.
+
 ## Querying
 
 CLI:
 
 ```bash
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
+py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
 ```
 
 API:
 
 ```text
 GET /experiments/{experiment_name}/{run_id}/artifacts
+GET /experiments/{experiment_name}/{run_id}/artifacts/{artifact_name}
 ```
+
+`show-artifacts` and `GET /artifacts` return manifest metadata. `show-artifact`
+and `GET /artifacts/{artifact_name}` read a single registered artifact file.
+Unknown artifact names return not found errors, unsafe names are rejected, kind
+policy failures return forbidden errors, and oversized files are rejected before
+the response body is sent.

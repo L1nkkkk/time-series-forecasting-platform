@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from ts_platform.api.jobs.store import JobStore
+from ts_platform.api.services.artifact_service import ArtifactService
 from ts_platform.api.services.experiment_store import ExperimentStore
 from ts_platform.data import DATASET_CATALOG, DATASET_REGISTRY, register_dataset_catalog
 from ts_platform.models.registry import registered_model_names
@@ -73,6 +74,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Runs root to read from",
     )
 
+    show_artifact_parser = subparsers.add_parser(
+        "show-artifact",
+        help="Show one run artifact file",
+    )
+    show_artifact_parser.add_argument("--experiment", required=True, help="Experiment name")
+    show_artifact_parser.add_argument("--run", default="latest", help="Run id or latest")
+    show_artifact_parser.add_argument("--artifact", required=True, help="Artifact name")
+    show_artifact_parser.add_argument(
+        "--runs-root",
+        default="runs",
+        help="Runs root to read from",
+    )
+    show_artifact_parser.add_argument(
+        "--output",
+        help="Optional file path to write the artifact content to",
+    )
+
     list_jobs_parser = subparsers.add_parser("list-jobs", help="List local API jobs")
     list_jobs_parser.add_argument(
         "--jobs-root",
@@ -133,6 +151,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(artifacts_payload, indent=2, sort_keys=True))
         return 0
+    if args.command == "show-artifact":
+        artifact = ArtifactService(Path(args.runs_root)).resolve_artifact(
+            args.experiment,
+            args.run,
+            args.artifact,
+        )
+        content = _read_text_artifact(artifact.path)
+        if args.output:
+            output_path = Path(args.output)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(content, encoding="utf-8")
+        else:
+            print(content, end="")
+        return 0
     if args.command == "list-jobs":
         jobs_payload = [job.to_dict() for job in JobStore(Path(args.jobs_root)).list_jobs()]
         print(json.dumps({"jobs": jobs_payload}, indent=2, sort_keys=True))
@@ -143,6 +175,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2
+
+
+def _read_text_artifact(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        msg = f"artifact is not UTF-8 text: {path}"
+        raise ValueError(msg) from exc
 
 
 if __name__ == "__main__":

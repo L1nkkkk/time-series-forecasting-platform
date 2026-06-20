@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import Any, NoReturn
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 
+from ts_platform.api.services.artifact_service import (
+    ArtifactAccessForbiddenError,
+    ArtifactService,
+    ArtifactTooLargeError,
+)
 from ts_platform.api.services.compare_service import compare_with_safe_output_dir
 from ts_platform.api.services.experiment_store import (
     CorruptExperimentArtifactError,
@@ -71,6 +77,35 @@ def get_experiment_artifacts(experiment_name: str, run_id: str) -> dict[str, Any
         _raise_http_error(exc)
 
 
+@router.get("/experiments/{experiment_name}/{run_id}/artifacts/{artifact_name}")
+def download_experiment_artifact(
+    experiment_name: str,
+    run_id: str,
+    artifact_name: str,
+) -> FileResponse:
+    """Download one safe artifact registered in a run manifest."""
+
+    try:
+        artifact = ArtifactService(RUNS_ROOT).resolve_artifact(
+            experiment_name,
+            run_id,
+            artifact_name,
+        )
+    except (
+        UnsafePathComponentError,
+        ExperimentArtifactNotFoundError,
+        ArtifactAccessForbiddenError,
+        ArtifactTooLargeError,
+        CorruptExperimentArtifactError,
+    ) as exc:
+        _raise_http_error(exc)
+    return FileResponse(
+        artifact.path,
+        media_type=artifact.media_type,
+        filename=artifact.path.name,
+    )
+
+
 @router.get("/experiments/{experiment_name}/{run_id}/leaderboard")
 def get_experiment_leaderboard(experiment_name: str, run_id: str) -> list[dict[str, Any]]:
     """Read a compare run leaderboard payload."""
@@ -88,10 +123,16 @@ def get_experiment_leaderboard(experiment_name: str, run_id: str) -> list[dict[s
 def _raise_http_error(
     exc: UnsafePathComponentError
     | ExperimentArtifactNotFoundError
+    | ArtifactAccessForbiddenError
+    | ArtifactTooLargeError
     | CorruptExperimentArtifactError,
 ) -> NoReturn:
     if isinstance(exc, UnsafePathComponentError):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if isinstance(exc, ExperimentArtifactNotFoundError):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    if isinstance(exc, ArtifactAccessForbiddenError):
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if isinstance(exc, ArtifactTooLargeError):
+        raise HTTPException(status_code=413, detail=str(exc)) from exc
     raise HTTPException(status_code=500, detail=str(exc)) from exc

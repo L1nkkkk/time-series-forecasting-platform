@@ -74,6 +74,10 @@ coverage, config validation, and reproducibility.
   expected manifest entries, manifest path containment, `ExperimentStore`
   artifact reads and errors, artifact API 400/404 behavior, and CLI
   `show-artifacts`.
+- Artifact download tests cover `ArtifactService` manifest-only lookup, unsafe
+  artifact names, path escapes, kind policy, checkpoint denial, file size
+  limits, media types, API file responses and error codes, ignored path query
+  parameters, and CLI `show-artifact` stdout/output-file behavior.
 - Job tests cover `JobRecord` serialization, safe job ids, `JobStore`
   persistence and cancellation transitions, `JobRunner` success/failure/safe
   root behavior, non-blocking submission, Jobs API submit/status/result/cancel
@@ -98,6 +102,8 @@ changes with a concise conventional message, push the feature branch, and open a
 pull request when GitHub tooling is available. For Phase 5.1 job hardening
 work, push `codex/phase5-job-hardening` and create or update a PR targeting
 `main`.
+For Phase 6 safe artifact download work, push
+`codex/phase6-artifact-download` and create or update a PR targeting `main`.
 
 ## Compatibility Notes
 
