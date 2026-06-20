@@ -23,6 +23,10 @@ class JobStoreError(ValueError):
     """Raised when job metadata cannot be read or written safely."""
 
 
+class JobStateConflictError(JobStoreError):
+    """Raised when a requested job state transition is not allowed."""
+
+
 class JsonJobStore:
     """Persist job metadata as JSON under one fixed jobs root."""
 

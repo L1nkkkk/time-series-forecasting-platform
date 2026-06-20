@@ -96,6 +96,8 @@ POST /jobs/train or /jobs/compare
   -> Trainer or CompareRunner writes normal run artifacts
   -> SQLite worker records heartbeats, attempts, events, result paths, and errors
   -> SQLite-only API/CLI observability reads job_events and job_attempts
+  -> explicit timeout can mark stale running jobs timed_out
+  -> explicit retry can requeue failed, timed_out, or cancelled jobs
 ```
 
 ## Production Evolution
@@ -109,8 +111,9 @@ Phase 8A adds `SQLiteJobStore`, which stores the same `JobRecord` fields in
 queues SQLite jobs and a local `worker-once` process claims and executes them.
 Phase 8C exposes SQLite events and attempts for read-side observability, adds
 minimal worker heartbeat recording, adds stale running job inspection, and adds
-a finite `worker-loop` CLI. Retry, timeout, and automatic stale recovery remain
-future work.
+a finite `worker-loop` CLI. Phase 8D adds explicit retry and timeout policy
+operations. Automatic retry scheduling, retry backoff, worker supervision, and
+automatic stale recovery remain future work.
 
 Future durable queue work should replace the internal job backend without
 breaking the `/jobs` API surface. The recommended path is SQLite-backed durable
@@ -233,7 +236,10 @@ access. `claim_next_queued_job()` uses a SQLite transaction to mark the oldest
 queued job running and create an attempt. It does not write a SQLite job's
 `job.json` compatibility copy. `list_stale_running_jobs()` inspects running or
 cancel-requested rows by latest attempt heartbeat or job `updated_at` without
-mutating state.
+mutating state. `mark_timed_out()` and
+`mark_stale_running_jobs_timed_out()` explicitly mark stale work as
+`timed_out`, and `retry_job()` records `job_retrying` / `job_requeued` events
+before returning the job to `queued`.
 
 `api/jobs/factory.py` builds either `JsonJobStore` or `SQLiteJobStore` from
 `APISettings` and creates `JobRunner` with an injected store.
@@ -249,15 +255,17 @@ claims one queued SQLite job, reads the persisted request snapshot, validates it
 as `PlatformConfig` or `CompareConfig`, delegates to the same safe execution
 services, records minimal heartbeats at claim/success/failure boundaries, then
 marks the job and attempt succeeded or failed. It is intentionally small;
-daemon supervision, retry policy, timeout handling, and stale heartbeat
-recovery are future hardening work.
+daemon supervision, retry backoff, automatic timeout sweeps, and stale
+heartbeat recovery are future hardening work.
 
 `api/routes/jobs.py` exposes submit, list, get, result, logs, and cancel
 endpoints. It maps unsafe job ids to HTTP 400, missing jobs to HTTP 404, and
 not-ready or failed result lookups to HTTP 409. `APISettings.job_execution_mode`
 controls whether submit endpoints run in-process or only queue SQLite jobs for
 an external worker. SQLite-only events and attempts endpoints expose worker
-observability without changing existing job record responses.
+observability without changing existing job record responses. SQLite-only
+stale, timeout, and retry endpoints expose explicit local maintenance actions;
+they do not start a scheduler or worker daemon.
 
 `api/app.py` registers a FastAPI lifespan hook that shuts down the local
 JobRunner executor and clears the lazy singleton during app shutdown. The next

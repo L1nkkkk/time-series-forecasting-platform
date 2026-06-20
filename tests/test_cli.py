@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -9,7 +10,7 @@ from pydantic import ValidationError
 
 from tests.helpers import tiny_config
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
-from ts_platform.api.jobs.store import JobStore, UnsafeJobIdError
+from ts_platform.api.jobs.store import JobStateConflictError, JobStore, UnsafeJobIdError
 from ts_platform.api.services.artifact_service import ArtifactAccessForbiddenError
 from ts_platform.api.services.experiment_store import (
     ExperimentArtifactNotFoundError,
@@ -606,6 +607,131 @@ def test_cli_show_job_events_rejects_unsafe_job_id(tmp_path) -> None:
         main(
             [
                 "show-job-events",
+                "--job-id",
+                "../escape",
+                "--jobs-root",
+                str(tmp_path / "jobs"),
+                "--sqlite-db",
+                str(tmp_path / "jobs.sqlite3"),
+            ]
+        )
+
+
+def test_cli_list_stale_jobs(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_stale", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    exit_code = main(
+        [
+            "list-stale-jobs",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--older-than-seconds",
+            "60",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert [item["job_id"] for item in payload["jobs"]] == [job.job_id]
+    assert store.get_job(job.job_id).status == "running"
+
+
+def test_cli_mark_stale_timeout(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_stale_timeout", {"config": True})
+    old = "2000-01-01T00:00:00+00:00"
+    store.update_job(
+        replace(job, status="running", started_at=old, updated_at=old),
+        touch=False,
+    )
+
+    exit_code = main(
+        [
+            "mark-stale-timeout",
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--older-than-seconds",
+            "60",
+            "--reason",
+            "cli timeout",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert [item["job_id"] for item in payload["timed_out"]] == [job.job_id]
+    assert store.get_job(job.job_id).status == "timed_out"
+    assert store.get_job(job.job_id).error == "cli timeout"
+
+
+def test_cli_retry_job(tmp_path, capsys) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_retry", {"config": True})
+    store.mark_failed(job.job_id, "boom")
+
+    exit_code = main(
+        [
+            "retry-job",
+            "--job-id",
+            job.job_id,
+            "--jobs-root",
+            str(tmp_path / "jobs"),
+            "--sqlite-db",
+            str(tmp_path / "jobs.sqlite3"),
+            "--max-attempts",
+            "3",
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["status"] == "queued"
+    assert payload["error"] is None
+    assert store.get_job(job.job_id).status == "queued"
+
+
+def test_cli_retry_job_respects_max_attempts(tmp_path) -> None:
+    store = SQLiteJobStore(tmp_path / "jobs", tmp_path / "jobs.sqlite3")
+    job = store.create_job("train", "cli_retry_max", {"config": True})
+    claimed = store.claim_next_queued_job(worker_id="cli_worker")
+    assert claimed is not None
+    store.mark_failed(job.job_id, "boom")
+    store.mark_attempt_failed(claimed.attempt_id, "boom")
+
+    with pytest.raises(JobStateConflictError, match="max attempts"):
+        main(
+            [
+                "retry-job",
+                "--job-id",
+                job.job_id,
+                "--jobs-root",
+                str(tmp_path / "jobs"),
+                "--sqlite-db",
+                str(tmp_path / "jobs.sqlite3"),
+                "--max-attempts",
+                "1",
+            ]
+        )
+
+
+def test_cli_retry_job_rejects_unsafe_job_id(tmp_path) -> None:
+    with pytest.raises(UnsafeJobIdError, match="job_id"):
+        main(
+            [
+                "retry-job",
                 "--job-id",
                 "../escape",
                 "--jobs-root",

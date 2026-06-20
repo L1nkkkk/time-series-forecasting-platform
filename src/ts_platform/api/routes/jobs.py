@@ -11,10 +11,12 @@ from typing import Any, NoReturn
 from fastapi import APIRouter, HTTPException
 
 from ts_platform.api.jobs.factory import build_job_runner, validate_job_execution_settings
+from ts_platform.api.jobs.retry import RetryPolicy
 from ts_platform.api.jobs.runner import JobRunner
 from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
 from ts_platform.api.jobs.store import (
     JobNotFoundError,
+    JobStateConflictError,
     JobStoreError,
     UnsafeJobIdError,
 )
@@ -71,6 +73,22 @@ def list_jobs() -> dict[str, list[dict[str, Any]]]:
         _raise_job_error(exc)
 
 
+@router.get("/jobs/stale")
+def get_stale_jobs(older_than_seconds: int = 3600) -> list[dict[str, Any]]:
+    """Read stale SQLite running jobs without changing their status."""
+
+    if older_than_seconds <= 0:
+        raise HTTPException(status_code=400, detail="older_than_seconds must be > 0")
+    try:
+        store = _sqlite_store_or_raise("stale jobs require sqlite backend")
+        return [
+            job.to_dict()
+            for job in store.list_stale_running_jobs(older_than_seconds=older_than_seconds)
+        ]
+    except JobStoreError as exc:
+        _raise_job_error(exc)
+
+
 @router.get("/jobs/{job_id}/events")
 def get_job_events(job_id: str) -> list[dict[str, Any]]:
     """Read SQLite audit events for one job."""
@@ -92,6 +110,33 @@ def get_job_attempts(job_id: str) -> list[dict[str, Any]]:
         store.get_job(job_id)
         return store.list_attempts(job_id)
     except (UnsafeJobIdError, JobNotFoundError, JobStoreError) as exc:
+        _raise_job_error(exc)
+
+
+@router.post("/jobs/{job_id}/timeout")
+def timeout_job(job_id: str, reason: str | None = None) -> dict[str, Any]:
+    """Explicitly mark one SQLite job timed out."""
+
+    try:
+        store = _sqlite_store_or_raise("job timeout requires sqlite backend")
+        return store.mark_timed_out(job_id, reason=reason).to_dict()
+    except (UnsafeJobIdError, JobNotFoundError, JobStoreError) as exc:
+        _raise_job_error(exc)
+
+
+@router.post("/jobs/{job_id}/retry")
+def retry_job(job_id: str, max_attempts: int = 3) -> dict[str, Any]:
+    """Explicitly requeue one failed, timed out, or cancelled SQLite job."""
+
+    if max_attempts < 1:
+        raise HTTPException(status_code=400, detail="max_attempts must be >= 1")
+    try:
+        store = _sqlite_store_or_raise("job retry requires sqlite backend")
+        policy = RetryPolicy(max_attempts=max_attempts)
+        return store.retry_job(job_id, policy=policy).to_dict()
+    except JobStateConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (UnsafeJobIdError, JobNotFoundError, JobStoreError, ValueError) as exc:
         _raise_job_error(exc)
 
 
@@ -213,9 +258,13 @@ def _runner_settings() -> APISettings:
 
 
 def _sqlite_store_for_observability(feature: str) -> SQLiteJobStore:
+    return _sqlite_store_or_raise(f"job {feature} require sqlite backend")
+
+
+def _sqlite_store_or_raise(detail: str) -> SQLiteJobStore:
     store = get_job_runner().store
     if not isinstance(store, SQLiteJobStore):
-        raise HTTPException(status_code=400, detail=f"job {feature} require sqlite backend")
+        raise HTTPException(status_code=400, detail=detail)
     return store
 
 

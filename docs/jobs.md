@@ -6,7 +6,9 @@ adds an optional SQLite-backed job store prototype while keeping the JSON store
 as the default backend. Phase 8B adds a local `worker-once` process prototype
 that can claim and execute queued SQLite jobs outside the API process. Phase
 8C exposes SQLite events and attempts for inspection, adds a finite
-`worker-loop` CLI, and records minimal worker heartbeats.
+`worker-loop` CLI, and records minimal worker heartbeats. Phase 8D adds
+explicit retry and timeout state transitions for the SQLite prototype without
+adding an automatic scheduler.
 
 ## Storage Layout
 
@@ -96,6 +98,8 @@ Supported statuses:
 - `failed`
 - `cancel_requested`
 - `cancelled`
+- `retrying`
+- `timed_out`
 
 Normal success path:
 
@@ -109,6 +113,21 @@ Failure path:
 queued -> running -> failed
 ```
 
+Explicit timeout path:
+
+```text
+running -> timed_out
+cancel_requested -> timed_out
+```
+
+Explicit retry path:
+
+```text
+failed -> retrying -> queued
+timed_out -> retrying -> queued
+cancelled -> retrying -> queued
+```
+
 Cancellation:
 
 ```text
@@ -119,6 +138,10 @@ running -> cancel_requested
 Running cancellation is best effort. The local runner does not force-kill a
 Python thread, so a job marked `cancel_requested` may still finish and record a
 succeeded or failed result.
+
+`timed_out` is assigned only by an explicit API, CLI, or store call after stale
+inspection. `retrying` is a short-lived transition recorded while a retryable
+terminal job is requeued; the final visible state after retry is `queued`.
 
 ## Runner
 
@@ -188,12 +211,15 @@ the platform does not recover or resume that interrupted job on restart.
 POST /jobs/train
 POST /jobs/compare
 GET /jobs
+GET /jobs/stale
 GET /jobs/{job_id}
 GET /jobs/{job_id}/events
 GET /jobs/{job_id}/attempts
 GET /jobs/{job_id}/result
 GET /jobs/{job_id}/logs
 POST /jobs/{job_id}/cancel
+POST /jobs/{job_id}/timeout
+POST /jobs/{job_id}/retry
 ```
 
 `POST /jobs/train` and `POST /jobs/compare` return immediately with a
@@ -214,6 +240,20 @@ observability endpoints. They return JSON arrays of event or attempt rows. If
 the configured backend is JSON, they return HTTP 400 with a clear
 `job events require sqlite backend` or `job attempts require sqlite backend`
 message.
+
+`GET /jobs/stale?older_than_seconds=3600` is SQLite-only and lists stale
+`running` or `cancel_requested` jobs without changing their status. Non-positive
+thresholds return HTTP 400.
+
+`POST /jobs/{job_id}/timeout` is SQLite-only and explicitly marks a
+`running` or `cancel_requested` job as `timed_out`. Terminal jobs are returned
+unchanged. The latest running attempt, when present, is marked failed with the
+timeout reason.
+
+`POST /jobs/{job_id}/retry?max_attempts=3` is SQLite-only and requeues
+`failed`, `timed_out`, or `cancelled` jobs. It rejects `queued`, `running`,
+`cancel_requested`, and `succeeded` jobs with HTTP 409. It also returns HTTP 409
+when the existing attempt count is already at `max_attempts`.
 
 Corrupt `job.json` metadata is skipped by `GET /jobs` so one damaged record
 does not hide other jobs. Reading the corrupt job directly with
@@ -238,11 +278,14 @@ The SQLite backend writes a minimal audit trail to `job_events`:
 - `heartbeat`
 - `attempt_succeeded`
 - `attempt_failed`
+- `job_timed_out`
+- `job_retrying`
+- `job_requeued`
 
 Events are exposed through the SQLite-only API endpoint and the
 `show-job-events` CLI command. This is intentionally small: it records
-lifecycle transitions and local attempts, but does not yet add retries,
-timeouts, stale heartbeat recovery, or automatic retry semantics.
+lifecycle transitions, local attempts, explicit timeouts, and explicit retries,
+but does not add automatic retry scheduling.
 
 `job_attempts` stores:
 
@@ -264,6 +307,12 @@ is older than a threshold. It prefers the latest attempt `heartbeat_at` and
 falls back to the job `updated_at` when there is no attempt. The method is
 read-only; it does not reset, retry, fail, or cancel stale jobs.
 
+`SQLiteJobStore.mark_stale_running_jobs_timed_out(...)` calls the same stale
+inspection and explicitly marks those jobs `timed_out`. It does not retry them.
+`SQLiteJobStore.retry_job(...)` requeues retryable terminal jobs when the
+configured `RetryPolicy.max_attempts` has not been reached. `RetryPolicy`
+defaults to `max_attempts=3` and `stale_after_seconds=3600`.
+
 ## CLI
 
 The CLI supports read-only job inspection:
@@ -275,6 +324,9 @@ py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.
 py -m ts_platform.cli.main show-job --job-backend sqlite --sqlite-db runs/jobs.sqlite3 --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main show-job-events --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --job-id 20260619T120000Z_a1b2c3
 py -m ts_platform.cli.main show-job-attempts --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --job-id 20260619T120000Z_a1b2c3
+py -m ts_platform.cli.main list-stale-jobs --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --older-than-seconds 3600
+py -m ts_platform.cli.main mark-stale-timeout --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --older-than-seconds 3600
+py -m ts_platform.cli.main retry-job --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --job-id 20260619T120000Z_a1b2c3 --max-attempts 3
 py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --worker-id local_worker
 py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --worker-id local_worker --max-jobs 1 --max-idle-cycles 1 --sleep-seconds 1.0
 ```
@@ -285,14 +337,16 @@ running after the command exits. `worker-once` is an execution command for
 already queued SQLite jobs; it is not a general submit command. `worker-loop`
 is the finite local polling variant for SQLite jobs and prints
 `worker_id`, `processed`, `idle_cycles`, and processed job records as JSON.
+The retry and timeout commands are explicit SQLite maintenance commands; they
+do not run queued jobs.
 
 ## Limitations
 
 - Jobs are local to one API process.
 - Jobs are not recovered if the process stops mid-run.
-- There is no retry scheduler.
+- There is no automatic retry scheduler.
 - There is no unbounded daemon worker loop.
-- There is no timeout or stale-heartbeat recovery.
+- There is no automatic timeout sweep or stale-heartbeat recovery loop.
 - Worker heartbeat recording is minimal and only happens at claim, success, and
   failure boundaries.
 - Running threads are not force-killed by cancellation.
