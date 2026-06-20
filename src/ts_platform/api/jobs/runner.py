@@ -53,11 +53,7 @@ class JobRunner:
     def submit_train(self, config: PlatformConfig) -> JobRecord:
         """Create and submit a training job without waiting for completion."""
 
-        job = self.store.create_job(
-            "train",
-            config.experiment.name,
-            config.model_dump(mode="json"),
-        )
+        job = self.enqueue_train(config)
         future = self._executor.submit(self._run_train, job.job_id, config.model_copy(deep=True))
         self._remember_future(job.job_id, future)
         return job
@@ -65,13 +61,28 @@ class JobRunner:
     def submit_compare(self, config: CompareConfig) -> JobRecord:
         """Create and submit a compare job without waiting for completion."""
 
+        job = self.enqueue_compare(config)
+        future = self._executor.submit(self._run_compare, job.job_id, config.model_copy(deep=True))
+        self._remember_future(job.job_id, future)
+        return job
+
+    def enqueue_train(self, config: PlatformConfig) -> JobRecord:
+        """Create a queued training job without submitting in-process execution."""
+
+        return self.store.create_job(
+            "train",
+            config.experiment.name,
+            config.model_dump(mode="json"),
+        )
+
+    def enqueue_compare(self, config: CompareConfig) -> JobRecord:
+        """Create a queued compare job without submitting in-process execution."""
+
         job = self.store.create_job(
             "compare",
             config.experiment.name,
             config.model_dump(mode="json"),
         )
-        future = self._executor.submit(self._run_compare, job.job_id, config.model_copy(deep=True))
-        self._remember_future(job.job_id, future)
         return job
 
     def wait(self, job_id: str, timeout: float | None = None) -> JobRecord:

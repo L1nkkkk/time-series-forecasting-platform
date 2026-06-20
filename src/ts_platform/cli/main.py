@@ -9,6 +9,8 @@ from pathlib import Path
 
 from ts_platform.api.jobs.base import JobStoreProtocol
 from ts_platform.api.jobs.factory import build_job_store
+from ts_platform.api.jobs.sqlite_store import SQLiteJobStore
+from ts_platform.api.jobs.worker import JobWorker
 from ts_platform.api.services.artifact_service import ArtifactService
 from ts_platform.api.services.experiment_store import ExperimentStore
 from ts_platform.api.settings import APISettings
@@ -129,6 +131,31 @@ def build_parser() -> argparse.ArgumentParser:
         default="runs/jobs.sqlite3",
         help="SQLite jobs database to read when --job-backend sqlite",
     )
+
+    worker_once_parser = subparsers.add_parser(
+        "worker-once",
+        help="Claim and run one queued SQLite job",
+    )
+    worker_once_parser.add_argument(
+        "--sqlite-db",
+        default="runs/jobs.sqlite3",
+        help="SQLite jobs database to claim from",
+    )
+    worker_once_parser.add_argument(
+        "--jobs-root",
+        default="runs/jobs",
+        help="Jobs root containing request snapshots",
+    )
+    worker_once_parser.add_argument(
+        "--runs-root",
+        default="runs",
+        help="Runs root to write train or compare results",
+    )
+    worker_once_parser.add_argument(
+        "--worker-id",
+        default="local_worker",
+        help="Safe worker id recorded in job attempts",
+    )
     return parser
 
 
@@ -196,6 +223,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "show-job":
         job_payload = _job_store_from_args(args).get_job(args.job_id).to_dict()
         print(json.dumps(job_payload, indent=2, sort_keys=True))
+        return 0
+    if args.command == "worker-once":
+        store = SQLiteJobStore(Path(args.jobs_root), Path(args.sqlite_db))
+        worker = JobWorker(
+            store=store,
+            runs_root=Path(args.runs_root),
+            worker_id=args.worker_id,
+        )
+        job = worker.run_once()
+        payload = {"status": "idle"} if job is None else job.to_dict()
+        print(json.dumps(payload, indent=2, sort_keys=True))
         return 0
     parser.error(f"unknown command: {args.command}")
     return 2

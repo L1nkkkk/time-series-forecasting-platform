@@ -88,7 +88,9 @@ POST /jobs/train or /jobs/compare
   -> JobStoreProtocol creates job metadata and request_config.json
   -> JsonJobStore writes runs/jobs/<job_id>/job.json by default
      or SQLiteJobStore writes runs/jobs.sqlite3 when configured
-  -> JobRunner submits a ThreadPoolExecutor task
+  -> in_process mode: JobRunner submits a ThreadPoolExecutor task
+  -> external_worker mode: API leaves the job queued in SQLite
+  -> worker-once claims the oldest queued SQLite job and creates an attempt
   -> training_service or compare_service overwrites output_dir with runs root
   -> Trainer or CompareRunner writes normal run artifacts
   -> JobStoreProtocol records succeeded, failed, result paths, and errors
@@ -101,7 +103,8 @@ keeps job submission simple by running train and compare work in an in-process
 `ThreadPoolExecutor`. The default store is JSON under `runs/jobs/<job_id>/`.
 Phase 8A adds `SQLiteJobStore`, which stores the same `JobRecord` fields in
 `runs/jobs.sqlite3` while keeping request config snapshots under
-`runs/jobs/<job_id>/`.
+`runs/jobs/<job_id>/`. Phase 8B adds an external worker mode where the API only
+queues SQLite jobs and a local `worker-once` process claims and executes them.
 
 Future durable queue work should replace the internal job backend without
 breaking the `/jobs` API surface. The recommended path is SQLite-backed durable
@@ -215,12 +218,14 @@ corrupt job metadata during normal listing, and raises clear errors for
 missing, unsafe, or directly-read corrupt job metadata. `JobStore` remains a
 backward-compatible alias for `JsonJobStore`.
 
-`api/jobs/sqlite_store.py` owns the Phase 8A SQLite prototype. It stores
+`api/jobs/sqlite_store.py` owns the SQLite job store prototype. It stores
 `JobRecord` fields in a `jobs` table, writes the same request config snapshots
 under `runs/jobs/<job_id>/request_config.json`, records lifecycle audit rows in
-`job_events`, and uses per-operation SQLite connections plus an `RLock` for
-simple multi-threaded access. It does not write a SQLite job's `job.json`
-compatibility copy.
+`job_events`, records local worker attempts in `job_attempts`, and uses
+per-operation SQLite connections plus an `RLock` for simple multi-threaded
+access. `claim_next_queued_job()` uses a SQLite transaction to mark the oldest
+queued job running and create an attempt. It does not write a SQLite job's
+`job.json` compatibility copy.
 
 `api/jobs/factory.py` builds either `JsonJobStore` or `SQLiteJobStore` from
 `APISettings` and creates `JobRunner` with an injected store.
@@ -231,9 +236,18 @@ compatibility copy.
 result, artifact, leaderboard, and error fields. It does not duplicate training
 or compare logic; it delegates to `training_service` and `compare_service`.
 
+`api/jobs/worker.py` owns the Phase 8B local worker prototype. `JobWorker`
+claims one queued SQLite job, reads the persisted request snapshot, validates it
+as `PlatformConfig` or `CompareConfig`, delegates to the same safe execution
+services, then marks the job and attempt succeeded or failed. It is intentionally
+single-shot; daemon loops, retry policy, timeout handling, and stale heartbeat
+recovery are future hardening work.
+
 `api/routes/jobs.py` exposes submit, list, get, result, logs, and cancel
 endpoints. It maps unsafe job ids to HTTP 400, missing jobs to HTTP 404, and
-not-ready or failed result lookups to HTTP 409.
+not-ready or failed result lookups to HTTP 409. `APISettings.job_execution_mode`
+controls whether submit endpoints run in-process or only queue SQLite jobs for
+an external worker.
 
 `api/app.py` registers a FastAPI lifespan hook that shuts down the local
 JobRunner executor and clears the lazy singleton during app shutdown. The next

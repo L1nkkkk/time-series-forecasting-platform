@@ -6,13 +6,14 @@ import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from threading import RLock
 from typing import Any, cast
 
 from ts_platform.api.jobs.models import JobRecord, JobType, make_job_id, utc_now, validate_job_id
 from ts_platform.api.jobs.store import JobNotFoundError, JobStoreError, UnsafeJobIdError
+from ts_platform.config.schema import validate_safe_path_component
 
 _JOB_COLUMNS = (
     "job_id",
@@ -31,6 +32,14 @@ _JOB_COLUMNS = (
     "error",
     "config_snapshot_path",
 )
+
+
+@dataclass(frozen=True)
+class ClaimedJob:
+    """A job claimed by a worker and its associated attempt id."""
+
+    job: JobRecord
+    attempt_id: int
 
 
 class SQLiteJobStore:
@@ -227,6 +236,118 @@ class SQLiteJobStore:
                 return self._update_with_event(updated, "cancel_requested")
             return job
 
+    def claim_next_queued_job(self, *, worker_id: str) -> ClaimedJob | None:
+        """Atomically claim the oldest queued job for one worker."""
+
+        safe_worker_id = self._safe_worker_id(worker_id)
+        with self._lock, self._connect() as conn:
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                row = conn.execute(
+                    f"""
+                    SELECT {", ".join(_JOB_COLUMNS)}
+                    FROM jobs
+                    WHERE status = 'queued'
+                    ORDER BY created_at ASC, job_id ASC
+                    LIMIT 1
+                    """
+                ).fetchone()
+                if row is None:
+                    return None
+                job = self._row_to_job(row)
+                now = utc_now()
+                claimed_job = replace(job, status="running", started_at=now, updated_at=now)
+                rowcount = self._update_job(conn, claimed_job)
+                if rowcount == 0:
+                    return None
+                cursor = conn.execute(
+                    """
+                    INSERT INTO job_attempts (
+                        job_id, status, worker_id, started_at, finished_at, heartbeat_at, error
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (claimed_job.job_id, "running", safe_worker_id, now, None, now, None),
+                )
+                attempt_id = cursor.lastrowid
+                if attempt_id is None:
+                    msg = "SQLite did not return a job attempt id"
+                    raise JobStoreError(msg)
+                self._append_event(
+                    conn,
+                    claimed_job.job_id,
+                    "job_claimed",
+                    payload={"attempt_id": attempt_id, "worker_id": safe_worker_id},
+                )
+            except sqlite3.Error as exc:
+                msg = "queued job cannot be claimed from SQLite"
+                raise JobStoreError(msg) from exc
+        return ClaimedJob(job=claimed_job, attempt_id=int(attempt_id))
+
+    def list_attempts(self, job_id: str) -> list[dict[str, Any]]:
+        """List worker attempts for one job in insertion order."""
+
+        with self._lock:
+            safe_job_id = self._safe_job_id(job_id)
+            with self._connect() as conn:
+                try:
+                    rows = conn.execute(
+                        """
+                        SELECT attempt_id, job_id, status, worker_id, started_at,
+                               finished_at, heartbeat_at, error
+                        FROM job_attempts
+                        WHERE job_id = ?
+                        ORDER BY attempt_id ASC
+                        """,
+                        (safe_job_id,),
+                    ).fetchall()
+                except sqlite3.Error as exc:
+                    msg = "job attempts cannot be read from SQLite"
+                    raise JobStoreError(msg) from exc
+            return [self._row_to_attempt(row) for row in rows]
+
+    def mark_attempt_succeeded(self, attempt_id: int) -> dict[str, Any]:
+        """Mark one worker attempt succeeded."""
+
+        return self._update_attempt(
+            attempt_id,
+            status="succeeded",
+            event_type="attempt_succeeded",
+        )
+
+    def mark_attempt_failed(self, attempt_id: int, error: str) -> dict[str, Any]:
+        """Mark one worker attempt failed."""
+
+        return self._update_attempt(
+            attempt_id,
+            status="failed",
+            event_type="attempt_failed",
+            error=error,
+        )
+
+    def record_heartbeat(self, attempt_id: int) -> dict[str, Any]:
+        """Update attempt heartbeat timestamp and append a heartbeat event."""
+
+        with self._lock, self._connect() as conn:
+            try:
+                attempt = self._get_attempt(conn, attempt_id)
+                now = utc_now()
+                conn.execute(
+                    "UPDATE job_attempts SET heartbeat_at = ? WHERE attempt_id = ?",
+                    (now, attempt_id),
+                )
+                self._append_event(
+                    conn,
+                    str(attempt["job_id"]),
+                    "heartbeat",
+                    payload={"attempt_id": attempt_id, "worker_id": attempt["worker_id"]},
+                )
+                attempt = self._get_attempt(conn, attempt_id)
+            except sqlite3.Error as exc:
+                msg = "job attempt heartbeat cannot be updated in SQLite"
+                raise JobStoreError(msg) from exc
+        return attempt
+
     def list_events(self, job_id: str) -> list[dict[str, Any]]:
         """List audit events for one job in insertion order."""
 
@@ -308,6 +429,21 @@ class SQLiteJobStore:
 
                     CREATE INDEX IF NOT EXISTS idx_job_events_job_id
                     ON job_events(job_id, event_id);
+
+                    CREATE TABLE IF NOT EXISTS job_attempts (
+                        attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        job_id TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        worker_id TEXT NOT NULL,
+                        started_at TEXT NOT NULL,
+                        finished_at TEXT,
+                        heartbeat_at TEXT,
+                        error TEXT,
+                        FOREIGN KEY(job_id) REFERENCES jobs(job_id)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_job_attempts_job_id
+                    ON job_attempts(job_id, attempt_id);
                     """
                 )
             except sqlite3.Error as exc:
@@ -359,6 +495,12 @@ class SQLiteJobStore:
     def _safe_job_id(self, job_id: str) -> str:
         try:
             return validate_job_id(job_id)
+        except ValueError as exc:
+            raise UnsafeJobIdError(str(exc)) from exc
+
+    def _safe_worker_id(self, worker_id: str) -> str:
+        try:
+            return validate_safe_path_component(worker_id, field_name="worker_id")
         except ValueError as exc:
             raise UnsafeJobIdError(str(exc)) from exc
 
@@ -453,6 +595,54 @@ class SQLiteJobStore:
             (job_id, event_type, utc_now(), message, payload_json),
         )
 
+    def _get_attempt(self, conn: sqlite3.Connection, attempt_id: int) -> dict[str, Any]:
+        row = conn.execute(
+            """
+            SELECT attempt_id, job_id, status, worker_id, started_at,
+                   finished_at, heartbeat_at, error
+            FROM job_attempts
+            WHERE attempt_id = ?
+            """,
+            (attempt_id,),
+        ).fetchone()
+        if row is None:
+            msg = f"job attempt does not exist: {attempt_id}"
+            raise JobStoreError(msg)
+        return self._row_to_attempt(row)
+
+    def _update_attempt(
+        self,
+        attempt_id: int,
+        *,
+        status: str,
+        event_type: str,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        with self._lock, self._connect() as conn:
+            try:
+                attempt = self._get_attempt(conn, attempt_id)
+                now = utc_now()
+                conn.execute(
+                    """
+                    UPDATE job_attempts
+                    SET status = ?, finished_at = ?, heartbeat_at = ?, error = ?
+                    WHERE attempt_id = ?
+                    """,
+                    (status, now, now, error, attempt_id),
+                )
+                self._append_event(
+                    conn,
+                    str(attempt["job_id"]),
+                    event_type,
+                    message=error,
+                    payload={"attempt_id": attempt_id, "worker_id": attempt["worker_id"]},
+                )
+                attempt = self._get_attempt(conn, attempt_id)
+            except sqlite3.Error as exc:
+                msg = "job attempt cannot be updated in SQLite"
+                raise JobStoreError(msg) from exc
+        return attempt
+
     def _row_to_job(self, row: sqlite3.Row) -> JobRecord:
         payload = {column: row[column] for column in _JOB_COLUMNS}
         try:
@@ -482,6 +672,18 @@ class SQLiteJobStore:
             "message": row["message"],
             "payload_json": payload_json,
             "payload": payload,
+        }
+
+    def _row_to_attempt(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "attempt_id": row["attempt_id"],
+            "job_id": row["job_id"],
+            "status": row["status"],
+            "worker_id": row["worker_id"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "heartbeat_at": row["heartbeat_at"],
+            "error": row["error"],
         }
 
     def _job_values(self, job: JobRecord) -> tuple[str | None, ...]:
