@@ -82,6 +82,18 @@ The example config uses one epoch, small hidden sizes, `primary_metric: mae`,
 `continue_on_error: true`, and `include_scaled_metrics: false` so it can act as
 a quick CPU smoke test for model registration and compare output.
 
+Run the same lightweight zoo shape on a feature-aware CSV fixture:
+
+```bash
+py -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
+```
+
+That config uses `target_cols: [value]` and
+`feature_cols: [temperature, holiday]`. Trainable models consume all three
+input columns and forecast the single target column. Statistical baselines use
+the target-history slice and ignore the feature slice, which keeps them useful
+as target-only reference rows in the same leaderboard.
+
 ## Exogenous Feature Support
 
 The exogenous feature interface separates model input width from target output
@@ -121,7 +133,7 @@ design.
 ## Current Limitations
 
 - Probabilistic forecasting is not supported.
-- Feature-aware compare/model-zoo smoke coverage remains a Phase 12F task.
+- Future-known covariate decoding is not supported.
 - Recurrent models use direct projection, not an autoregressive decoder.
 - TCN is a lightweight baseline, not a complex SOTA implementation.
 - The model zoo is designed for local CPU smoke tests and simple comparisons;

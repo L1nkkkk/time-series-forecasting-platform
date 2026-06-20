@@ -31,6 +31,7 @@ class CompareModelResult:
     run_dir: Path | None
     checkpoint_path: Path | None
     test_metrics: dict[str, float] | None
+    data_metadata: dict[str, Any] | None = None
     created_at: str | None = None
     error: str | None = None
 
@@ -185,6 +186,7 @@ class CompareRunner:
             run_dir=result.run_dir,
             checkpoint_path=result.checkpoint_path,
             test_metrics={key: float(value) for key, value in original_metrics.items()},
+            data_metadata=result.data_metadata,
             created_at=result.created_at,
         )
 
@@ -204,12 +206,19 @@ class CompareRunner:
     def _row_from_result(self, result: CompareModelResult) -> dict[str, Any]:
         metrics = result.test_metrics or {}
         primary_metric = self.config.primary_metric or self.config.evaluation.metrics[0]
+        data_metadata = result.data_metadata or {}
         row: dict[str, Any] = {
             "rank": None,
             "status": result.status,
             "model_name": result.model_name,
             "model_alias": result.model_alias,
             "model_params": dict(result.model_params),
+            "feature_aware": data_metadata.get("feature_aware"),
+            "input_dim": data_metadata.get("input_dim"),
+            "target_dim": data_metadata.get("target_dim"),
+            "feature_dim": data_metadata.get("feature_dim"),
+            "target_cols": data_metadata.get("target_cols"),
+            "feature_cols": data_metadata.get("feature_cols"),
             "run_id": result.run_id,
             "run_dir": str(result.run_dir) if result.run_dir is not None else None,
             "checkpoint_path": (
@@ -234,11 +243,12 @@ class CompareRunner:
             writer.writeheader()
             for row in rows:
                 csv_row = {field: row.get(field) for field in fieldnames}
-                if isinstance(csv_row.get("model_params"), dict):
-                    csv_row["model_params"] = json.dumps(
-                        csv_row["model_params"],
-                        sort_keys=True,
-                    )
+                for json_field in ("model_params", "target_cols", "feature_cols"):
+                    if isinstance(csv_row.get(json_field), (dict, list)):
+                        csv_row[json_field] = json.dumps(
+                            csv_row[json_field],
+                            sort_keys=True,
+                        )
                 writer.writerow(csv_row)
 
     def _leaderboard_fieldnames(self) -> list[str]:
@@ -248,6 +258,12 @@ class CompareRunner:
             "model_name",
             "model_alias",
             "model_params",
+            "feature_aware",
+            "input_dim",
+            "target_dim",
+            "feature_dim",
+            "target_cols",
+            "feature_cols",
             "run_id",
             "run_dir",
             "checkpoint_path",

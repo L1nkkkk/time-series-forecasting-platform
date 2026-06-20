@@ -314,8 +314,27 @@ Delivered:
 - `results.json` records `data_metadata`.
 - `csv_feature_forecast.yaml` example config and smoke coverage.
 
-Notes: Phase 12F remains responsible for feature-aware compare/model-zoo smoke
-configs.
+Notes: Compare/model-zoo smoke coverage is delivered in Phase 12F.
+
+### Phase 12F: Feature-aware Compare and Model Zoo Smoke
+
+Goal: Verify feature-aware training through compare and expose data metadata in
+leaderboards.
+
+Delivered:
+
+- `compare_feature_forecast.yaml` for the feature-aware CSV fixture.
+- Compare coverage for statistical baselines, trainable models, and the full
+  model zoo shape.
+- Leaderboard rows include `feature_aware`, dimensions, and target/feature
+  column lists.
+- CSV leaderboards serialize column lists as JSON strings while JSON
+  leaderboards keep arrays.
+- CLI smoke coverage for feature-aware compare and leaderboard inspection.
+
+Notes: This phase keeps `Trainer`, `Evaluator`, and checkpoint behavior as the
+single source of truth. Statistical baselines ignore feature slices; trainable
+models consume the full `input_dim`.
 
 ## Recommended Next Phases
 
@@ -332,7 +351,7 @@ Staged plan:
 - Phase 12C: Scaler split support. Completed.
 - Phase 12D: Model interface migration. Completed.
 - Phase 12E: Trainer/Evaluator/checkpoint integration. Completed.
-- Phase 12F: Compare/model zoo exogenous smoke tests. Next.
+- Phase 12F: Compare/model zoo exogenous smoke tests. Completed.
 
 Deliverables:
 

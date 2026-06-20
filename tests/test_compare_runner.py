@@ -51,6 +51,30 @@ def _compare_config(
     )
 
 
+def _feature_compare_config(
+    output_dir: Path,
+    *,
+    name: str = "compare_feature_unit",
+    models: list[CompareModelConfig] | None = None,
+) -> CompareConfig:
+    config = load_compare_config("configs/examples/compare_feature_forecast.yaml")
+    updates: dict[str, object] = {
+        "experiment": config.experiment.model_copy(update={"name": name, "output_dir": output_dir})
+    }
+    if models is not None:
+        updates["models"] = models
+    return config.model_copy(update=updates)
+
+
+def _assert_feature_metadata(row: dict[str, object]) -> None:
+    assert row["feature_aware"] is True
+    assert row["input_dim"] == 3
+    assert row["target_dim"] == 1
+    assert row["feature_dim"] == 2
+    assert row["target_cols"] == ["value"]
+    assert row["feature_cols"] == ["temperature", "holiday"]
+
+
 def test_compare_runner_writes_artifacts(tmp_path) -> None:
     result = CompareRunner(_compare_config(tmp_path)).run()
 
@@ -200,6 +224,50 @@ def test_leaderboard_csv_model_params_is_json_string(tmp_path) -> None:
     assert json.loads(moving_average["model_params"]) == {"window_size": 2}
 
 
+def test_compare_rows_include_data_metadata(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path)).run()
+
+    assert all(row["feature_aware"] is False for row in result.rows)
+    assert all(row["input_dim"] == 1 for row in result.rows)
+    assert all(row["target_dim"] == 1 for row in result.rows)
+    assert all(row["feature_dim"] == 0 for row in result.rows)
+    assert all(row["target_cols"] == [] for row in result.rows)
+    assert all(row["feature_cols"] == [] for row in result.rows)
+
+
+def test_compare_feature_rows_mark_feature_aware(tmp_path) -> None:
+    config = _feature_compare_config(
+        tmp_path,
+        models=[CompareModelConfig(name="naive"), CompareModelConfig(name="linear")],
+    )
+
+    result = CompareRunner(config).run()
+
+    assert result.success_count == 2
+    assert result.failed_count == 0
+    for row in result.rows:
+        _assert_feature_metadata(row)
+
+
+def test_compare_leaderboard_csv_serializes_column_lists(tmp_path) -> None:
+    config = _feature_compare_config(
+        tmp_path,
+        models=[CompareModelConfig(name="naive"), CompareModelConfig(name="linear")],
+    )
+
+    result = CompareRunner(config).run()
+    json_rows = json.loads(result.leaderboard_json_path.read_text(encoding="utf-8"))
+    with result.leaderboard_csv_path.open(newline="", encoding="utf-8") as handle:
+        csv_rows = list(csv.DictReader(handle))
+
+    assert all(row["target_cols"] == ["value"] for row in json_rows)
+    assert all(row["feature_cols"] == ["temperature", "holiday"] for row in json_rows)
+    assert all(json.loads(row["target_cols"]) == ["value"] for row in csv_rows)
+    assert all(json.loads(row["feature_cols"]) == ["temperature", "holiday"] for row in csv_rows)
+    assert all(row["target_cols"] == '["value"]' for row in csv_rows)
+    assert all(row["feature_cols"] == '["temperature", "holiday"]' for row in csv_rows)
+
+
 def test_compare_failed_model_recorded_when_continue_on_error(tmp_path) -> None:
     config = _compare_config(
         tmp_path,
@@ -263,3 +331,93 @@ def test_compare_model_zoo_config_runs(tmp_path) -> None:
         "lstm",
         "tcn",
     }
+
+
+def test_compare_feature_forecast_config_runs(tmp_path) -> None:
+    result = CompareRunner(_feature_compare_config(tmp_path)).run()
+
+    assert result.success_count == 9
+    assert result.failed_count == 0
+    assert all(row["status"] == "success" for row in result.rows)
+    assert result.leaderboard_json_path.exists()
+    assert result.leaderboard_csv_path.exists()
+    assert (result.compare_run_dir / "artifacts.json").exists()
+    for row in result.rows:
+        _assert_feature_metadata(row)
+        child_results = json.loads(
+            (Path(str(row["run_dir"])) / "results.json").read_text(encoding="utf-8")
+        )
+        assert child_results["data_metadata"]["feature_aware"] is True
+
+
+def test_compare_feature_forecast_statistical_baselines_succeed(tmp_path) -> None:
+    config = _feature_compare_config(
+        tmp_path,
+        models=[
+            CompareModelConfig(name="naive"),
+            CompareModelConfig(name="moving_average", params={"window_size": 2}),
+            CompareModelConfig(name="seasonal_naive", params={"season_length": 2}),
+        ],
+    )
+
+    result = CompareRunner(config).run()
+
+    assert result.success_count == 3
+    assert result.failed_count == 0
+    assert {row["model_name"]: row["status"] for row in result.rows} == {
+        "naive": "success",
+        "moving_average": "success",
+        "seasonal_naive": "success",
+    }
+
+
+def test_compare_feature_forecast_trainable_models_succeed(tmp_path) -> None:
+    config = _feature_compare_config(
+        tmp_path,
+        models=[
+            CompareModelConfig(name="linear"),
+            CompareModelConfig(name="mlp", params={"hidden_sizes": [8]}),
+            CompareModelConfig(name="rnn", params={"hidden_size": 8}),
+            CompareModelConfig(name="gru", params={"hidden_size": 8}),
+            CompareModelConfig(name="lstm", params={"hidden_size": 8}),
+            CompareModelConfig(
+                name="tcn",
+                params={"hidden_channels": 8, "num_layers": 2},
+            ),
+        ],
+    )
+
+    result = CompareRunner(config).run()
+
+    assert result.success_count == 6
+    assert result.failed_count == 0
+    assert {row["model_name"] for row in result.rows} == {
+        "linear",
+        "mlp",
+        "rnn",
+        "gru",
+        "lstm",
+        "tcn",
+    }
+    assert all(row["status"] == "success" for row in result.rows)
+
+
+def test_compare_feature_child_results_include_data_metadata(tmp_path) -> None:
+    config = _feature_compare_config(
+        tmp_path,
+        models=[CompareModelConfig(name="naive"), CompareModelConfig(name="linear")],
+    )
+
+    result = CompareRunner(config).run()
+
+    for row in result.rows:
+        child_results_path = Path(str(row["run_dir"])) / "results.json"
+        payload = json.loads(child_results_path.read_text(encoding="utf-8"))
+        assert payload["data_metadata"] == {
+            "input_dim": 3,
+            "target_dim": 1,
+            "feature_dim": 2,
+            "target_cols": ["value"],
+            "feature_cols": ["temperature", "holiday"],
+            "feature_aware": True,
+        }
