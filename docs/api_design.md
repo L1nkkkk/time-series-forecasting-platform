@@ -258,6 +258,30 @@ The FastAPI app closes the local JobRunner executor during lifespan shutdown
 and resets the lazy singleton. A subsequent jobs request can create a fresh
 runner, but interrupted running jobs are not recovered.
 
+## Future Durable Jobs API Compatibility
+
+The existing `/jobs` API is the stable external shape for asynchronous work.
+The current backend is a local `ThreadPoolExecutor` with JSON metadata under
+`runs/jobs/<job_id>/`, but future implementations may use SQLite, Redis/RQ, or
+Celery behind the same service boundary.
+
+Backend changes should preserve these endpoints:
+
+- `POST /jobs/train`
+- `POST /jobs/compare`
+- `GET /jobs`
+- `GET /jobs/{job_id}`
+- `GET /jobs/{job_id}/result`
+- `GET /jobs/{job_id}/logs`
+- `POST /jobs/{job_id}/cancel`
+
+Response shapes should remain compatible whenever possible. New durable queue
+fields such as attempt id, worker id, heartbeat timestamp, retry count, or event
+links should be added in a backward-compatible way. Existing fields such as
+`job_id`, `job_type`, `status`, `experiment_name`, `run_id`,
+`compare_run_id`, `result_path`, `artifacts_path`, `leaderboard_json_path`, and
+`error` should keep their meaning.
+
 ## Error Handling
 
 - Invalid configs return HTTP 422 through Pydantic validation.

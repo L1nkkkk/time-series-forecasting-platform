@@ -26,6 +26,37 @@ Use concise conventional-style messages:
 - `mypy src` passes or known gaps are documented.
 - Config snapshots or generated run artifacts are not committed.
 
+## Release Checklist
+
+- `python -m pytest`
+- `ruff check .`
+- `ruff format --check .`
+- `mypy src`
+- CLI smoke commands
+- Docs updated
+- No runs artifacts committed
+- No secrets
+- PR reviewed
+
+## Security Review Checklist
+
+- No path traversal
+- Safe path component validation
+- `output_dir` not user-controlled in API
+- Artifact download uses manifest and physical `run_dir` boundary
+- Checkpoint download default disabled
+- Job metadata path safe
+
+## Job/Artifact Safety Checklist
+
+- `job_id` safe
+- `run_id` safe
+- `artifact_name` safe
+- Corrupted metadata behavior tested
+- Artifact max size tested
+- Forbidden kind tested
+- Cross-run artifact path tested
+
 ## Review
 
 Reviewers should focus on module boundaries, user-facing behavior, test
@@ -116,6 +147,8 @@ For Phase 6.1 artifact hardening work, push
 `codex/phase6-artifact-hardening` and create or update a PR targeting `main`.
 For Phase 6.2 artifact boundary hardening work, push
 `codex/phase6-artifact-boundary` and create or update a PR targeting `main`.
+For Phase 7 production hardening design work, push
+`codex/phase7-production-design` and create or update a PR targeting `main`.
 
 ## Compatibility Notes
 

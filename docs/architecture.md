@@ -91,6 +91,25 @@ POST /jobs/train or /jobs/compare
   -> JobStore records succeeded, failed, result paths, and errors
 ```
 
+## Production Evolution
+
+The current API uses the local `JobRunner` for demo and research workloads. It
+keeps job submission simple by running train and compare work in an in-process
+`ThreadPoolExecutor` and storing metadata under `runs/jobs/<job_id>/`.
+
+Future durable queue work should replace the internal job backend without
+breaking the `/jobs` API surface. The recommended path is SQLite-backed durable
+queue first, then a separate worker process, then Redis/RQ or Celery if
+multi-worker scheduling is needed, and Kubernetes Jobs only when resource
+isolation or GPU scheduling becomes a near-term requirement.
+
+`ExperimentStore` and `ArtifactService` should remain backend-agnostic. They
+read stable run and artifact metadata and should not know whether a run was
+started by the local runner, a SQLite worker, Redis/RQ, Celery, or Kubernetes.
+Likewise, `Trainer` and `CompareRunner` should not depend on the API queue
+implementation. Queue backend replacement should happen behind the jobs service
+layer and must not affect core runner behavior.
+
 ## Training Flow
 
 1. Load and validate config.
