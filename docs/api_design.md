@@ -164,7 +164,9 @@ background job delegates to the same safe compare service.
 
 ### GET /jobs
 
-Returns all persisted job records newest first by `created_at`:
+Returns persisted job records newest first by `created_at`. Corrupt `job.json`
+metadata is skipped so a single damaged job does not prevent other jobs from
+being listed.
 
 ```json
 {
@@ -188,6 +190,8 @@ Returns all persisted job records newest first by `created_at`:
 ### GET /jobs/{job_id}
 
 Returns one persisted job record. `job_id` must be a safe path component.
+Corrupt metadata for the requested job returns HTTP 500 and requires manual
+cleanup.
 
 ### GET /jobs/{job_id}/result
 
@@ -219,6 +223,10 @@ Job statuses are:
 - `cancel_requested`
 - `cancelled`
 
+The FastAPI app closes the local JobRunner executor during lifespan shutdown
+and resets the lazy singleton. A subsequent jobs request can create a fresh
+runner, but interrupted running jobs are not recovered.
+
 ## Error Handling
 
 - Invalid configs return HTTP 422 through Pydantic validation.
@@ -230,6 +238,8 @@ Job statuses are:
   return HTTP 404.
 - Missing jobs return HTTP 404.
 - Damaged result, leaderboard, or artifact manifest JSON returns HTTP 500.
+- Corrupt `job.json` records are skipped by `GET /jobs`, but direct
+  `GET /jobs/{job_id}` lookup returns HTTP 500.
 - Job result lookup returns HTTP 409 until the job has succeeded, and also
   returns HTTP 409 for failed or cancelled jobs.
 - Runtime training or compare failures should return clear HTTP 500 responses

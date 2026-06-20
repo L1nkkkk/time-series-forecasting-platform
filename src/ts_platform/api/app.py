@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,7 +23,7 @@ def create_app() -> FastAPI:
     settings = APISettings()
     _load_local_catalogs(settings)
 
-    app = FastAPI(title="TS Platform", version=__version__)
+    app = FastAPI(title="TS Platform", version=__version__, lifespan=_lifespan)
 
     @app.get("/health")
     def health() -> dict[str, str]:
@@ -32,6 +34,16 @@ def create_app() -> FastAPI:
     app.include_router(experiments.router)
     app.include_router(jobs.router)
     return app
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Clean up app-level resources on shutdown."""
+
+    try:
+        yield
+    finally:
+        jobs.shutdown_job_runner()
 
 
 def _load_local_catalogs(settings: APISettings) -> None:

@@ -297,6 +297,7 @@ py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.ya
 py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
+py -m ts_platform.cli.main list-jobs
 ```
 
 ## API Demo
@@ -349,5 +350,8 @@ local `ThreadPoolExecutor` and persists metadata to `runs/jobs/<job_id>/`.
 has `succeeded`; unfinished, failed, or cancelled jobs return HTTP 409 with the
 current status and error field. Cancelling a queued job marks it `cancelled`.
 Cancelling a running job marks it `cancel_requested`; Python threads are not
-force-killed, so the underlying run may still finish and record results. See
-[docs/jobs.md](docs/jobs.md).
+force-killed, so the underlying run may still finish and record results. The
+API closes the local executor on application shutdown and can lazily create a
+new runner on the next jobs request, but interrupted running jobs are not
+recovered. Corrupt `job.json` metadata is skipped by job listing and returns an
+error when read directly. See [docs/jobs.md](docs/jobs.md).

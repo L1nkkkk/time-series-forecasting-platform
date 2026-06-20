@@ -12,7 +12,7 @@ import pytest
 from tests.helpers import tiny_config
 from ts_platform.api.jobs.models import JOB_STATUS_VALUES, JobRecord, make_job_id, utc_now
 from ts_platform.api.jobs.runner import JobRunner
-from ts_platform.api.jobs.store import JobNotFoundError, JobStore, UnsafeJobIdError
+from ts_platform.api.jobs.store import JobNotFoundError, JobStore, JobStoreError, UnsafeJobIdError
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
     DataConfig,
@@ -122,6 +122,35 @@ def test_job_store_lists_jobs(tmp_path: Path) -> None:
 
     assert len(jobs) == 2
     assert {job.job_id for job in jobs} == {first.job_id, second.job_id}
+
+
+def test_job_store_list_jobs_skips_corrupt_metadata(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs")
+    good = store.create_job("train", "store_good", {"config": 1})
+    corrupt = store.create_job("compare", "store_corrupt", {"config": 2})
+    (tmp_path / "jobs" / corrupt.job_id / "job.json").write_text("{", encoding="utf-8")
+
+    jobs = store.list_jobs()
+
+    assert [job.job_id for job in jobs] == [good.job_id]
+
+
+def test_job_store_list_jobs_strict_corrupt_metadata_is_error(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs")
+    corrupt = store.create_job("train", "store_corrupt", {"config": True})
+    (tmp_path / "jobs" / corrupt.job_id / "job.json").write_text("{", encoding="utf-8")
+
+    with pytest.raises(JobStoreError, match="not valid JSON"):
+        store.list_jobs(skip_corrupt=False)
+
+
+def test_job_store_get_job_corrupt_metadata_is_error(tmp_path: Path) -> None:
+    store = JobStore(tmp_path / "jobs")
+    corrupt = store.create_job("train", "store_corrupt_get", {"config": True})
+    (tmp_path / "jobs" / corrupt.job_id / "job.json").write_text("{", encoding="utf-8")
+
+    with pytest.raises(JobStoreError, match="not valid JSON"):
+        store.get_job(corrupt.job_id)
 
 
 def test_job_store_rejects_unsafe_job_id(tmp_path: Path) -> None:
