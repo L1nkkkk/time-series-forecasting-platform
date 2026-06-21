@@ -34,7 +34,11 @@ ts-platform = "ts_platform.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ts_platform.api" = ["static/*.html", "static/*.js", "static/*.css"]
+ts_platform = [
+  "api/static/*.html",
+  "api/static/*.js",
+  "api/static/*.css",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

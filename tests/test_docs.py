@@ -166,9 +166,23 @@ def test_phase14_final_quality_gate_docs_are_aligned() -> None:
 def test_phase15a_dashboard_docs_are_linked() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     demo_guide = (ROOT / "docs/demo_guide.md").read_text(encoding="utf-8")
+    dashboard_demo = (ROOT / "docs/dashboard_demo.md").read_text(encoding="utf-8")
 
     assert (ROOT / "docs/dashboard_demo.md").is_file()
     assert "docs/dashboard_demo.md" in readme
     assert "Dashboard Demo" in readme
     assert "Dashboard Demo" in demo_guide
     assert "http://127.0.0.1:8000/ui" in demo_guide
+    assert "## Recommended Demo Flow" in dashboard_demo
+    assert "## Timing Notes" in dashboard_demo
+    assert "compare_feature_forecast" in dashboard_demo
+
+
+def test_phase15a_dashboard_static_assets_are_packaged() -> None:
+    pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert "[tool.setuptools.package-data]" in pyproject
+    assert "ts_platform = [" in pyproject
+    assert '"api/static/*.html"' in pyproject
+    assert '"api/static/*.js"' in pyproject
+    assert '"api/static/*.css"' in pyproject

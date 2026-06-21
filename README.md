@@ -44,6 +44,9 @@ No BasicTS code is copied into this project.
 - [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/final_report_outline.md](docs/final_report_outline.md)
 
+For a visual local demo, start FastAPI and open `/ui`; see
+[docs/dashboard_demo.md](docs/dashboard_demo.md).
+
 ## Installation
 
 Use Python 3.10 or newer.

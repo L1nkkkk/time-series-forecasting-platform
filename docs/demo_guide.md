@@ -6,7 +6,7 @@
 pip install -e ".[dev]"
 ```
 
-## Optional Dashboard Demo
+## Dashboard Demo
 
 ```bash
 uvicorn ts_platform.api.app:create_app --factory
@@ -17,7 +17,8 @@ Open:
 http://127.0.0.1:8000/ui
 
 The dashboard is a local FastAPI-served demo UI, not a production web UI. It
-uses whitelisted example configs for train and compare buttons.
+uses whitelisted example configs for train and compare buttons. For the
+recommended presentation flow, see [dashboard_demo.md](dashboard_demo.md).
 
 ## 1. List Datasets and Models
 
