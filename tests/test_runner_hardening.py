@@ -5,6 +5,7 @@ import json
 import pytest
 
 from tests.helpers import tiny_config, tiny_feature_config
+from ts_platform.experiment.logger import setup_experiment_logger
 from ts_platform.experiment.recorder import ExperimentRecorder
 from ts_platform.runner.checkpoint import load_checkpoint
 from ts_platform.runner.trainer import Trainer
@@ -50,6 +51,18 @@ def test_overwrite_does_not_leave_stale_artifacts(tmp_path) -> None:
 
     assert first == second == tmp_path / "demo" / "latest"
     assert not stale.exists()
+
+
+def test_overwrite_closes_existing_run_logger(tmp_path) -> None:
+    first = ExperimentRecorder(tmp_path, "demo", overwrite=True).prepare()
+    logger = setup_experiment_logger(first)
+    logger.info("old run")
+    assert logger.handlers
+
+    second = ExperimentRecorder(tmp_path, "demo", overwrite=True).prepare()
+
+    assert first == second == tmp_path / "demo" / "latest"
+    assert logger.handlers == []
 
 
 def test_results_include_run_metadata(tmp_path) -> None:

@@ -9,7 +9,7 @@ from pathlib import Path
 def setup_experiment_logger(run_dir: Path) -> logging.Logger:
     """Create a logger that writes to stdout and train.log."""
 
-    logger_name = f"ts_platform.{run_dir.as_posix()}"
+    logger_name = _experiment_logger_name(run_dir)
     logger = logging.getLogger(logger_name)
     logger.setLevel(logging.INFO)
     logger.propagate = False
@@ -25,3 +25,17 @@ def setup_experiment_logger(run_dir: Path) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
     return logger
+
+
+def close_experiment_logger_for_run_dir(run_dir: Path) -> None:
+    """Close any cached handlers for a run directory logger."""
+
+    logger = logging.getLogger(_experiment_logger_name(run_dir))
+    for handler in list(logger.handlers):
+        handler.flush()
+        handler.close()
+        logger.removeHandler(handler)
+
+
+def _experiment_logger_name(run_dir: Path) -> str:
+    return f"ts_platform.{run_dir.as_posix()}"

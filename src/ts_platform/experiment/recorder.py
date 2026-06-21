@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from ts_platform.config.loader import save_config_snapshot
 from ts_platform.config.schema import PlatformConfig
+from ts_platform.experiment.logger import close_experiment_logger_for_run_dir
 
 
 class ExperimentRecorder:
@@ -28,6 +29,7 @@ class ExperimentRecorder:
         """Create and return the run directory."""
 
         if self.overwrite and self.run_dir.exists():
+            close_experiment_logger_for_run_dir(self.run_dir)
             shutil.rmtree(self.run_dir)
         self.run_dir.mkdir(parents=True, exist_ok=True)
         return self.run_dir
