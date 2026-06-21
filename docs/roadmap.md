@@ -221,8 +221,8 @@ Acceptance criteria:
 - Phase 12A through 12F are defined.
 - Lightweight docs tests confirm the design docs are present.
 
-Notes: Phase 11 is design-only. Non-empty `feature_cols` remain rejected until
-the implementation phases begin.
+Notes: Phase 11 is design-only. Runtime `feature_cols` support is delivered in
+the Phase 12 implementation sequence.
 
 ### Phase 12A: Data Schema and ForecastBatch Migration
 
@@ -268,7 +268,7 @@ Delivered:
 - `target_x`, `feature_x`, and metadata for feature-aware samples.
 - Split-local feature missing-value validation.
 
-Notes: This phase did not enable feature-aware training.
+Notes: End-to-end feature-aware training is delivered later in Phase 12E.
 
 ### Phase 12C: Split Target/Feature Scaler Support
 
@@ -282,8 +282,7 @@ Delivered:
 - Separate target and feature scaler fit values.
 - Reconstruction of scaled `x` from scaled target and feature slices.
 
-Notes: Trainer remained blocked for feature-aware configs until later
-integration.
+Notes: Full Trainer integration is delivered later in Phase 12E.
 
 ### Phase 12D: Model Input/Target Dimension Migration
 
@@ -383,6 +382,11 @@ Notes: Existing command names, arguments, JSON output shapes, and error paths
 remain covered by the CLI test suite and release smoke gate.
 
 ## Recommended Next Phases
+
+### Final Freeze
+
+Goal: Freeze feature work and allow only bug fixes, demo preparation, report
+writing, and release verification before final delivery.
 
 ### Phase 15: UI Dashboard
 

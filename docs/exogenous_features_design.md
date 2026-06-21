@@ -10,10 +10,9 @@ themselves forecast targets.
 The trainable platform started with CSV `target_cols` only. That was enough for
 target-only baselines and early model comparison, but not enough for datasets
 where the model should learn from exogenous columns without predicting those
-columns. Phase 12B adds the CSV dataset/batch layer for those columns, Phase
-12C adds dataset-level split target/feature scaling, Phase 12D migrates the
-model forward interface, and Phase 12E wires those pieces through Trainer,
-Evaluator, checkpoints, and results.
+columns. Phase 12 now provides the CSV dataset/batch layer, split
+target/feature scaling, feature-aware model forward paths, Trainer/Evaluator
+integration, checkpoint metadata, and compare leaderboard metadata.
 
 ## Current State
 
@@ -30,18 +29,16 @@ For target-only configs, `num_features == len(target_cols)`. Model constructors
 receive `num_features`, and models are expected to return predictions with the
 same last dimension as `y`.
 
-Phase 12B enables `feature_cols` in `CSVForecastDataset` only. The dataset
-validates numeric feature columns, builds `x` from target history plus feature
-history, keeps `y` target-only, and exposes `target_x`, `feature_x`, and column
-metadata for feature-aware samples. `num_features` remains a compatibility
-alias for `target_dim`.
+`CSVForecastDataset` supports `feature_cols`. The dataset validates numeric
+feature columns, builds `x` from target history plus feature history, keeps `y`
+target-only, and exposes `target_x`, `feature_x`, and column metadata for
+feature-aware samples. `num_features` remains a compatibility alias for
+`target_dim`.
 
-Phase 12A started the implementation by adding compatibility dimensions without
-enabling exogenous runtime behavior. Target-only datasets expose
-`input_dim == target_dim == num_features`, `ForecastBatch` reserves optional
-`target_x`, `feature_x`, and `metadata` fields, and model construction can
-resolve either old `num_features` arguments or target-only
-`input_dim`/`target_dim` arguments.
+The data and model layers expose compatibility dimensions. Target-only
+datasets use `input_dim == target_dim == num_features`; feature-aware datasets
+use `input_dim = target_dim + feature_dim`. Model construction can resolve old
+`num_features` arguments or explicit `input_dim`/`target_dim` arguments.
 
 Phase 12C enables `ScaledForecastingDataset` to scale feature-aware samples
 with `FeatureAwareScalerBundle`. The target scaler transforms `target_x` and
@@ -63,7 +60,7 @@ carry the child run `data_metadata`, including dimensions and target/feature
 column lists, so feature-aware model selection can be inspected from
 leaderboards.
 
-## Proposed Semantics
+## Implemented Semantics
 
 CSV support separates forecast targets from input-only features:
 
@@ -92,7 +89,7 @@ batched x: [batch, input_len, num_features]
 batched y: [batch, output_len, num_features]
 ```
 
-Future target-plus-feature shape:
+Target-plus-feature shape:
 
 ```text
 target_dim = len(target_cols)
@@ -121,7 +118,7 @@ Current `ForecastBatch`:
 }
 ```
 
-Proposed eventual structure:
+Feature-aware structure:
 
 ```python
 {
@@ -133,10 +130,9 @@ Proposed eventual structure:
 }
 ```
 
-Phase 12 can expose only `x` and `y` first. In that minimal migration,
-`x` already contains concatenated target and feature history. `target_x`,
-`feature_x`, and `metadata` can remain internal or optional until a downstream
-consumer needs them.
+Feature-aware CSV samples expose `x` and `y`, with `x` containing concatenated
+target and feature history. They also carry optional `target_x`, `feature_x`,
+and `metadata` for scaler, checkpoint, result, and leaderboard paths.
 
 Compatibility requirements:
 
@@ -162,7 +158,7 @@ Feature scaler:
 - Is never used for `y` inverse transforms.
 - Does not participate in metrics.
 
-Proposed future config shape:
+Current scaler config shape:
 
 ```yaml
 data:
@@ -184,10 +180,10 @@ data:
     params: {}
 ```
 
-The old shape should continue to mean "target scaler". The implementation
-phase can decide whether the default feature scaler is `identity` or a clone of
-the target scaler. The design constraint is that target and feature scaler
-state must be stored separately once features are supported.
+The old shape continues to mean "target scaler". Feature-aware training clones
+that scaler config for the feature scaler and stores target and feature scaler
+state separately. Nested target/features scaler configuration remains a future
+enhancement.
 
 ## Model Compatibility
 
@@ -231,7 +227,7 @@ During migration, `num_features` remains a compatibility alias for
 
 ## Config Design
 
-Future CSV config example:
+Current CSV feature config example:
 
 ```yaml
 data:
@@ -246,12 +242,8 @@ data:
     missing_policy: error
     sort_by_time: true
   scaler:
-    target:
-      name: standard
-      params: {}
-    features:
-      name: standard
-      params: {}
+    name: standard
+    params: {}
 ```
 
 Backward compatibility rules:

@@ -406,32 +406,10 @@ py -m pytest
 ruff check .
 ruff format --check .
 mypy src
-py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
-py -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
-py -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml
-py -m ts_platform.cli.main list-datasets
-py -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml
-py -m ts_platform.cli.main profile-dataset --path tests/fixtures/tiny_series.csv --target-cols value --timestamp-col timestamp --input-len 8 --output-len 2
-py -m ts_platform.cli.main profile-catalog --catalog configs/datasets/local_csv.yaml --input-len 8 --output-len 2
-py -m ts_platform.cli.main make-config-from-catalog --catalog configs/datasets/local_csv.yaml --dataset tiny_csv --output /tmp/tiny_csv_generated.yaml --input-len 8 --output-len 2 --model linear --epochs 1
-py -m ts_platform.cli.main list-models
-py -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml
-py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
-py -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
-py -m ts_platform.cli.main show-results --experiment compare_feature_forecast --run latest
-py -m ts_platform.cli.main show-leaderboard --experiment compare_feature_forecast --run latest
-py -m ts_platform.cli.main show-artifacts --experiment compare_feature_forecast --run latest
-py -m ts_platform.cli.main show-artifact --experiment compare_feature_forecast --run latest --artifact leaderboard_json
-py -m ts_platform.cli.main show-results --experiment compare_forecast --run latest
-py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
-py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
-py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
-py -m ts_platform.cli.main list-jobs
-py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
-py -m ts_platform.cli.main worker-once --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs
-py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root runs/jobs --runs-root runs --max-jobs 1
-py -m ts_platform.cli.main list-stale-jobs --sqlite-db runs/jobs.sqlite3 --older-than-seconds 3600
 ```
+
+The full release smoke gate lives in [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/release_checklist.md](docs/release_checklist.md).
 
 ## API Demo
 
