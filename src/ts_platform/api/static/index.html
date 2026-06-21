@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TS Platform Demo Dashboard</title>
+    <link rel="stylesheet" href="/ui/static/styles.css" />
+    <script src="/ui/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local demo</p>
+        <h1>TS Platform Dashboard</h1>
+      </div>
+      <button id="refresh-overview" type="button">Refresh</button>
+    </header>
+
+    <main>
+      <section class="section" aria-labelledby="overview-title">
+        <div class="section-heading">
+          <h2 id="overview-title">Overview</h2>
+          <span id="overview-status" class="status">Loading...</span>
+        </div>
+        <div id="overview-grid" class="metric-grid"></div>
+        <div id="overview-error" class="error" role="alert"></div>
+      </section>
+
+      <section class="section" aria-labelledby="train-title">
+        <div class="section-heading">
+          <h2 id="train-title">Train Demo</h2>
+          <span id="train-status" class="status">Idle</span>
+        </div>
+        <div class="actions">
+          <button type="button" data-train-demo="simple_forecast">Run simple_forecast</button>
+          <button type="button" data-train-demo="csv_forecast">Run csv_forecast</button>
+          <button type="button" data-train-demo="csv_feature_forecast">
+            Run csv_feature_forecast
+          </button>
+        </div>
+        <div id="train-output" class="output"></div>
+      </section>
+
+      <section class="section" aria-labelledby="compare-title">
+        <div class="section-heading">
+          <h2 id="compare-title">Compare Demo</h2>
+          <span id="compare-status" class="status">Idle</span>
+        </div>
+        <div class="actions">
+          <button type="button" data-compare-demo="compare_forecast">Run compare_forecast</button>
+          <button type="button" data-compare-demo="compare_model_zoo">
+            Run compare_model_zoo
+          </button>
+          <button type="button" data-compare-demo="compare_feature_forecast">
+            Run compare_feature_forecast
+          </button>
+        </div>
+        <div id="compare-output" class="output"></div>
+      </section>
+
+      <section class="section" aria-labelledby="experiments-title">
+        <div class="section-heading">
+          <h2 id="experiments-title">Experiments</h2>
+          <button id="refresh-experiments" type="button">Refresh Experiments</button>
+        </div>
+        <div id="experiments-output" class="output"></div>
+      </section>
+
+      <section class="section" aria-labelledby="jobs-title">
+        <div class="section-heading">
+          <h2 id="jobs-title">Jobs</h2>
+          <button id="refresh-jobs" type="button">Refresh Jobs</button>
+        </div>
+        <div class="form-row">
+          <label for="job-id">job_id</label>
+          <input id="job-id" type="text" autocomplete="off" />
+          <button id="load-job" type="button">Load Job</button>
+          <button id="load-job-result" type="button">Load Job Result</button>
+          <button id="load-job-logs" type="button">Load Job Logs</button>
+        </div>
+        <div id="jobs-output" class="output"></div>
+      </section>
+
+      <section class="section" aria-labelledby="artifacts-title">
+        <div class="section-heading">
+          <h2 id="artifacts-title">Artifacts / Leaderboard Preview</h2>
+        </div>
+        <div class="form-row">
+          <label for="artifact-experiment">experiment_name</label>
+          <input id="artifact-experiment" type="text" autocomplete="off" />
+          <label for="artifact-run">run_id</label>
+          <input id="artifact-run" type="text" value="latest" autocomplete="off" />
+          <button id="load-results" type="button">Load Results</button>
+          <button id="load-leaderboard" type="button">Load Leaderboard</button>
+          <button id="load-artifacts" type="button">Load Artifacts</button>
+        </div>
+        <div id="artifact-output" class="output"></div>
+      </section>
+    </main>
+  </body>
+</html>

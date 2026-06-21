@@ -33,6 +33,9 @@ ts-platform = "ts_platform.cli.main:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"ts_platform.api" = ["static/*.html", "static/*.js", "static/*.css"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

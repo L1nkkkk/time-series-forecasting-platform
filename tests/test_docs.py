@@ -161,3 +161,14 @@ def test_phase14_final_quality_gate_docs_are_aligned() -> None:
     for command in FINAL_QUALITY_GATE_COMMANDS:
         assert command in contributing
         assert command in release_checklist
+
+
+def test_phase15a_dashboard_docs_are_linked() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    demo_guide = (ROOT / "docs/demo_guide.md").read_text(encoding="utf-8")
+
+    assert (ROOT / "docs/dashboard_demo.md").is_file()
+    assert "docs/dashboard_demo.md" in readme
+    assert "Dashboard Demo" in readme
+    assert "Dashboard Demo" in demo_guide
+    assert "http://127.0.0.1:8000/ui" in demo_guide

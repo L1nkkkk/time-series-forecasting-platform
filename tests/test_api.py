@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
-from ts_platform.api.routes import experiments
+from ts_platform.api.routes import demo, experiments
 from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
@@ -85,6 +85,108 @@ def test_api_health_datasets_and_models() -> None:
     assert any(item["name"] == "tiny_csv" for item in datasets.json()["datasets"])
     assert models.status_code == 200
     assert {"naive", "linear", "mlp"}.issubset(set(models.json()["models"]))
+
+
+def test_ui_index_served() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/ui")
+
+    assert response.status_code == 200
+    assert "TS Platform Dashboard" in response.text
+    assert "/ui/static/app.js" in response.text
+    assert "/ui/static/styles.css" in response.text
+
+
+def test_ui_static_assets_served() -> None:
+    client = TestClient(create_app())
+
+    script = client.get("/ui/static/app.js")
+    styles = client.get("/ui/static/styles.css")
+
+    assert script.status_code == 200
+    assert "loadOverview" in script.text
+    assert styles.status_code == 200
+    assert ".metric-grid" in styles.text
+
+
+def test_demo_configs_lists_whitelist() -> None:
+    client = TestClient(create_app())
+
+    response = client.get("/demo/configs")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["configs"] == [
+        "simple_forecast",
+        "csv_forecast",
+        "csv_feature_forecast",
+        "compare_forecast",
+        "compare_model_zoo",
+        "compare_feature_forecast",
+    ]
+    assert payload["train"] == [
+        "simple_forecast",
+        "csv_forecast",
+        "csv_feature_forecast",
+    ]
+    assert payload["compare"] == [
+        "compare_forecast",
+        "compare_model_zoo",
+        "compare_feature_forecast",
+    ]
+
+
+def test_demo_train_rejects_unknown_demo_name() -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/demo/train/not_allowed")
+
+    assert response.status_code == 404
+
+
+def test_demo_compare_rejects_unknown_demo_name() -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/demo/compare/not_allowed")
+
+    assert response.status_code == 404
+
+
+def test_demo_train_simple_forecast_runs(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(demo, "RUNS_ROOT", safe_root)
+    client = TestClient(create_app())
+
+    response = client.post("/demo/train/simple_forecast")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["experiment_name"] == "simple_forecast"
+    assert payload["run_id"]
+    assert payload["test_metrics"]["original"]
+    assert payload["data_metadata"]["feature_aware"] is False
+    assert Path(payload["checkpoint_path"]).is_relative_to(safe_root)
+    assert (safe_root / "simple_forecast" / "latest" / "results.json").exists()
+
+
+def test_demo_compare_feature_forecast_runs(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(demo, "RUNS_ROOT", safe_root)
+    client = TestClient(create_app())
+
+    response = client.post("/demo/compare/compare_feature_forecast")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["experiment_name"] == "compare_feature_forecast"
+    assert payload["run_type"] == "compare"
+    assert payload["success_count"] >= 1
+    assert payload["failed_count"] == 0
+    assert payload["primary_metric"] == "mae"
+    assert any(row["feature_aware"] is True for row in payload["rows"])
+    assert any(row["input_dim"] == 3 for row in payload["rows"])
+    assert (safe_root / "compare_feature_forecast" / "latest" / "leaderboard.json").exists()
 
 
 def test_api_train_endpoint(tmp_path, monkeypatch) -> None:

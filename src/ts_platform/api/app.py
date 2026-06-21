@@ -8,13 +8,16 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from ts_platform import __version__
-from ts_platform.api.routes import datasets, experiments, jobs, models
+from ts_platform.api.routes import datasets, demo, experiments, jobs, models
 from ts_platform.api.settings import APISettings
 from ts_platform.data.catalog_loader import register_dataset_catalog
 
 logger = logging.getLogger(__name__)
+STATIC_DIR = Path(__file__).with_name("static")
 
 
 def create_app() -> FastAPI:
@@ -29,7 +32,15 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
 
+    @app.get("/ui", include_in_schema=False)
+    @app.get("/ui/", include_in_schema=False)
+    def dashboard_ui() -> FileResponse:
+        return FileResponse(STATIC_DIR / "index.html")
+
+    app.mount("/ui/static", StaticFiles(directory=STATIC_DIR), name="ui-static")
+
     app.include_router(datasets.router)
+    app.include_router(demo.router)
     app.include_router(models.router)
     app.include_router(experiments.router)
     app.include_router(jobs.router)
