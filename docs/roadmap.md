@@ -360,12 +360,29 @@ Non-goals:
 Notes: This phase documents the release process and presentation path. It does
 not change the core training, compare, jobs, or artifact execution model.
 
-## Recommended Next Phases
-
 ### Phase 14: CLI Modularization
 
 Goal: Split the growing CLI into smaller command modules without changing the
 user-facing command surface.
+
+Delivered:
+
+- Thin `src/ts_platform/cli/main.py` entrypoint for parser assembly and
+  handler dispatch.
+- Focused command modules under `src/ts_platform/cli/commands/`.
+- Shared CLI helpers for stable JSON output and text artifact reads.
+- Parser registration smoke coverage for every existing command.
+- Contributor guidance for future CLI command placement.
+
+Non-goals:
+
+- New CLI commands or user-visible command behavior.
+- Changes to Trainer, CompareRunner, jobs, artifacts, datasets, or models.
+
+Notes: Existing command names, arguments, JSON output shapes, and error paths
+remain covered by the CLI test suite and release smoke gate.
+
+## Recommended Next Phases
 
 ### Phase 15: UI Dashboard
 

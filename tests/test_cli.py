@@ -16,8 +16,39 @@ from ts_platform.api.services.experiment_store import (
     ExperimentArtifactNotFoundError,
     UnsafePathComponentError,
 )
-from ts_platform.cli.main import main
+from ts_platform.cli.main import build_parser, main
 from ts_platform.config.loader import load_config
+
+
+def test_cli_main_build_parser_contains_core_commands() -> None:
+    parser = build_parser()
+    command_action = next(
+        action for action in parser._actions if getattr(action, "dest", None) == "command"
+    )
+
+    for command in [
+        "train",
+        "compare",
+        "list-datasets",
+        "profile-dataset",
+        "profile-catalog",
+        "make-config-from-catalog",
+        "list-models",
+        "show-results",
+        "show-leaderboard",
+        "show-artifacts",
+        "show-artifact",
+        "list-jobs",
+        "show-job",
+        "show-job-events",
+        "show-job-attempts",
+        "worker-once",
+        "worker-loop",
+        "list-stale-jobs",
+        "mark-stale-timeout",
+        "retry-job",
+    ]:
+        assert command in command_action.choices
 
 
 def test_cli_train_runs(tmp_path, capsys) -> None:

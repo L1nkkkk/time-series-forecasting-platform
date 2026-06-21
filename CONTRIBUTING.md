@@ -57,6 +57,16 @@ Use short-lived branches from `main`. Automation branches should use the
 - Do not add external services or dependencies without an explicit design
   decision.
 
+## CLI Commands
+
+CLI commands are registered from `src/ts_platform/cli/commands/`.
+`src/ts_platform/cli/main.py` should remain a thin entrypoint that builds the
+parser and dispatches to the selected handler.
+
+When adding or changing a CLI command, keep the parser registration and handler
+in the relevant command module, add command coverage in `tests/test_cli.py`,
+and update user-facing docs when command behavior changes.
+
 ## PR Checklist
 
 - Summary explains the intent and scope.
