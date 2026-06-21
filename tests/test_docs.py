@@ -186,3 +186,13 @@ def test_phase15a_dashboard_static_assets_are_packaged() -> None:
     assert '"api/static/*.html"' in pyproject
     assert '"api/static/*.js"' in pyproject
     assert '"api/static/*.css"' in pyproject
+
+
+def test_chinese_readme_is_available() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    chinese_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+
+    assert "README.zh-CN.md" in readme
+    assert "# 时间序列预测平台" in chinese_readme
+    assert "Dashboard Demo" in chinese_readme
+    assert "Final Freeze" in chinese_readme

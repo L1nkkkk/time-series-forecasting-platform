@@ -1,10 +1,103 @@
 const state = {
   experiments: [],
+  language: getInitialLanguage(),
 };
 
 const jsonHeaders = { Accept: "application/json" };
+const translations = {
+  en: {
+    appTitle: "TS Platform Dashboard",
+    artifactsTitle: "Artifacts / Leaderboard Preview",
+    backendStatus: "Backend status",
+    checkpointPath: "checkpoint path",
+    compareTitle: "Compare Demo",
+    complete: "Complete",
+    dataMetadata: "data_metadata",
+    datasetCount: "Dataset count",
+    documentTitle: "TS Platform Demo Dashboard",
+    error: "Error",
+    experimentCount: "Experiment count",
+    experimentName: "experiment name",
+    experimentNameRequired: "experiment_name is required",
+    experimentsTitle: "Experiments",
+    eyebrow: "Local demo",
+    idle: "Idle",
+    jobIdRequired: "job_id is required",
+    jobsTitle: "Jobs",
+    languageToggle: "中文",
+    loadArtifacts: "Load Artifacts",
+    loadJob: "Load Job",
+    loadJobLogs: "Load Job Logs",
+    loadJobResult: "Load Job Result",
+    loadLeaderboard: "Load Leaderboard",
+    loadResults: "Load Results",
+    loading: "Loading...",
+    modelNames: "Model names",
+    none: "None",
+    noRows: "No rows.",
+    overviewTitle: "Overview",
+    primaryMetric: "primary_metric",
+    ready: "Ready",
+    refresh: "Refresh",
+    refreshExperiments: "Refresh Experiments",
+    refreshJobs: "Refresh Jobs",
+    runPrefix: "Run",
+    runningPrefix: "Running",
+    successCount: "success_count",
+    failedCount: "failed_count",
+    testMetricsOriginal: "test_metrics.original",
+    trainTitle: "Train Demo",
+    version: "Version",
+  },
+  zh: {
+    appTitle: "时间序列平台 Dashboard",
+    artifactsTitle: "产物 / 排行榜预览",
+    backendStatus: "后端状态",
+    checkpointPath: "checkpoint 路径",
+    compareTitle: "对比演示",
+    complete: "完成",
+    dataMetadata: "数据元信息",
+    datasetCount: "数据集数量",
+    documentTitle: "时间序列平台 Demo Dashboard",
+    error: "错误",
+    experimentCount: "实验数量",
+    experimentName: "实验名",
+    experimentNameRequired: "请填写 experiment_name",
+    experimentsTitle: "实验",
+    eyebrow: "本地演示",
+    idle: "空闲",
+    jobIdRequired: "请填写 job_id",
+    jobsTitle: "任务",
+    languageToggle: "English",
+    loadArtifacts: "加载产物",
+    loadJob: "加载任务",
+    loadJobLogs: "加载任务日志",
+    loadJobResult: "加载任务结果",
+    loadLeaderboard: "加载排行榜",
+    loadResults: "加载结果",
+    loading: "加载中...",
+    modelNames: "模型列表",
+    none: "无",
+    noRows: "暂无数据。",
+    overviewTitle: "概览",
+    primaryMetric: "主指标",
+    ready: "就绪",
+    refresh: "刷新",
+    refreshExperiments: "刷新实验",
+    refreshJobs: "刷新任务",
+    runPrefix: "运行",
+    runningPrefix: "正在运行",
+    successCount: "成功数量",
+    failedCount: "失败数量",
+    testMetricsOriginal: "原始尺度测试指标",
+    trainTitle: "训练演示",
+    version: "版本",
+  },
+};
 
 document.addEventListener("DOMContentLoaded", () => {
+  applyLanguage();
+  document.querySelector("#language-toggle").addEventListener("click", toggleLanguage);
   document.querySelector("#refresh-overview").addEventListener("click", loadOverview);
   document.querySelector("#refresh-experiments").addEventListener("click", loadExperiments);
   document.querySelector("#refresh-jobs").addEventListener("click", loadJobs);
@@ -60,7 +153,7 @@ async function loadOverview() {
   const status = document.querySelector("#overview-status");
   const grid = document.querySelector("#overview-grid");
   const error = document.querySelector("#overview-error");
-  status.textContent = "Loading...";
+  status.textContent = t("loading");
   error.textContent = "";
 
   try {
@@ -77,15 +170,15 @@ async function loadOverview() {
     const experimentRows = experiments.experiments || [];
     state.experiments = experimentRows;
     grid.innerHTML = [
-      metric("Backend status", health.status || "unknown"),
-      metric("Version", health.version || "unknown"),
-      metric("Dataset count", datasetCount),
-      metric("Model names", modelNames.join(", ") || "None"),
-      metric("Experiment count", experimentRows.length),
+      metric(t("backendStatus"), health.status || "unknown"),
+      metric(t("version"), health.version || "unknown"),
+      metric(t("datasetCount"), datasetCount),
+      metric(t("modelNames"), modelNames.join(", ") || t("none")),
+      metric(t("experimentCount"), experimentRows.length),
     ].join("");
-    status.textContent = "Ready";
+    status.textContent = t("ready");
   } catch (errorValue) {
-    status.textContent = "Error";
+    status.textContent = t("error");
     grid.innerHTML = "";
     error.textContent = errorValue.message;
   }
@@ -94,22 +187,22 @@ async function loadOverview() {
 async function runTrainDemo(demoName, button) {
   const status = document.querySelector("#train-status");
   const output = document.querySelector("#train-output");
-  await withButton(button, status, `Running ${demoName}...`, async () => {
+  await withButton(button, status, `${t("runningPrefix")} ${demoName}...`, async () => {
     output.innerHTML = "";
     const payload = await apiFetch(`/demo/train/${demoName}`, { method: "POST" });
     output.innerHTML = [
       renderKeyValues({
-        "experiment name": payload.experiment_name,
+        [t("experimentName")]: payload.experiment_name,
         run_id: payload.run_id,
-        "checkpoint path": payload.checkpoint_path,
+        [t("checkpointPath")]: payload.checkpoint_path,
       }),
-      "<h3>test_metrics.original</h3>",
+      `<h3>${escapeHtml(t("testMetricsOriginal"))}</h3>`,
       renderJson(payload.test_metrics ? payload.test_metrics.original : null),
-      "<h3>data_metadata</h3>",
+      `<h3>${escapeHtml(t("dataMetadata"))}</h3>`,
       renderJson(payload.data_metadata || null),
     ].join("");
     fillRunInputs(payload.experiment_name, payload.run_id);
-    status.textContent = "Complete";
+    status.textContent = t("complete");
     await loadExperiments();
   });
 }
@@ -117,15 +210,15 @@ async function runTrainDemo(demoName, button) {
 async function runCompareDemo(demoName, button) {
   const status = document.querySelector("#compare-status");
   const output = document.querySelector("#compare-output");
-  await withButton(button, status, `Running ${demoName}...`, async () => {
+  await withButton(button, status, `${t("runningPrefix")} ${demoName}...`, async () => {
     output.innerHTML = "";
     const payload = await apiFetch(`/demo/compare/${demoName}`, { method: "POST" });
     const rows = payload.rows || [];
     output.innerHTML = [
       renderKeyValues({
-        success_count: payload.success_count,
-        failed_count: payload.failed_count,
-        primary_metric: payload.primary_metric,
+        [t("successCount")]: payload.success_count,
+        [t("failedCount")]: payload.failed_count,
+        [t("primaryMetric")]: payload.primary_metric,
         feature_aware: firstDefined(rows, "feature_aware"),
         input_dim: firstDefined(rows, "input_dim"),
         target_dim: firstDefined(rows, "target_dim"),
@@ -146,14 +239,14 @@ async function runCompareDemo(demoName, button) {
       ]),
     ].join("");
     fillRunInputs(payload.experiment_name, payload.compare_run_id || payload.run_id);
-    status.textContent = "Complete";
+    status.textContent = t("complete");
     await loadExperiments();
   });
 }
 
 async function loadExperiments() {
   const output = document.querySelector("#experiments-output");
-  output.innerHTML = '<p class="muted">Loading...</p>';
+  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
     const payload = await apiFetch("/experiments");
     const rows = payload.experiments || [];
@@ -174,7 +267,7 @@ async function loadExperiments() {
 
 async function loadJobs() {
   const output = document.querySelector("#jobs-output");
-  output.innerHTML = '<p class="muted">Loading...</p>';
+  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
     const payload = await apiFetch("/jobs");
     output.innerHTML = renderTable(payload.jobs || [], [
@@ -194,11 +287,11 @@ async function loadJobDetail(kind) {
   const jobId = document.querySelector("#job-id").value.trim();
   const output = document.querySelector("#jobs-output");
   if (!jobId) {
-    output.innerHTML = renderError("job_id is required");
+    output.innerHTML = renderError(t("jobIdRequired"));
     return;
   }
   const suffix = kind === "job" ? "" : `/${kind}`;
-  output.innerHTML = '<p class="muted">Loading...</p>';
+  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
     const payload = await apiFetch(`/jobs/${encodeURIComponent(jobId)}${suffix}`);
     output.innerHTML = renderJson(payload);
@@ -212,10 +305,10 @@ async function loadRunData(kind) {
   const runId = document.querySelector("#artifact-run").value.trim() || "latest";
   const output = document.querySelector("#artifact-output");
   if (!experimentName) {
-    output.innerHTML = renderError("experiment_name is required");
+    output.innerHTML = renderError(t("experimentNameRequired"));
     return;
   }
-  output.innerHTML = '<p class="muted">Loading...</p>';
+  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
     const base = `/experiments/${encodeURIComponent(experimentName)}/${encodeURIComponent(runId)}`;
     const payload = await apiFetch(`${base}/${kind}`);
@@ -259,7 +352,7 @@ async function withButton(button, status, loadingText, callback) {
   try {
     await callback();
   } catch (errorValue) {
-    status.textContent = "Error";
+    status.textContent = t("error");
     const target = button.dataset.trainDemo ? "#train-output" : "#compare-output";
     document.querySelector(target).innerHTML = renderError(errorValue.message);
   } finally {
@@ -276,6 +369,50 @@ function fillRunInputs(experimentName, runId) {
   if (runId) {
     document.querySelector("#artifact-run").value = runId;
   }
+}
+
+function getInitialLanguage() {
+  try {
+    const savedLanguage = window.localStorage.getItem("dashboardLanguage");
+    if (savedLanguage === "en" || savedLanguage === "zh") {
+      return savedLanguage;
+    }
+  } catch {
+    return "zh";
+  }
+  return "zh";
+}
+
+function toggleLanguage() {
+  state.language = state.language === "zh" ? "en" : "zh";
+  try {
+    window.localStorage.setItem("dashboardLanguage", state.language);
+  } catch {
+    // Ignore localStorage failures in restricted browser contexts.
+  }
+  applyLanguage();
+  loadOverview();
+  loadExperiments();
+  loadJobs();
+}
+
+function applyLanguage() {
+  document.documentElement.lang = state.language === "zh" ? "zh-CN" : "en";
+  document.title = t("documentTitle");
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    element.textContent = t(element.dataset.i18n);
+  });
+  document.querySelector("#language-toggle").textContent = t("languageToggle");
+  document.querySelectorAll("[data-train-demo]").forEach((button) => {
+    button.textContent = `${t("runPrefix")} ${button.dataset.trainDemo}`;
+  });
+  document.querySelectorAll("[data-compare-demo]").forEach((button) => {
+    button.textContent = `${t("runPrefix")} ${button.dataset.compareDemo}`;
+  });
+}
+
+function t(key) {
+  return translations[state.language][key] || translations.en[key] || key;
 }
 
 function metric(label, value) {
@@ -297,7 +434,7 @@ function renderKeyValues(values) {
 
 function renderTable(rows, columns) {
   if (!Array.isArray(rows) || rows.length === 0) {
-    return '<p class="muted">No rows.</p>';
+    return `<p class="muted">${escapeHtml(t("noRows"))}</p>`;
   }
   const header = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("");
   const body = rows

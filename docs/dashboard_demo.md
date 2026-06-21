@@ -10,6 +10,9 @@ Open:
 
 http://127.0.0.1:8000/ui
 
+The dashboard opens in Chinese by default. Use the language button in the top
+bar to switch between Chinese and English.
+
 ## Recommended Demo Flow
 
 1. Start the API:

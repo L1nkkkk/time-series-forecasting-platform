@@ -1,5 +1,7 @@
 # Time Series Forecasting Platform
 
+[中文说明](README.zh-CN.md)
+
 This repository contains a configuration-driven MVP for a comprehensive time
 series forecasting platform. It follows the same engineering ideas highlighted
 by BasicTS: datasets, scalers, models, metrics, runners, and configs are

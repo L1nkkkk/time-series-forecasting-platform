@@ -1,26 +1,29 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>TS Platform Demo Dashboard</title>
+    <title>时间序列平台 Demo Dashboard</title>
     <link rel="stylesheet" href="/ui/static/styles.css" />
     <script src="/ui/static/app.js" defer></script>
   </head>
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow">Local demo</p>
-        <h1>TS Platform Dashboard</h1>
+        <p class="eyebrow" data-i18n="eyebrow">本地演示</p>
+        <h1 data-i18n="appTitle">时间序列平台 Dashboard</h1>
       </div>
-      <button id="refresh-overview" type="button">Refresh</button>
+      <div class="topbar-actions">
+        <button id="language-toggle" class="secondary" type="button">English</button>
+        <button id="refresh-overview" type="button" data-i18n="refresh">刷新</button>
+      </div>
     </header>
 
     <main>
       <section class="section" aria-labelledby="overview-title">
         <div class="section-heading">
-          <h2 id="overview-title">Overview</h2>
-          <span id="overview-status" class="status">Loading...</span>
+          <h2 id="overview-title" data-i18n="overviewTitle">概览</h2>
+          <span id="overview-status" class="status" data-i18n="loading">加载中...</span>
         </div>
         <div id="overview-grid" class="metric-grid"></div>
         <div id="overview-error" class="error" role="alert"></div>
@@ -28,8 +31,8 @@
 
       <section class="section" aria-labelledby="train-title">
         <div class="section-heading">
-          <h2 id="train-title">Train Demo</h2>
-          <span id="train-status" class="status">Idle</span>
+          <h2 id="train-title" data-i18n="trainTitle">训练演示</h2>
+          <span id="train-status" class="status" data-i18n="idle">空闲</span>
         </div>
         <div class="actions">
           <button type="button" data-train-demo="simple_forecast">Run simple_forecast</button>
@@ -43,8 +46,8 @@
 
       <section class="section" aria-labelledby="compare-title">
         <div class="section-heading">
-          <h2 id="compare-title">Compare Demo</h2>
-          <span id="compare-status" class="status">Idle</span>
+          <h2 id="compare-title" data-i18n="compareTitle">对比演示</h2>
+          <span id="compare-status" class="status" data-i18n="idle">空闲</span>
         </div>
         <div class="actions">
           <button type="button" data-compare-demo="compare_forecast">Run compare_forecast</button>
@@ -60,39 +63,47 @@
 
       <section class="section" aria-labelledby="experiments-title">
         <div class="section-heading">
-          <h2 id="experiments-title">Experiments</h2>
-          <button id="refresh-experiments" type="button">Refresh Experiments</button>
+          <h2 id="experiments-title" data-i18n="experimentsTitle">实验</h2>
+          <button id="refresh-experiments" type="button" data-i18n="refreshExperiments">
+            刷新实验
+          </button>
         </div>
         <div id="experiments-output" class="output"></div>
       </section>
 
       <section class="section" aria-labelledby="jobs-title">
         <div class="section-heading">
-          <h2 id="jobs-title">Jobs</h2>
-          <button id="refresh-jobs" type="button">Refresh Jobs</button>
+          <h2 id="jobs-title" data-i18n="jobsTitle">任务</h2>
+          <button id="refresh-jobs" type="button" data-i18n="refreshJobs">刷新任务</button>
         </div>
         <div class="form-row">
           <label for="job-id">job_id</label>
           <input id="job-id" type="text" autocomplete="off" />
-          <button id="load-job" type="button">Load Job</button>
-          <button id="load-job-result" type="button">Load Job Result</button>
-          <button id="load-job-logs" type="button">Load Job Logs</button>
+          <button id="load-job" type="button" data-i18n="loadJob">加载任务</button>
+          <button id="load-job-result" type="button" data-i18n="loadJobResult">
+            加载任务结果
+          </button>
+          <button id="load-job-logs" type="button" data-i18n="loadJobLogs">
+            加载任务日志
+          </button>
         </div>
         <div id="jobs-output" class="output"></div>
       </section>
 
       <section class="section" aria-labelledby="artifacts-title">
         <div class="section-heading">
-          <h2 id="artifacts-title">Artifacts / Leaderboard Preview</h2>
+          <h2 id="artifacts-title" data-i18n="artifactsTitle">产物 / 排行榜预览</h2>
         </div>
         <div class="form-row">
           <label for="artifact-experiment">experiment_name</label>
           <input id="artifact-experiment" type="text" autocomplete="off" />
           <label for="artifact-run">run_id</label>
           <input id="artifact-run" type="text" value="latest" autocomplete="off" />
-          <button id="load-results" type="button">Load Results</button>
-          <button id="load-leaderboard" type="button">Load Leaderboard</button>
-          <button id="load-artifacts" type="button">Load Artifacts</button>
+          <button id="load-results" type="button" data-i18n="loadResults">加载结果</button>
+          <button id="load-leaderboard" type="button" data-i18n="loadLeaderboard">
+            加载排行榜
+          </button>
+          <button id="load-artifacts" type="button" data-i18n="loadArtifacts">加载产物</button>
         </div>
         <div id="artifact-output" class="output"></div>
       </section>

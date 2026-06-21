@@ -93,7 +93,8 @@ def test_ui_index_served() -> None:
     response = client.get("/ui")
 
     assert response.status_code == 200
-    assert "TS Platform Dashboard" in response.text
+    assert "时间序列平台 Dashboard" in response.text
+    assert "English" in response.text
     assert "/ui/static/app.js" in response.text
     assert "/ui/static/styles.css" in response.text
 
@@ -106,6 +107,8 @@ def test_ui_static_assets_served() -> None:
 
     assert script.status_code == 200
     assert "loadOverview" in script.text
+    assert "translations" in script.text
+    assert "运行" in script.text
     assert styles.status_code == 200
     assert ".metric-grid" in styles.text
 

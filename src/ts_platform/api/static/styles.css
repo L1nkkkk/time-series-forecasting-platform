@@ -36,6 +36,14 @@ body {
   padding: 24px clamp(16px, 4vw, 44px);
 }
 
+.topbar-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .eyebrow {
   color: #9fc5bd;
   font-size: 12px;
@@ -155,6 +163,12 @@ button {
   padding: 7px 12px;
 }
 
+button.secondary {
+  background: transparent;
+  border-color: #9fc5bd;
+  color: #ffffff;
+}
+
 button:hover,
 button:focus-visible {
   background: var(--accent-strong);
@@ -262,6 +276,7 @@ pre {
   }
 
   .topbar button,
+  .topbar-actions,
   .actions button,
   .form-row button,
   input {
