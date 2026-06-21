@@ -154,8 +154,9 @@ layer and must not affect core runner behavior.
    restore scaler/model/optimizer state. Otherwise fit scaler on the training
    split.
 7. Wrap splits with transforms and build deterministic DataLoaders.
-8. Build or restore model using sequence lengths and the target-only feature
-   count compatibility path.
+8. Build or restore the model using sequence lengths and dataset dimensions
+   (`input_dim` and `target_dim`), while preserving `num_features`
+   compatibility for target-only configs.
 9. Train from `checkpoint epoch + 1` through the target final epoch.
 10. Evaluate validation metrics after every epoch when validation data exists.
 11. Evaluate test metrics and record final results.
@@ -229,39 +230,46 @@ Scaler responsibilities:
 - Apply inverse transforms only through the target scaler.
 - Keep original-scale metrics target-only.
 
-Model interface migration:
+Model interface:
 
-- `BaseForecastModel` accepts either the old `num_features` constructor
-  argument or the new `input_dim`/`target_dim` pair.
-- Preserve `num_features` as a target-only compatibility alias during the
-  migration.
-- `build_model` keeps accepting `num_features`; target-only
-  `input_dim`/`target_dim` calls are resolved back to that old path until
-  concrete models become feature-aware.
-- Move trainable models to consume `input_dim` and output `target_dim`.
-- Keep naive, moving-average, and seasonal-naive baselines target-only by
-  slicing target history from `x`.
+- `BaseForecastModel` supports both the legacy `num_features` constructor
+  argument and the explicit `input_dim` / `target_dim` pair.
+- `num_features` remains a target-only compatibility alias for `target_dim`.
+- Trainable models consume the full `input_dim` history and output
+  `target_dim`.
+- Statistical baselines use `target_slice(x)` and ignore feature columns, so
+  they remain target-only references in feature-aware runs.
 
-Runner and evaluator impact:
+Runner and evaluator behavior:
 
-- `Trainer` will need to pass both dimensions and column metadata to model
-  construction, evaluation, results, and checkpoints.
-- `Evaluator` will need a target-only inverse-transform path.
-- Compare runs should continue ranking target metrics.
+- `Trainer` builds split target/feature scalers for feature-aware datasets from
+  the existing `data.scaler` config.
+- `Trainer` passes dimensions and column metadata through model construction,
+  results, and checkpoints.
+- `Evaluator` receives the target scaler, so original-scale metrics remain
+  target-only metrics.
+- Compare leaderboards include feature-aware metadata and continue ranking
+  target metrics.
 
-Checkpoint impact:
+Checkpoint behavior:
 
-- Phase 12A does not change checkpoint schema version `1`.
-- Future checkpoints should record `input_dim`, `target_dim`, `target_cols`,
+- Checkpoint schema v2 records `input_dim`, `target_dim`, `target_cols`,
   `feature_cols`, target scaler state, and feature scaler state.
-- Resume validation should reject mismatched target columns, feature columns,
-  dimensions, and scaler configs.
+- Checkpoint schema version `1` target-only checkpoints remain loadable.
+- Resume validation rejects mismatched target columns, feature columns,
+  dimensions, model config, and scaler config.
 
 Backward compatibility:
 
 - Configs without `feature_cols` must keep the current shapes and behavior.
 - Old single-scaler configs continue to mean target scaler.
-- Existing target-only model zoo and compare smoke tests must stay green.
+- Existing target-only model zoo and compare smoke tests stay green.
+
+Future work:
+
+- Basic feature-aware CSV training and compare support is complete.
+- Future roadmap items are UI dashboard, production queue backend,
+  auth / multi-user isolation, and advanced forecasting models.
 
 The detailed design and phased migration plan live in
 [exogenous_features_design.md](exogenous_features_design.md).

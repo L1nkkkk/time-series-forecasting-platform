@@ -4,6 +4,71 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
+FINAL_QUALITY_GATE_COMMANDS = [
+    "python -m pytest",
+    "ruff check .",
+    "ruff format --check .",
+    "mypy src",
+    "python -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml",
+    "python -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml",
+    "python -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml",
+    "python -m ts_platform.cli.main list-datasets",
+    "python -m ts_platform.cli.main list-datasets --catalog configs/datasets/local_csv.yaml",
+    (
+        "python -m ts_platform.cli.main profile-dataset "
+        "--path tests/fixtures/tiny_series.csv "
+        "--target-cols value "
+        "--timestamp-col timestamp "
+        "--input-len 8 "
+        "--output-len 2"
+    ),
+    (
+        "python -m ts_platform.cli.main profile-catalog "
+        "--catalog configs/datasets/local_csv.yaml "
+        "--input-len 8 "
+        "--output-len 2"
+    ),
+    (
+        "python -m ts_platform.cli.main make-config-from-catalog "
+        "--catalog configs/datasets/local_csv.yaml "
+        "--dataset tiny_csv "
+        "--output /tmp/tiny_csv_generated.yaml "
+        "--input-len 8 "
+        "--output-len 2 "
+        "--model linear "
+        "--epochs 1"
+    ),
+    "python -m ts_platform.cli.main list-models",
+    "python -m ts_platform.cli.main compare --config configs/examples/compare_forecast.yaml",
+    "python -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml",
+    (
+        "python -m ts_platform.cli.main compare "
+        "--config configs/examples/compare_feature_forecast.yaml"
+    ),
+    (
+        "python -m ts_platform.cli.main show-results "
+        "--experiment compare_feature_forecast "
+        "--run latest"
+    ),
+    (
+        "python -m ts_platform.cli.main show-leaderboard "
+        "--experiment compare_feature_forecast "
+        "--run latest"
+    ),
+    (
+        "python -m ts_platform.cli.main show-artifacts "
+        "--experiment compare_feature_forecast "
+        "--run latest"
+    ),
+    (
+        "python -m ts_platform.cli.main show-artifact "
+        "--experiment compare_feature_forecast "
+        "--run latest "
+        "--artifact leaderboard_json"
+    ),
+    "python -m ts_platform.cli.main list-jobs",
+]
+
 
 def test_phase7_design_docs_exist() -> None:
     expected_paths = [
@@ -69,3 +134,30 @@ def test_phase13_changelog_mentions_release_capabilities() -> None:
     assert "Feature-aware training" in changelog
     assert "Feature-aware compare" in changelog
     assert "Checkpoint schema v2" in changelog
+
+
+def test_phase14_final_architecture_docs_are_current() -> None:
+    architecture = (ROOT / "docs/architecture.md").read_text(encoding="utf-8")
+
+    assert "will need to pass both dimensions" not in architecture
+    assert "Future checkpoints should record" not in architecture
+    assert "until concrete models become feature-aware" not in architecture
+    assert "Checkpoint schema v2" in architecture
+    assert "feature-aware" in architecture
+    assert "target-only metrics" in architecture
+
+
+def test_phase14_final_roadmap_points_to_final_freeze() -> None:
+    roadmap = (ROOT / "docs/roadmap.md").read_text(encoding="utf-8")
+
+    assert "Phase 14: CLI Modularization" in roadmap
+    assert "Final Freeze" in roadmap or "final freeze" in roadmap
+
+
+def test_phase14_final_quality_gate_docs_are_aligned() -> None:
+    contributing = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    release_checklist = (ROOT / "docs/release_checklist.md").read_text(encoding="utf-8")
+
+    for command in FINAL_QUALITY_GATE_COMMANDS:
+        assert command in contributing
+        assert command in release_checklist
