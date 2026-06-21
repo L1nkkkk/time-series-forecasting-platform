@@ -381,6 +381,24 @@ Non-goals:
 Notes: Existing command names, arguments, JSON output shapes, and error paths
 remain covered by the CLI test suite and release smoke gate.
 
+### Phase 15A: Demo Dashboard Lite
+
+Goal: Add a lightweight local dashboard for presentation and defense demos
+without introducing a frontend build system.
+
+Delivered:
+
+- FastAPI-served `/ui` static HTML, CSS, and vanilla JavaScript dashboard.
+- Whitelisted `/demo/configs`, `/demo/train/{demo_name}`, and
+  `/demo/compare/{demo_name}` endpoints.
+- Dashboard views for health, datasets, models, experiments, jobs, results,
+  leaderboards, artifacts, train demos, and compare demos.
+- Documentation for the local dashboard demo.
+
+Notes: This is a local demo UI only. It reuses the existing safe training and
+compare services, keeps demo config execution on a whitelist, and does not
+change the production hardening roadmap.
+
 ## Recommended Next Phases
 
 ### Final Freeze
@@ -388,10 +406,10 @@ remain covered by the CLI test suite and release smoke gate.
 Goal: Freeze feature work and allow only bug fixes, demo preparation, report
 writing, and release verification before final delivery.
 
-### Phase 15: UI Dashboard
+### Phase 15B: Production UI / Dashboard
 
-Goal: Prototype a small dashboard that reads existing API surfaces for
-experiments, jobs, results, leaderboards, and artifacts.
+Goal: Design a production-grade dashboard only after auth, ownership, deployment,
+and operational requirements are clear.
 
 ### Phase 16: Production Queue Backend
 

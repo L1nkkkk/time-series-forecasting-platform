@@ -39,6 +39,7 @@ No BasicTS code is copied into this project.
 
 ## Demo Materials
 
+- [docs/dashboard_demo.md](docs/dashboard_demo.md)
 - [docs/demo_guide.md](docs/demo_guide.md)
 - [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/final_report_outline.md](docs/final_report_outline.md)
@@ -106,6 +107,24 @@ The feature-aware compare config uses target and feature columns together. The
 trainable models consume the full target-plus-feature history, while the
 statistical baselines stay target-only and ignore the feature slice. Metrics
 remain target-only for both feature-aware training and feature-aware compare.
+
+## Dashboard Demo
+
+Start the FastAPI app:
+
+```bash
+uvicorn ts_platform.api.app:create_app --factory
+```
+
+Open the local dashboard:
+
+http://127.0.0.1:8000/ui
+
+This is a lightweight local demo UI served by FastAPI with static HTML, CSS,
+and vanilla JavaScript. It is not a production web UI. The dashboard calls the
+existing API for health, datasets, models, experiments, jobs, results,
+leaderboards, and artifacts, and it exposes whitelisted demo train/compare
+buttons. See [docs/dashboard_demo.md](docs/dashboard_demo.md).
 
 ## Metrics
 
@@ -419,6 +438,10 @@ uvicorn ts_platform.api.app:create_app --factory --reload
 
 Available endpoints:
 
+- `GET /ui`
+- `GET /demo/configs`
+- `POST /demo/train/{demo_name}`
+- `POST /demo/compare/{demo_name}`
 - `GET /health`
 - `GET /datasets`
 - `GET /datasets/{dataset_name}`
