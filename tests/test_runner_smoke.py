@@ -16,6 +16,10 @@ def test_runner_smoke(tmp_path) -> None:
     assert (result.run_dir / "config_snapshot.yaml").exists()
     assert (result.run_dir / "environment.json").exists()
     assert (result.run_dir / "results.json").exists()
+    assert (result.run_dir / "forecast_samples.json").exists()
+    assert result.forecast_samples["sample_count"] > 0
+    assert result.forecast_samples["samples"][0]["actual"]
+    assert result.forecast_samples["samples"][0]["predicted"]
     assert set(result.test_metrics["original"]) == {"mae", "mse", "rmse", "mape", "wape"}
     assert "scaled" not in result.test_metrics
 
@@ -27,6 +31,8 @@ def test_runner_smoke(tmp_path) -> None:
         ("gru", {"hidden_size": 8}),
         ("lstm", {"hidden_size": 8}),
         ("tcn", {"hidden_channels": 8, "num_layers": 2}),
+        ("transformer", {"d_model": 16, "num_heads": 4, "num_layers": 1, "dim_feedforward": 32}),
+        ("nbeats", {"hidden_size": 16, "num_blocks": 2, "num_layers": 2}),
     ),
 )
 def test_new_model_training_smoke(tmp_path, model_name: str, params: dict[str, object]) -> None:

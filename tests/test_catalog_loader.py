@@ -18,6 +18,19 @@ def test_dataset_catalog_loader() -> None:
     assert registered[0].path == "tests/fixtures/tiny_series.csv"
 
 
+def test_public_time_series_catalog_has_source_links() -> None:
+    metadata = load_dataset_catalog("configs/datasets/public_time_series.yaml")
+
+    names = {item.name for item in metadata}
+    assert len(metadata) >= 20
+    assert {
+        "etth1",
+        "electricity_load_diagrams_2011_2014",
+        "monash_time_series_forecasting_repository",
+    }.issubset(names)
+    assert all(item.source.startswith(("http://", "https://")) for item in metadata)
+
+
 def test_catalog_duplicate_name_overwrites_documented() -> None:
     catalog = DatasetCatalog()
     catalog.register(
@@ -108,6 +121,7 @@ def test_catalog_loader_accepts_valid_csv_metadata(tmp_path) -> None:
         "    path: tests/fixtures/tiny_series.csv\n"
         "    timestamp_col: timestamp\n"
         "    target_cols: [value]\n"
+        "    feature_cols: [temperature]\n"
         "    frequency: D\n"
         "    license: test-fixture\n",
         encoding="utf-8",
@@ -119,3 +133,4 @@ def test_catalog_loader_accepts_valid_csv_metadata(tmp_path) -> None:
     assert metadata[0].path == "tests/fixtures/tiny_series.csv"
     assert metadata[0].timestamp_col == "timestamp"
     assert metadata[0].target_cols == ["value"]
+    assert metadata[0].feature_cols == ["temperature"]

@@ -23,10 +23,12 @@ training configs, compare configs, the CLI, `Trainer`, and `CompareRunner`.
 | `seasonal_naive` | `SeasonalNaiveForecastModel` | `season_length` | Simple repeating-season baseline. |
 | `linear` | `LinearForecastModel` | none | Small trainable direct projection. |
 | `mlp` | `MLPForecastModel` | `hidden_sizes`, `dropout` | Nonlinear trainable baseline. |
+| `nbeats` | `NBeatsForecastModel` | `hidden_size`, `num_blocks`, `num_layers`, `dropout` | Generic N-BEATS-style residual forecaster. |
 | `rnn` | `RNNForecastModel` | `hidden_size`, `num_layers`, `dropout`, `bidirectional` | Vanilla recurrent baseline. |
 | `gru` | `GRUForecastModel` | `hidden_size`, `num_layers`, `dropout`, `bidirectional` | Gated recurrent baseline. |
 | `lstm` | `LSTMForecastModel` | `hidden_size`, `num_layers`, `dropout`, `bidirectional` | LSTM recurrent baseline. |
 | `tcn` | `TCNForecastModel` | `hidden_channels`, `num_layers`, `kernel_size`, `dropout` | Lightweight temporal-conv baseline. |
+| `transformer` | `TransformerForecastModel` | `d_model`, `num_heads`, `num_layers`, `dim_feedforward`, `dropout` | Lightweight Transformer encoder baseline. |
 
 ## Recurrent Models
 
@@ -48,6 +50,19 @@ Common parameters:
 These models do not use an autoregressive decoder; the forecast horizon is
 produced by one direct projection.
 
+## N-BEATS Model
+
+`nbeats` flattens the input history and applies a stack of generic residual
+blocks. Each block emits a backcast component that updates the residual history
+and a forecast component that is accumulated into the final prediction.
+
+Parameters:
+
+- `hidden_size`: positive integer hidden width, default `64`.
+- `num_blocks`: positive integer block count, default `3`.
+- `num_layers`: positive integer MLP depth inside each block, default `2`.
+- `dropout`: float where `0 <= dropout < 1`, default `0.0`.
+
 ## TCN Model
 
 `tcn` converts input tensors from `[batch, input_len, input_dim]` to
@@ -68,6 +83,20 @@ Parameters:
 - `hidden_channels`: positive integer, default `32`.
 - `num_layers`: positive integer, default `3`.
 - `kernel_size`: positive integer, default `3`.
+- `dropout`: float where `0 <= dropout < 1`, default `0.0`.
+
+## Transformer Model
+
+`transformer` projects each time step into a learned hidden width, adds learned
+positional embeddings, applies a PyTorch `TransformerEncoder`, and projects the
+final encoded token to the full forecast horizon.
+
+Parameters:
+
+- `d_model`: positive integer hidden width, default `32`.
+- `num_heads`: positive integer attention head count, default `4`.
+- `num_layers`: positive integer encoder depth, default `2`.
+- `dim_feedforward`: positive integer feed-forward width, default `64`.
 - `dropout`: float where `0 <= dropout < 1`, default `0.0`.
 
 ## Compare Example
@@ -106,10 +135,12 @@ Trainable models support feature-aware forward paths:
 
 - `linear`
 - `mlp`
+- `nbeats`
 - `rnn`
 - `gru`
 - `lstm`
 - `tcn`
+- `transformer`
 
 These models consume the full `input_dim` history and project to
 `output_len * target_dim`.

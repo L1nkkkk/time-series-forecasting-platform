@@ -3,109 +3,486 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>时间序列平台 Demo Dashboard</title>
-    <link rel="stylesheet" href="/ui/static/styles.css" />
-    <script src="/ui/static/app.js" defer></script>
+    <title>时间序列平台实验中心</title>
+    <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-report-export" />
+    <script src="/ui/static/app.js?v=20260622-report-export" defer></script>
   </head>
   <body>
     <header class="topbar">
       <div>
-        <p class="eyebrow" data-i18n="eyebrow">本地演示</p>
-        <h1 data-i18n="appTitle">时间序列平台 Dashboard</h1>
+        <p class="eyebrow" data-i18n="eyebrow">本地实验工作台</p>
+        <h1 data-i18n="appTitle">时间序列平台实验中心</h1>
+        <p class="topbar-subtitle" data-i18n="appSubtitle">管理运行结果、对比模型表现、检查训练产物</p>
       </div>
       <div class="topbar-actions">
         <button id="language-toggle" class="secondary" type="button">English</button>
-        <button id="refresh-overview" type="button" data-i18n="refresh">刷新</button>
+        <button id="refresh-all" type="button" data-i18n="refreshAll">刷新全部</button>
       </div>
     </header>
 
     <main>
-      <section class="section" aria-labelledby="overview-title">
+      <section class="overview-band" aria-labelledby="overview-title">
         <div class="section-heading">
-          <h2 id="overview-title" data-i18n="overviewTitle">概览</h2>
+          <div>
+            <h2 id="overview-title" data-i18n="overviewTitle">运行概览</h2>
+            <p class="section-caption" data-i18n="overviewCaption">当前 runs 目录中的实验资产状态</p>
+          </div>
           <span id="overview-status" class="status" data-i18n="loading">加载中...</span>
         </div>
         <div id="overview-grid" class="metric-grid"></div>
         <div id="overview-error" class="error" role="alert"></div>
       </section>
 
-      <section class="section" aria-labelledby="train-title">
+      <section class="dataset-catalog" aria-labelledby="dataset-catalog-title">
         <div class="section-heading">
-          <h2 id="train-title" data-i18n="trainTitle">训练演示</h2>
-          <span id="train-status" class="status" data-i18n="idle">空闲</span>
+          <div>
+            <h2 id="dataset-catalog-title" data-i18n="datasetCatalogTitle">数据集库</h2>
+            <p class="section-caption" data-i18n="datasetCatalogCaption">公开数据集目录和本地自定义 CSV，均保留来源信息</p>
+          </div>
+          <span id="dataset-catalog-status" class="status" data-i18n="loading">加载中...</span>
         </div>
-        <div class="actions">
-          <button type="button" data-train-demo="simple_forecast">Run simple_forecast</button>
-          <button type="button" data-train-demo="csv_forecast">Run csv_forecast</button>
-          <button type="button" data-train-demo="csv_feature_forecast">
-            Run csv_feature_forecast
-          </button>
+        <div class="dataset-catalog-grid">
+          <div class="dataset-list-panel">
+            <div class="panel-heading">
+              <h3 data-i18n="datasetSources">数据集来源</h3>
+              <span id="dataset-catalog-count" class="count-pill">0</span>
+            </div>
+            <div class="dataset-filters">
+              <label class="field">
+                <span data-i18n="datasetSearch">搜索数据集</span>
+                <input id="dataset-search" type="search" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span data-i18n="datasetDomainFilter">领域筛选</span>
+                <select id="dataset-domain-filter">
+                  <option value="all" data-i18n="filterAll">全部</option>
+                </select>
+              </label>
+            </div>
+            <div id="dataset-catalog-list" class="dataset-catalog-list"></div>
+          </div>
+          <form id="user-dataset-form" class="dataset-form">
+            <div class="panel-heading">
+              <h3 data-i18n="addDatasetTitle">补充本地数据集</h3>
+              <button id="clear-user-datasets" class="ghost" type="button" data-i18n="clearUserDatasets">清空自定义</button>
+            </div>
+            <div class="form-grid">
+              <label class="field">
+                <span data-i18n="datasetName">数据集名</span>
+                <input id="user-dataset-name" type="text" value="my_dataset" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span data-i18n="datasetDomain">领域</span>
+                <input id="user-dataset-domain" type="text" value="custom" autocomplete="off" />
+              </label>
+              <label class="field span-2">
+                <span data-i18n="csvPath">CSV 路径</span>
+                <input id="user-dataset-path" type="text" placeholder="data/my_series.csv" autocomplete="off" />
+              </label>
+              <div class="file-picker-row span-2">
+                <button id="user-pick-csv" class="ghost" type="button" data-i18n="chooseCsvFile">选择 CSV 文件</button>
+                <input id="user-csv-file" type="file" accept=".csv,text/csv" hidden />
+              </div>
+              <label class="field">
+                <span data-i18n="timestampCol">时间列</span>
+                <input id="user-dataset-timestamp" type="text" value="timestamp" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span data-i18n="targetCols">目标列</span>
+                <input id="user-dataset-targets" type="text" value="value" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span data-i18n="featureCols">特征列</span>
+                <input id="user-dataset-features" type="text" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span data-i18n="frequency">频率</span>
+                <input id="user-dataset-frequency" type="text" placeholder="D / H / 15min" autocomplete="off" />
+              </label>
+              <label class="field span-2">
+                <span data-i18n="datasetSource">来源</span>
+                <input id="user-dataset-source" type="text" placeholder="URL / paper / internal source" autocomplete="off" />
+              </label>
+              <label class="field span-2">
+                <span data-i18n="datasetDescription">描述</span>
+                <textarea id="user-dataset-description" rows="3">User supplied local CSV dataset.</textarea>
+              </label>
+            </div>
+            <div class="custom-actions">
+              <button id="save-user-dataset" type="submit" data-i18n="saveDataset">保存并使用</button>
+            </div>
+            <div id="user-dataset-output" class="output"></div>
+          </form>
         </div>
-        <div id="train-output" class="output"></div>
       </section>
 
-      <section class="section" aria-labelledby="compare-title">
+      <section class="workbench" aria-labelledby="results-title">
         <div class="section-heading">
-          <h2 id="compare-title" data-i18n="compareTitle">对比演示</h2>
-          <span id="compare-status" class="status" data-i18n="idle">空闲</span>
+          <div>
+            <h2 id="results-title" data-i18n="resultsTitle">实验结果管理</h2>
+            <p class="section-caption" data-i18n="resultsCaption">筛选、收藏、查看 run 详情和可视化结果</p>
+          </div>
+          <span id="results-status" class="status" data-i18n="idle">空闲</span>
         </div>
-        <div class="actions">
-          <button type="button" data-compare-demo="compare_forecast">Run compare_forecast</button>
-          <button type="button" data-compare-demo="compare_model_zoo">
-            Run compare_model_zoo
-          </button>
-          <button type="button" data-compare-demo="compare_feature_forecast">
-            Run compare_feature_forecast
-          </button>
+
+        <div class="workbench-grid">
+          <aside class="library-panel" aria-labelledby="library-title">
+            <div class="panel-heading">
+              <h3 id="library-title" data-i18n="libraryTitle">结果库</h3>
+              <span id="library-count" class="count-pill">0</span>
+            </div>
+            <div class="filters">
+              <label class="field">
+                <span data-i18n="searchLabel">搜索</span>
+                <input id="experiment-search" type="search" autocomplete="off" />
+              </label>
+              <div class="segmented" aria-label="run type filter">
+                <button type="button" data-filter-type="all" class="active" data-i18n="filterAll">全部</button>
+                <button type="button" data-filter-type="train" data-i18n="filterTrain">训练</button>
+                <button type="button" data-filter-type="compare" data-i18n="filterCompare">对比</button>
+              </div>
+              <div class="filter-row">
+                <label class="field compact">
+                  <span data-i18n="statusLabel">状态</span>
+                  <select id="status-filter">
+                    <option value="all" data-i18n="filterAll">全部</option>
+                    <option value="complete" data-i18n="statusComplete">完成</option>
+                    <option value="incomplete" data-i18n="statusIncomplete">未完成</option>
+                  </select>
+                </label>
+                <label class="field compact">
+                  <span data-i18n="sortLabel">排序</span>
+                  <select id="sort-filter">
+                    <option value="created_desc" data-i18n="sortNewest">最新</option>
+                    <option value="created_asc" data-i18n="sortOldest">最早</option>
+                    <option value="name_asc" data-i18n="sortName">名称</option>
+                    <option value="metric_asc" data-i18n="sortMetric">MAE 最低</option>
+                  </select>
+                </label>
+              </div>
+              <label class="check-row">
+                <input id="favorite-filter" type="checkbox" />
+                <span data-i18n="favoritesOnly">只看收藏</span>
+              </label>
+            </div>
+            <div id="experiment-list" class="run-list"></div>
+          </aside>
+
+          <section class="detail-panel" aria-labelledby="detail-title">
+            <div id="detail-empty" class="empty-state">
+              <h3 data-i18n="emptyTitle">选择一个实验 run</h3>
+              <p data-i18n="emptyBody">左侧结果库会显示本地 runs 目录中的训练和对比运行。</p>
+            </div>
+            <div id="detail-content" class="detail-content" hidden>
+              <div class="detail-hero">
+                <div>
+                  <p id="detail-kind" class="eyebrow dark">-</p>
+                  <h3 id="detail-title">-</h3>
+                  <p id="detail-subtitle" class="detail-subtitle">-</p>
+                </div>
+                <div class="detail-actions">
+                  <button id="favorite-run" class="secondary on-light" type="button" data-i18n="favorite">收藏</button>
+                  <button id="export-report-run" class="secondary on-light" type="button" data-i18n="exportReport">导出报告</button>
+                  <button id="reload-run" type="button" data-i18n="reloadRun">重新加载</button>
+                </div>
+              </div>
+
+              <div id="detail-metrics" class="metric-grid compact-grid"></div>
+
+              <div class="tabbar" role="tablist" aria-label="result detail views">
+                <button class="active" type="button" data-detail-tab="overview" data-i18n="tabOverview">概览</button>
+                <button type="button" data-detail-tab="artifacts" data-i18n="tabArtifacts">产物</button>
+                <button type="button" data-detail-tab="raw" data-i18n="tabRaw">原始 JSON</button>
+              </div>
+
+              <div id="detail-overview" class="tab-panel"></div>
+              <div id="detail-artifacts" class="tab-panel" hidden></div>
+              <div id="detail-raw" class="tab-panel" hidden></div>
+            </div>
+          </section>
         </div>
-        <div id="compare-output" class="output"></div>
       </section>
 
-      <section class="section" aria-labelledby="experiments-title">
+      <section class="custom-builder" aria-labelledby="custom-title">
         <div class="section-heading">
-          <h2 id="experiments-title" data-i18n="experimentsTitle">实验</h2>
-          <button id="refresh-experiments" type="button" data-i18n="refreshExperiments">
-            刷新实验
-          </button>
+          <div>
+            <h2 id="custom-title" data-i18n="customTitle">自定义实验</h2>
+            <p class="section-caption" data-i18n="customCaption">配置数据、模型、训练和评估参数</p>
+          </div>
+          <span id="custom-status" class="status" data-i18n="idle">空闲</span>
         </div>
-        <div id="experiments-output" class="output"></div>
+
+        <div class="custom-grid">
+          <form id="custom-form" class="custom-form">
+            <div class="form-section">
+              <div class="segmented segmented-two" aria-label="custom experiment mode">
+                <button type="button" class="active" data-custom-mode="train" data-i18n="customModeTrain">单模型训练</button>
+                <button type="button" data-custom-mode="compare" data-i18n="customModeCompare">模型对比</button>
+              </div>
+              <div class="form-grid">
+                <label class="field">
+                  <span data-i18n="experimentName">实验名</span>
+                  <input id="custom-experiment-name" type="text" value="custom_forecast" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span data-i18n="dataSource">数据源</span>
+                  <select id="custom-data-source">
+                    <option value="synthetic" data-i18n="syntheticData">合成数据</option>
+                    <option value="csv" data-i18n="csvData">CSV 文件</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span data-i18n="scaler">Scaler</span>
+                  <select id="custom-scaler">
+                    <option value="standard">standard</option>
+                    <option value="minmax">minmax</option>
+                    <option value="identity">identity</option>
+                  </select>
+                </label>
+                <label class="field span-2">
+                  <span data-i18n="datasetTemplate">数据集模板</span>
+                  <select id="custom-dataset-template"></select>
+                </label>
+              </div>
+              <div id="custom-dataset-source" class="dataset-source-note"></div>
+            </div>
+
+            <div id="custom-synthetic-fields" class="form-section">
+              <h3 data-i18n="syntheticData">合成数据</h3>
+              <div class="form-grid three">
+                <label class="field">
+                  <span data-i18n="seriesLength">序列长度</span>
+                  <input id="custom-synthetic-length" type="number" min="24" step="1" value="96" />
+                </label>
+                <label class="field">
+                  <span data-i18n="featureCount">特征数</span>
+                  <input id="custom-synthetic-features" type="number" min="1" step="1" value="1" />
+                </label>
+                <label class="field">
+                  <span data-i18n="noiseStd">噪声</span>
+                  <input id="custom-synthetic-noise" type="number" min="0" step="0.01" value="0.02" />
+                </label>
+              </div>
+            </div>
+
+            <div id="custom-csv-fields" class="form-section" hidden>
+              <h3 data-i18n="csvData">CSV 文件</h3>
+              <div class="form-grid">
+                <label class="field span-2">
+                  <span data-i18n="csvPath">CSV 路径</span>
+                  <input id="custom-csv-path" type="text" value="tests/fixtures/tiny_series_with_features.csv" autocomplete="off" />
+                </label>
+                <div class="file-picker-row span-2">
+                  <button id="custom-pick-csv" class="ghost" type="button" data-i18n="chooseCsvFile">选择 CSV 文件</button>
+                  <input id="custom-csv-file" type="file" accept=".csv,text/csv" hidden />
+                </div>
+                <label class="field">
+                  <span data-i18n="timestampCol">时间列</span>
+                  <input id="custom-timestamp-col" type="text" value="timestamp" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span data-i18n="targetCols">目标列</span>
+                  <input id="custom-target-cols" type="text" value="value" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span data-i18n="featureCols">特征列</span>
+                  <input id="custom-feature-cols" type="text" value="temperature, holiday" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span data-i18n="missingPolicy">缺失值</span>
+                  <select id="custom-missing-policy">
+                    <option value="error">error</option>
+                    <option value="drop">drop</option>
+                    <option value="forward_fill">forward_fill</option>
+                    <option value="zero_fill">zero_fill</option>
+                  </select>
+                </label>
+                <label class="check-row inline-check">
+                  <input id="custom-sort-by-time" type="checkbox" checked />
+                  <span data-i18n="sortByTime">按时间排序</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h3 data-i18n="sequenceAndSplit">窗口与切分</h3>
+              <div class="form-grid three">
+                <label class="field">
+                  <span data-i18n="inputLen">输入长度</span>
+                  <input id="custom-input-len" type="number" min="1" step="1" value="8" />
+                </label>
+                <label class="field">
+                  <span data-i18n="outputLen">预测长度</span>
+                  <input id="custom-output-len" type="number" min="1" step="1" value="2" />
+                </label>
+                <label class="field">
+                  <span data-i18n="batchSize">Batch size</span>
+                  <input id="custom-batch-size" type="number" min="1" step="1" value="8" />
+                </label>
+                <label class="field">
+                  <span data-i18n="trainRatio">训练占比</span>
+                  <input id="custom-train-ratio" type="number" min="0" max="1" step="0.01" value="0.7" />
+                </label>
+                <label class="field">
+                  <span data-i18n="valRatio">验证占比</span>
+                  <input id="custom-val-ratio" type="number" min="0" max="1" step="0.01" value="0.15" />
+                </label>
+                <label class="field">
+                  <span data-i18n="testRatio">测试占比</span>
+                  <input id="custom-test-ratio" type="number" min="0" max="1" step="0.01" value="0.15" />
+                </label>
+              </div>
+            </div>
+
+            <div id="custom-train-fields" class="form-section">
+              <h3 data-i18n="customModeTrain">单模型训练</h3>
+              <div class="form-grid">
+                <label class="field">
+                  <span data-i18n="model">模型</span>
+                  <select id="custom-train-model"></select>
+                </label>
+                <label class="field span-2">
+                  <span data-i18n="modelParams">模型参数 JSON</span>
+                  <textarea id="custom-model-params" rows="4">{}</textarea>
+                </label>
+              </div>
+            </div>
+
+            <div id="custom-compare-fields" class="form-section" hidden>
+              <h3 data-i18n="customModeCompare">模型对比</h3>
+              <div id="custom-compare-models" class="model-checklist"></div>
+              <label class="field compare-param-field">
+                <span data-i18n="compareParams">对比参数 JSON</span>
+                <textarea id="custom-compare-params" rows="8"></textarea>
+              </label>
+            </div>
+
+            <div class="form-section">
+              <h3 data-i18n="trainingSettings">训练设置</h3>
+              <div class="form-grid three">
+                <label class="field">
+                  <span data-i18n="epochs">Epochs</span>
+                  <input id="custom-epochs" type="number" min="1" step="1" value="1" />
+                </label>
+                <label class="field">
+                  <span data-i18n="learningRate">学习率</span>
+                  <input id="custom-learning-rate" type="number" min="0.000001" step="any" value="0.01" />
+                </label>
+                <label class="field">
+                  <span data-i18n="device">设备</span>
+                  <select id="custom-device">
+                    <option value="cpu">cpu</option>
+                    <option value="cuda">cuda</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span data-i18n="optimizer">优化器</span>
+                  <select id="custom-optimizer">
+                    <option value="adam">adam</option>
+                    <option value="sgd">sgd</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span data-i18n="loss">Loss</span>
+                  <select id="custom-loss">
+                    <option value="mse">mse</option>
+                    <option value="mae">mae</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span data-i18n="checkpointEvery">Checkpoint</span>
+                  <input id="custom-checkpoint-every" type="number" min="1" step="1" value="1" />
+                </label>
+              </div>
+            </div>
+
+            <div class="form-section">
+              <h3 data-i18n="evaluationSettings">评估设置</h3>
+              <div class="metric-checks">
+                <label class="check-row"><input type="checkbox" data-custom-metric="mae" checked /><span>MAE</span></label>
+                <label class="check-row"><input type="checkbox" data-custom-metric="mse" checked /><span>MSE</span></label>
+                <label class="check-row"><input type="checkbox" data-custom-metric="rmse" checked /><span>RMSE</span></label>
+                <label class="check-row"><input type="checkbox" data-custom-metric="mape" /><span>MAPE</span></label>
+                <label class="check-row"><input type="checkbox" data-custom-metric="wape" checked /><span>WAPE</span></label>
+                <label class="check-row"><input id="custom-include-scaled" type="checkbox" /><span data-i18n="includeScaled">Scaled metrics</span></label>
+              </div>
+              <label class="field primary-metric-field">
+                <span data-i18n="primaryMetric">主指标</span>
+                <select id="custom-primary-metric">
+                  <option value="mae">mae</option>
+                  <option value="mse">mse</option>
+                  <option value="rmse">rmse</option>
+                  <option value="mape">mape</option>
+                  <option value="wape">wape</option>
+                </select>
+              </label>
+            </div>
+
+            <div class="custom-actions">
+              <button id="custom-submit" type="submit" data-i18n="customSubmitTrain">运行自定义训练</button>
+              <button id="custom-preview-refresh" class="ghost" type="button" data-i18n="refreshPreview">刷新预览</button>
+            </div>
+          </form>
+
+          <aside class="preview-panel" aria-labelledby="preview-title">
+            <div class="panel-heading">
+              <h3 id="preview-title" data-i18n="configPreview">配置预览</h3>
+            </div>
+            <pre id="custom-config-preview"></pre>
+            <div id="custom-output" class="output"></div>
+          </aside>
+        </div>
       </section>
 
-      <section class="section" aria-labelledby="jobs-title">
+      <section class="operations" aria-labelledby="operations-title">
         <div class="section-heading">
-          <h2 id="jobs-title" data-i18n="jobsTitle">任务</h2>
-          <button id="refresh-jobs" type="button" data-i18n="refreshJobs">刷新任务</button>
+          <div>
+            <h2 id="operations-title" data-i18n="operationsTitle">运行与任务</h2>
+            <p class="section-caption" data-i18n="operationsCaption">快速生成新结果，或检查本地任务队列</p>
+          </div>
         </div>
-        <div class="form-row">
-          <label for="job-id">job_id</label>
-          <input id="job-id" type="text" autocomplete="off" />
-          <button id="load-job" type="button" data-i18n="loadJob">加载任务</button>
-          <button id="load-job-result" type="button" data-i18n="loadJobResult">
-            加载任务结果
-          </button>
-          <button id="load-job-logs" type="button" data-i18n="loadJobLogs">
-            加载任务日志
-          </button>
-        </div>
-        <div id="jobs-output" class="output"></div>
-      </section>
+        <div class="operations-grid">
+          <div class="tool-panel" aria-labelledby="train-title">
+            <div class="panel-heading">
+              <h3 id="train-title" data-i18n="trainTitle">训练演示</h3>
+              <span id="train-status" class="status" data-i18n="idle">空闲</span>
+            </div>
+            <div class="actions">
+              <button type="button" data-train-demo="simple_forecast">Run simple_forecast</button>
+              <button type="button" data-train-demo="csv_forecast">Run csv_forecast</button>
+              <button type="button" data-train-demo="csv_feature_forecast">Run csv_feature_forecast</button>
+            </div>
+            <div id="train-output" class="output"></div>
+          </div>
 
-      <section class="section" aria-labelledby="artifacts-title">
-        <div class="section-heading">
-          <h2 id="artifacts-title" data-i18n="artifactsTitle">产物 / 排行榜预览</h2>
+          <div class="tool-panel" aria-labelledby="compare-title">
+            <div class="panel-heading">
+              <h3 id="compare-title" data-i18n="compareTitle">对比演示</h3>
+              <span id="compare-status" class="status" data-i18n="idle">空闲</span>
+            </div>
+            <div class="actions">
+              <button type="button" data-compare-demo="compare_forecast">Run compare_forecast</button>
+              <button type="button" data-compare-demo="compare_model_zoo">Run compare_model_zoo</button>
+              <button type="button" data-compare-demo="compare_feature_forecast">Run compare_feature_forecast</button>
+            </div>
+            <div id="compare-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="jobs-title">
+            <div class="panel-heading">
+              <h3 id="jobs-title" data-i18n="jobsTitle">任务</h3>
+              <button id="refresh-jobs" type="button" data-i18n="refreshJobs">刷新任务</button>
+            </div>
+            <div class="form-row">
+              <label for="job-id">job_id</label>
+              <input id="job-id" type="text" autocomplete="off" />
+              <button id="load-job" type="button" data-i18n="loadJob">加载任务</button>
+              <button id="load-job-result" type="button" data-i18n="loadJobResult">加载任务结果</button>
+              <button id="load-job-logs" type="button" data-i18n="loadJobLogs">加载任务日志</button>
+            </div>
+            <div id="jobs-output" class="output"></div>
+          </div>
         </div>
-        <div class="form-row">
-          <label for="artifact-experiment">experiment_name</label>
-          <input id="artifact-experiment" type="text" autocomplete="off" />
-          <label for="artifact-run">run_id</label>
-          <input id="artifact-run" type="text" value="latest" autocomplete="off" />
-          <button id="load-results" type="button" data-i18n="loadResults">加载结果</button>
-          <button id="load-leaderboard" type="button" data-i18n="loadLeaderboard">
-            加载排行榜
-          </button>
-          <button id="load-artifacts" type="button" data-i18n="loadArtifacts">加载产物</button>
-        </div>
-        <div id="artifact-output" class="output"></div>
       </section>
     </main>
   </body>

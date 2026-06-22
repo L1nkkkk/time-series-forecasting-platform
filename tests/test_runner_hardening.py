@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -62,6 +63,14 @@ def test_overwrite_closes_existing_run_logger(tmp_path) -> None:
     second = ExperimentRecorder(tmp_path, "demo", overwrite=True).prepare()
 
     assert first == second == tmp_path / "demo" / "latest"
+    assert logger.handlers == []
+
+
+def test_trainer_closes_run_logger_after_run(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="closed_logger")).run()
+
+    logger = logging.getLogger(f"ts_platform.{result.run_dir.as_posix()}")
+
     assert logger.handlers == []
 
 

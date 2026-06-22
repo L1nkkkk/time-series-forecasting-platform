@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,7 +18,10 @@ from ts_platform.data.base import ForecastBatch, ForecastingDataset
 from ts_platform.data.loaders import build_dataset
 from ts_platform.data.transforms import FeatureAwareScalerBundle, ScaledForecastingDataset
 from ts_platform.experiment.artifacts import build_train_artifact_manifest, save_artifact_manifest
-from ts_platform.experiment.logger import setup_experiment_logger
+from ts_platform.experiment.logger import (
+    close_experiment_logger_for_run_dir,
+    setup_experiment_logger,
+)
 from ts_platform.experiment.recorder import ExperimentRecorder
 from ts_platform.experiment.reproducibility import (
     build_worker_init_fn,
@@ -36,7 +40,7 @@ from ts_platform.runner.checkpoint import (
     save_checkpoint,
     validate_checkpoint_for_training,
 )
-from ts_platform.runner.evaluator import evaluate
+from ts_platform.runner.evaluator import collect_forecast_samples, evaluate
 from ts_platform.scaler.base import BaseScaler
 from ts_platform.scaler.registry import build_scaler
 
@@ -54,6 +58,7 @@ class TrainingResult:
     validation_metrics: OptionalMetricGroups
     test_metrics: MetricGroups
     data_metadata: dict[str, Any]
+    forecast_samples: dict[str, Any]
     resumed_from: Path | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +76,7 @@ class TrainingResult:
             validation_metrics=self.validation_metrics,
             test_metrics=self.test_metrics,
             data_metadata=self.data_metadata,
+            forecast_samples=self.forecast_samples,
             resumed_from=str(self.resumed_from) if self.resumed_from is not None else None,
         )
 
@@ -99,6 +105,20 @@ class Trainer:
         )
         run_dir = recorder.prepare()
         logger = setup_experiment_logger(run_dir)
+        try:
+            return self._run_prepared(recorder, run_dir, logger, resume_checkpoint)
+        finally:
+            close_experiment_logger_for_run_dir(run_dir)
+
+    def _run_prepared(
+        self,
+        recorder: ExperimentRecorder,
+        run_dir: Path,
+        logger: logging.Logger,
+        resume_checkpoint: CheckpointPayload | None,
+    ) -> TrainingResult:
+        """Run training after the run directory and logger are ready."""
+
         recorder.save_config(self.config)
         environment = collect_environment()
         recorder.save_environment(environment)
@@ -210,6 +230,13 @@ class Trainer:
             scaler=_target_scaler(scaler),
             include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
         )
+        forecast_samples = collect_forecast_samples(
+            model,
+            test_loader,
+            device,
+            scaler=_target_scaler(scaler),
+            target_cols=_dataset_columns(train_dataset, "target_cols"),
+        )
         final_epoch = max(start_epoch - 1, self.config.training.epochs)
         checkpoint_path = save_checkpoint(
             run_dir / "checkpoint.pt",
@@ -232,10 +259,15 @@ class Trainer:
             validation_metrics=validation_metrics,
             test_metrics=test_metrics,
             data_metadata=_data_metadata(train_dataset),
+            forecast_samples=forecast_samples,
             resumed_from=resumed_from,
         )
         logger.info("test=%s", test_metrics)
         recorder.save_results(result.to_dict())
+        (run_dir / "forecast_samples.json").write_text(
+            json.dumps(forecast_samples, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
         save_artifact_manifest(
             build_train_artifact_manifest(
                 experiment_name=result.experiment_name,

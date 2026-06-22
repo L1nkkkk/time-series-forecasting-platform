@@ -318,7 +318,7 @@ def test_compare_model_zoo_config_runs(tmp_path) -> None:
 
     result = CompareRunner(config).run()
 
-    assert result.success_count == 9
+    assert result.success_count == 11
     assert result.failed_count == 0
     assert {row["model_name"] for row in result.rows} == {
         "naive",
@@ -326,17 +326,19 @@ def test_compare_model_zoo_config_runs(tmp_path) -> None:
         "seasonal_naive",
         "linear",
         "mlp",
+        "nbeats",
         "rnn",
         "gru",
         "lstm",
         "tcn",
+        "transformer",
     }
 
 
 def test_compare_feature_forecast_config_runs(tmp_path) -> None:
     result = CompareRunner(_feature_compare_config(tmp_path)).run()
 
-    assert result.success_count == 9
+    assert result.success_count == 11
     assert result.failed_count == 0
     assert all(row["status"] == "success" for row in result.rows)
     assert result.leaderboard_json_path.exists()
@@ -377,6 +379,7 @@ def test_compare_feature_forecast_trainable_models_succeed(tmp_path) -> None:
         models=[
             CompareModelConfig(name="linear"),
             CompareModelConfig(name="mlp", params={"hidden_sizes": [8]}),
+            CompareModelConfig(name="nbeats", params={"hidden_size": 16, "num_blocks": 2}),
             CompareModelConfig(name="rnn", params={"hidden_size": 8}),
             CompareModelConfig(name="gru", params={"hidden_size": 8}),
             CompareModelConfig(name="lstm", params={"hidden_size": 8}),
@@ -384,20 +387,31 @@ def test_compare_feature_forecast_trainable_models_succeed(tmp_path) -> None:
                 name="tcn",
                 params={"hidden_channels": 8, "num_layers": 2},
             ),
+            CompareModelConfig(
+                name="transformer",
+                params={
+                    "d_model": 16,
+                    "num_heads": 4,
+                    "num_layers": 1,
+                    "dim_feedforward": 32,
+                },
+            ),
         ],
     )
 
     result = CompareRunner(config).run()
 
-    assert result.success_count == 6
+    assert result.success_count == 8
     assert result.failed_count == 0
     assert {row["model_name"] for row in result.rows} == {
         "linear",
         "mlp",
+        "nbeats",
         "rnn",
         "gru",
         "lstm",
         "tcn",
+        "transformer",
     }
     assert all(row["status"] == "success" for row in result.rows)
 

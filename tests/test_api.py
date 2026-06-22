@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
-from ts_platform.api.routes import demo, experiments
+from ts_platform.api.routes import datasets, demo, experiments
 from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
@@ -84,7 +84,9 @@ def test_api_health_datasets_and_models() -> None:
     assert "csv" in datasets.json()["names"]
     assert any(item["name"] == "tiny_csv" for item in datasets.json()["datasets"])
     assert models.status_code == 200
-    assert {"naive", "linear", "mlp"}.issubset(set(models.json()["models"]))
+    assert {"naive", "linear", "mlp", "transformer", "nbeats"}.issubset(
+        set(models.json()["models"])
+    )
 
 
 def test_ui_index_served() -> None:
@@ -93,10 +95,17 @@ def test_ui_index_served() -> None:
     response = client.get("/ui")
 
     assert response.status_code == 200
-    assert "时间序列平台 Dashboard" in response.text
+    assert "时间序列平台实验中心" in response.text
+    assert "数据集库" in response.text
+    assert "实验结果管理" in response.text
+    assert "自定义实验" in response.text
     assert "English" in response.text
     assert "/ui/static/app.js" in response.text
     assert "/ui/static/styles.css" in response.text
+    assert "dataset-search" in response.text
+    assert "dataset-domain-filter" in response.text
+    assert "20260622-report-export" in response.text
+    assert "export-report-run" in response.text
 
 
 def test_ui_static_assets_served() -> None:
@@ -106,11 +115,41 @@ def test_ui_static_assets_served() -> None:
     styles = client.get("/ui/static/styles.css")
 
     assert script.status_code == 200
-    assert "loadOverview" in script.text
+    assert "loadDashboard" in script.text
+    assert "renderLeaderboardChart" in script.text
+    assert "buildCustomConfig" in script.text
+    assert "saveUserDataset" in script.text
+    assert "deleteUserDataset" in script.text
+    assert "filterDatasetRows" in script.text
+    assert "countMergedDatasets" in script.text
+    assert "profileDataset" in script.text
+    assert "renderDatasetProfile" in script.text
+    assert "datasetDomainFilter" in script.text
+    assert "artifactDownload" in script.text
+    assert "download>" in script.text
+    assert "uploadCsvFile" in script.text
+    assert "/datasets/user" in script.text
+    assert "renderForecastChart" in script.text
+    assert "renderTrainingMonitor" in script.text
+    assert "monitor-smoothing" in script.text
+    assert "collectTrainingSeries" in script.text
+    assert "buildExperimentReport" in script.text
+    assert "downloadTextFile" in script.text
+    assert "exportReport" in script.text
+    assert "eyebrow" in script.text
+    assert "Number.isInteger" in script.text
     assert "translations" in script.text
-    assert "运行" in script.text
+    assert "实验结果管理" in script.text
     assert styles.status_code == 200
-    assert ".metric-grid" in styles.text
+    assert ".workbench-grid" in styles.text
+    assert ".dataset-catalog-grid" in styles.text
+    assert ".custom-grid" in styles.text
+    assert ".danger-action" in styles.text
+    assert ".dataset-filters" in styles.text
+    assert ".monitor-panels" in styles.text
+    assert ".monitor-chart" in styles.text
+    assert ".profile-panel" in styles.text
+    assert ".table-action-link" in styles.text
 
 
 def test_demo_configs_lists_whitelist() -> None:
@@ -279,6 +318,157 @@ def test_api_datasets_loads_local_catalog() -> None:
 
     assert response.status_code == 200
     assert any(item["name"] == "tiny_csv" for item in datasets)
+    assert any(
+        item["name"] == "etth1" and item["source"].startswith("https://") for item in datasets
+    )
+
+
+def test_api_upload_csv_dataset_saves_managed_copy(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "UPLOADS_ROOT", tmp_path / "uploads")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/datasets/upload-csv",
+        json={"filename": "My Data.csv", "content": "timestamp,value,temp\n2024-01-01,1,20\n"},
+    )
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["filename"].startswith("My_Data_")
+    assert payload["path"].startswith((tmp_path / "uploads").as_posix())
+    assert payload["columns"] == ["timestamp", "value", "temp"]
+    assert (
+        Path(payload["path"]).read_text(encoding="utf-8")
+        == "timestamp,value,temp\n2024-01-01,1,20\n"
+    )
+
+
+def test_api_upload_csv_dataset_rejects_non_csv(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "UPLOADS_ROOT", tmp_path / "uploads")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/datasets/upload-csv",
+        json={"filename": "data.txt", "content": "timestamp,value\n2024-01-01,1\n"},
+    )
+
+    assert response.status_code == 422
+    assert "must be a .csv" in response.text
+
+
+def test_api_save_user_dataset_persists_and_lists(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/datasets/user",
+        json={
+            "name": "my_csv",
+            "dataset_type": "csv",
+            "domain": "industrial",
+            "description": "User motor sensor series.",
+            "source": "internal lab",
+            "path": "data/uploads/motor.csv",
+            "timestamp_col": "timestamp",
+            "target_cols": ["vibration"],
+            "feature_cols": ["temperature"],
+            "frequency": "1min",
+        },
+    )
+    payload = response.json()
+    listed = client.get("/datasets").json()["datasets"]
+    detail = client.get("/datasets/my_csv").json()
+
+    assert response.status_code == 200
+    assert payload["name"] == "my_csv"
+    assert payload["user_defined"] is True
+    assert any(item["name"] == "my_csv" and item["user_defined"] is True for item in listed)
+    assert detail["domain"] == "industrial"
+    assert detail["target_cols"] == ["vibration"]
+    assert (tmp_path / "user_datasets.json").exists()
+
+
+def test_api_clear_user_datasets(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+    client.post(
+        "/datasets/user",
+        json={
+            "name": "clear_me",
+            "dataset_type": "csv",
+            "domain": "custom",
+            "description": "Temporary user series.",
+            "path": "data/uploads/clear.csv",
+            "target_cols": ["value"],
+        },
+    )
+
+    response = client.delete("/datasets/user")
+    listed = client.get("/datasets").json()["datasets"]
+
+    assert response.status_code == 200
+    assert not any(item["name"] == "clear_me" for item in listed)
+
+
+def test_api_delete_one_user_dataset(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+    for name in ["keep_me", "delete_me"]:
+        client.post(
+            "/datasets/user",
+            json={
+                "name": name,
+                "dataset_type": "csv",
+                "domain": "custom",
+                "description": f"{name} dataset.",
+                "path": f"data/uploads/{name}.csv",
+                "target_cols": ["value"],
+            },
+        )
+
+    response = client.delete("/datasets/user/delete_me")
+    listed = client.get("/datasets").json()["datasets"]
+
+    assert response.status_code == 200
+    assert any(item["name"] == "keep_me" for item in listed)
+    assert not any(item["name"] == "delete_me" for item in listed)
+
+
+def test_api_profile_user_dataset(tmp_path, monkeypatch) -> None:
+    csv_path = tmp_path / "custom.csv"
+    csv_path.write_text(
+        "timestamp,value,temp\n"
+        "2024-01-01,1,20\n"
+        "2024-01-02,2,21\n"
+        "2024-01-03,3,22\n"
+        "2024-01-04,4,23\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+    client.post(
+        "/datasets/user",
+        json={
+            "name": "profile_me",
+            "dataset_type": "csv",
+            "domain": "custom",
+            "description": "Profile user dataset.",
+            "path": str(csv_path),
+            "timestamp_col": "timestamp",
+            "target_cols": ["value"],
+            "feature_cols": ["temp"],
+        },
+    )
+
+    response = client.get("/datasets/profile_me/profile", params={"input_len": 2, "output_len": 1})
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["name"] == "profile_me"
+    assert payload["exists"] is True
+    assert payload["row_count"] == 4
+    assert payload["columns"] == ["timestamp", "value", "temp"]
+    assert payload["can_build_windows"] is True
 
 
 def test_api_get_dataset_detail() -> None:

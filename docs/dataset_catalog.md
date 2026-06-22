@@ -5,6 +5,16 @@ generation. They are metadata only: the platform does not download remote data,
 does not auto-train from a catalog entry, and does not let API users submit
 arbitrary paths for profiling.
 
+`configs/datasets/public_time_series.yaml` is a curated public-source catalog
+covering energy, finance, traffic, weather, environment, mobility, retail,
+forecasting competitions, medical/ICU time series, and industrial predictive
+maintenance datasets. Remote entries keep source attribution but remain
+metadata-only until a user downloads or converts the data locally.
+
+The dashboard exposes the merged catalog with keyword search and domain
+filtering. Filtered views only change the visible table; the custom experiment
+dataset template selector still uses the complete catalog.
+
 ## YAML Schema
 
 Catalog files contain a top-level `datasets` list:
@@ -96,7 +106,20 @@ The output must still pass the normal config loader before training.
 
 ## API Detail And Profile
 
-`GET /datasets/{dataset_name}` returns registered catalog metadata.
+`GET /datasets` returns built-in catalog metadata merged with persisted user
+dataset metadata from `data/user_datasets.json`.
+
+`POST /datasets/user` persists one user-supplied CSV dataset metadata entry.
+The UI uses this when the user saves a local CSV dataset after choosing a file
+or filling in a path manually.
+
+`DELETE /datasets/user` clears persisted user dataset metadata.
+
+`DELETE /datasets/user/{dataset_name}` removes one persisted user dataset
+metadata entry.
+
+`GET /datasets/{dataset_name}` returns registered catalog metadata. User
+metadata overrides a built-in row with the same normalized name.
 
 `GET /datasets/{dataset_name}/profile` profiles only CSV datasets already
 present in the catalog. It accepts optional `input_len` and `output_len` query
@@ -104,9 +127,15 @@ parameters and rejects unsupported query parameters such as `path`. Missing
 dataset names return 404. Non-CSV datasets return 400. Missing local CSV files
 return 200 with `exists: false` and a warning.
 
+The local dashboard exposes this profile endpoint as a dataset table action for
+local CSV entries. It uses the current custom experiment input/output window
+settings so users can quickly see whether a saved CSV has enough rows and
+required columns before launching training.
+
 ## Current Limitations
 
-- Local CSV only.
+- Training still uses local CSV paths; public remote entries are source
+  metadata until downloaded and converted by the user.
 - No parquet support.
 - No remote dataset download.
 - Catalog entries are discovery/config-generation metadata and do not

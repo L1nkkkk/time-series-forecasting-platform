@@ -40,10 +40,16 @@ bar to switch between Chinese and English.
    - `target_cols`
    - `feature_cols`
 
-7. Load artifacts and leaderboard from the Artifacts / Leaderboard Preview
-   panel.
+7. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
+   latest/best/delta summaries, and point tooltips.
 
-8. Optionally show Jobs as the local async prototype.
+8. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
+   can be previewed or downloaded through the manifest-backed artifact API.
+
+9. Click Export Report on a completed run to download a Markdown summary for
+   the demo or final write-up.
+
+10. Optionally show Jobs as the local async prototype.
 
 ## Timing Notes
 
@@ -61,6 +67,8 @@ bar to switch between Chinese and English.
 - experiments
 - train demos
 - compare demos
+- training monitor
+- Markdown report export
 - leaderboard
 - artifacts
 - jobs
