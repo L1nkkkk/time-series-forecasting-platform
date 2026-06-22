@@ -75,6 +75,35 @@ body {
   justify-content: flex-end;
 }
 
+.page-nav {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+  padding: 4px;
+}
+
+.page-nav button {
+  background: transparent;
+  border-color: transparent;
+  color: #d7e5e8;
+  min-height: 34px;
+  padding: 6px 11px;
+}
+
+.page-nav button:hover,
+.page-nav button:focus-visible,
+.page-nav button.active {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #102127;
+}
+
 .eyebrow {
   color: #9fc5bd;
   font-size: 12px;
@@ -121,6 +150,10 @@ main {
   max-width: 1360px;
   padding: 22px clamp(14px, 3vw, 32px) 44px;
   width: 100%;
+}
+
+.page-section[hidden] {
+  display: none !important;
 }
 
 .overview-band,
@@ -1086,6 +1119,15 @@ pre {
   .detail-hero {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .page-nav {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .page-nav button {
+    width: auto;
   }
 
   .topbar-actions,

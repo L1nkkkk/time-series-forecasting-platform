@@ -104,7 +104,9 @@ def test_ui_index_served() -> None:
     assert "/ui/static/styles.css" in response.text
     assert "dataset-search" in response.text
     assert "dataset-domain-filter" in response.text
-    assert "20260622-report-export" in response.text
+    assert "20260622-page-nav" in response.text
+    assert "data-page-nav" in response.text
+    assert "data-page-section" in response.text
     assert "export-report-run" in response.text
 
 
@@ -135,6 +137,8 @@ def test_ui_static_assets_served() -> None:
     assert "collectTrainingSeries" in script.text
     assert "buildExperimentReport" in script.text
     assert "downloadTextFile" in script.text
+    assert "setDashboardPage" in script.text
+    assert "pageFromHash" in script.text
     assert "exportReport" in script.text
     assert "eyebrow" in script.text
     assert "Number.isInteger" in script.text
@@ -146,6 +150,8 @@ def test_ui_static_assets_served() -> None:
     assert ".custom-grid" in styles.text
     assert ".danger-action" in styles.text
     assert ".dataset-filters" in styles.text
+    assert ".page-nav" in styles.text
+    assert ".page-section" in styles.text
     assert ".monitor-panels" in styles.text
     assert ".monitor-chart" in styles.text
     assert ".profile-panel" in styles.text

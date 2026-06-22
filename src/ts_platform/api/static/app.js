@@ -42,12 +42,15 @@ const monitorPalette = [
   "#4d7c0f",
 ];
 
+const dashboardPages = new Set(["overview", "datasets", "results", "custom", "jobs"]);
+
 const state = {
   experiments: [],
   filteredExperiments: [],
   selectedKey: null,
   selectedRun: null,
   detailTab: "overview",
+  page: getInitialPage(),
   language: getInitialLanguage(),
   overview: {
     health: null,
@@ -195,6 +198,11 @@ const translations = {
     outputLen: "Forecast length",
     overviewCaption: "Local experiment assets under the runs directory",
     overviewTitle: "Run Overview",
+    pageCustom: "Custom",
+    pageDatasets: "Datasets",
+    pageJobs: "Jobs",
+    pageOverview: "Overview",
+    pageResults: "Results",
     primaryMetric: "primary_metric",
     primaryMetricRequired: "Primary metric must be one of the selected metrics.",
     refreshAll: "Refresh All",
@@ -359,6 +367,11 @@ const translations = {
     outputLen: "预测长度",
     overviewCaption: "当前 runs 目录中的实验资产状态",
     overviewTitle: "运行概览",
+    pageCustom: "自定义实验",
+    pageDatasets: "数据集",
+    pageJobs: "任务",
+    pageOverview: "概览",
+    pageResults: "实验结果",
     primaryMetric: "主指标",
     primaryMetricRequired: "主指标必须包含在已选评估指标中。",
     refreshAll: "刷新全部",
@@ -417,6 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
   bindControls();
   initializeCustomBuilder();
   applyLanguage();
+  initializeDashboardPage();
   loadDashboard();
 });
 
@@ -424,6 +438,14 @@ function bindControls() {
   document.querySelector("#language-toggle").addEventListener("click", toggleLanguage);
   document.querySelector("#refresh-all").addEventListener("click", loadDashboard);
   document.querySelector("#refresh-jobs").addEventListener("click", loadJobs);
+  document.querySelectorAll("[data-page-nav]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setDashboardPage(button.dataset.pageNav, { updateHash: true });
+    });
+  });
+  window.addEventListener("hashchange", () => {
+    setDashboardPage(pageFromHash(), { updateHash: false });
+  });
 
   document.querySelector("#experiment-search").addEventListener("input", (event) => {
     state.filters.search = event.target.value.trim().toLowerCase();
@@ -511,6 +533,39 @@ function bindControls() {
     .querySelector("#load-job-result")
     .addEventListener("click", () => loadJobDetail("result"));
   document.querySelector("#load-job-logs").addEventListener("click", () => loadJobDetail("logs"));
+}
+
+function initializeDashboardPage() {
+  setDashboardPage(state.page || "overview", { updateHash: false });
+}
+
+function setDashboardPage(pageName, options = {}) {
+  const nextPage = dashboardPages.has(pageName) ? pageName : "overview";
+  state.page = nextPage;
+  document.querySelectorAll("[data-page-section]").forEach((section) => {
+    section.hidden = section.dataset.pageSection !== nextPage;
+  });
+  document.querySelectorAll("[data-page-nav]").forEach((button) => {
+    const isActive = button.dataset.pageNav === nextPage;
+    button.classList.toggle("active", isActive);
+    if (isActive) {
+      button.setAttribute("aria-current", "page");
+    } else {
+      button.removeAttribute("aria-current");
+    }
+  });
+  if (options.updateHash) {
+    const hash = `#${nextPage}`;
+    if (window.location.hash !== hash) {
+      window.history.pushState(null, "", hash);
+    }
+  }
+  window.scrollTo({ top: 0, behavior: options.smooth ? "smooth" : "auto" });
+}
+
+function pageFromHash() {
+  const hashPage = window.location.hash.replace(/^#/, "");
+  return dashboardPages.has(hashPage) ? hashPage : "overview";
 }
 
 async function loadDashboard() {
@@ -1169,7 +1224,8 @@ async function runTrainDemo(demoName, button) {
     const payload = await apiFetch(`/demo/train/${demoName}`, { method: "POST" });
     output.innerHTML = renderRunCompletion(payload, t("trainDemoComplete"));
     await loadDashboard();
-    selectRun(`${payload.experiment_name}::${payload.run_id}`);
+    await selectRun(`${payload.experiment_name}::${payload.run_id}`);
+    setDashboardPage("results", { updateHash: true, smooth: true });
   });
 }
 
@@ -1181,7 +1237,8 @@ async function runCompareDemo(demoName, button) {
     const payload = await apiFetch(`/demo/compare/${demoName}`, { method: "POST" });
     output.innerHTML = renderRunCompletion(payload, t("compareDemoComplete"));
     await loadDashboard();
-    selectRun(`${payload.experiment_name}::${payload.compare_run_id || payload.run_id}`);
+    await selectRun(`${payload.experiment_name}::${payload.compare_run_id || payload.run_id}`);
+    setDashboardPage("results", { updateHash: true, smooth: true });
   });
 }
 
@@ -1249,7 +1306,7 @@ function renderDatasetCatalog(datasetsPayload = {}) {
     button.addEventListener("click", () => {
       applyDatasetTemplate(button.dataset.useDataset);
       document.querySelector("#custom-dataset-template").value = button.dataset.useDataset;
-      document.querySelector("#custom-title").scrollIntoView({ behavior: "smooth", block: "start" });
+      setDashboardPage("custom", { updateHash: true, smooth: true });
     });
   });
   list.querySelectorAll("[data-delete-dataset]").forEach((button) => {
@@ -1730,6 +1787,7 @@ async function runCustomExperiment(event) {
     );
     await loadDashboard();
     await selectRun(`${payload.experiment_name}::${payload.compare_run_id || payload.run_id}`);
+    setDashboardPage("results", { updateHash: true, smooth: true });
     status.textContent = t("idle");
   } catch (error) {
     status.textContent = t("error");
@@ -2512,6 +2570,14 @@ function setText(selector, value) {
   const element = document.querySelector(selector);
   if (element) {
     element.textContent = value;
+  }
+}
+
+function getInitialPage() {
+  try {
+    return pageFromHash();
+  } catch {
+    return "overview";
   }
 }
 

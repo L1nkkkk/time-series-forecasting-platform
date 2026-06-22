@@ -11,7 +11,9 @@ Open:
 http://127.0.0.1:8000/ui
 
 The dashboard opens in Chinese by default. Use the language button in the top
-bar to switch between Chinese and English.
+bar to switch between Chinese and English. Top navigation splits the dashboard
+into Overview, Datasets, Results, Custom Experiment, and Jobs pages so demos do
+not require scrolling through one long page.
 
 ## Recommended Demo Flow
 
@@ -25,13 +27,16 @@ bar to switch between Chinese and English.
 
    http://127.0.0.1:8000/ui
 
-3. Click Refresh in Overview.
+3. Use the top navigation to move between Overview, Datasets, Results, Custom
+   Experiment, and Jobs.
 
-4. Run `csv_feature_forecast` to show feature-aware training.
+4. Click Refresh in Overview.
 
-5. Run `compare_feature_forecast` to show model comparison.
+5. Run `csv_feature_forecast` to show feature-aware training.
 
-6. Inspect leaderboard columns:
+6. Run `compare_feature_forecast` to show model comparison.
+
+7. Inspect leaderboard columns:
 
    - `feature_aware`
    - `input_dim`
@@ -40,16 +45,16 @@ bar to switch between Chinese and English.
    - `target_cols`
    - `feature_cols`
 
-7. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
+8. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
    latest/best/delta summaries, and point tooltips.
 
-8. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
+9. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
    can be previewed or downloaded through the manifest-backed artifact API.
 
-9. Click Export Report on a completed run to download a Markdown summary for
+10. Click Export Report on a completed run to download a Markdown summary for
    the demo or final write-up.
 
-10. Optionally show Jobs as the local async prototype.
+11. Optionally show Jobs as the local async prototype.
 
 ## Timing Notes
 
@@ -64,6 +69,7 @@ bar to switch between Chinese and English.
 - health
 - datasets
 - models
+- paged dashboard navigation
 - experiments
 - train demos
 - compare demos
