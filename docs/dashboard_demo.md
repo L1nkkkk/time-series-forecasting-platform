@@ -1,5 +1,7 @@
 # Dashboard Demo
 
+Chinese version: [dashboard_demo.zh-CN.md](dashboard_demo.zh-CN.md)
+
 ## Start
 
 ```bash
