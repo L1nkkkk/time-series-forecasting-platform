@@ -44,6 +44,11 @@ const monitorPalette = [
 
 const dashboardPages = new Set(["overview", "datasets", "results", "custom", "jobs"]);
 
+const fallbackDemoConfigs = {
+  train: ["simple_forecast", "csv_forecast", "csv_feature_forecast"],
+  compare: ["compare_forecast", "compare_model_zoo", "compare_feature_forecast"],
+};
+
 const state = {
   experiments: [],
   filteredExperiments: [],
@@ -60,12 +65,14 @@ const state = {
   datasetCatalog: {
     allRows: [],
     rows: [],
+    selectedKey: "",
     customRows: loadUserDatasets(),
     filters: {
       search: "",
       domain: "all",
     },
   },
+  demoConfigs: fallbackDemoConfigs,
   favorites: new Set(loadFavorites()),
   custom: {
     mode: "train",
@@ -168,6 +175,12 @@ const translations = {
     idle: "Idle",
     includeScaled: "Scaled metrics",
     inputLen: "Input length",
+    jobDemoConfig: "Demo config",
+    jobDemoKind: "Job type",
+    jobId: "job_id",
+    jobLaunchTitle: "Async Demo Jobs",
+    jobSubmitted: "Job submitted",
+    jobType: "job_type",
     jobsTitle: "Jobs",
     languageToggle: "中文",
     learningRate: "Learning rate",
@@ -214,6 +227,7 @@ const translations = {
     runPrefix: "Run",
     runningPrefix: "Running",
     saveDataset: "Save and Use",
+    selectDataset: "Select dataset",
     scaler: "Scaler",
     searchLabel: "Search",
     sequenceAndSplit: "Window and Split",
@@ -229,6 +243,8 @@ const translations = {
     statusIncomplete: "Incomplete",
     statusLabel: "Status",
     successCount: "success_count",
+    submitAllDemoJobs: "Submit all in type",
+    submitDemoJob: "Submit Job",
     smoothing: "Smoothing",
     syntheticData: "Synthetic Data",
     tabArtifacts: "Artifacts",
@@ -337,6 +353,12 @@ const translations = {
     idle: "空闲",
     includeScaled: "Scaled metrics",
     inputLen: "输入长度",
+    jobDemoConfig: "演示配置",
+    jobDemoKind: "任务类型",
+    jobId: "job_id",
+    jobLaunchTitle: "异步演示任务",
+    jobSubmitted: "任务已提交",
+    jobType: "任务类型",
     jobsTitle: "任务",
     languageToggle: "English",
     learningRate: "学习率",
@@ -383,6 +405,7 @@ const translations = {
     runPrefix: "运行",
     runningPrefix: "正在运行",
     saveDataset: "保存并使用",
+    selectDataset: "选择数据集",
     scaler: "Scaler",
     searchLabel: "搜索",
     sequenceAndSplit: "窗口与切分",
@@ -398,6 +421,8 @@ const translations = {
     statusIncomplete: "未完成",
     statusLabel: "状态",
     successCount: "成功数量",
+    submitAllDemoJobs: "提交当前类别全部",
+    submitDemoJob: "提交任务",
     smoothing: "平滑",
     syntheticData: "合成数据",
     tabArtifacts: "产物",
@@ -486,6 +511,13 @@ function bindControls() {
   document.querySelectorAll("[data-compare-demo]").forEach((button) => {
     button.addEventListener("click", () => runCompareDemo(button.dataset.compareDemo, button));
   });
+  document.querySelector("#job-demo-kind").addEventListener("change", renderJobDemoOptions);
+  document.querySelector("#submit-demo-job").addEventListener("click", (event) => {
+    submitSelectedDemoJob(event.currentTarget);
+  });
+  document.querySelector("#submit-all-demo-jobs").addEventListener("click", (event) => {
+    submitAllDemoJobs(event.currentTarget);
+  });
 
   document.querySelectorAll("[data-custom-mode]").forEach((button) => {
     button.addEventListener("click", () => setCustomMode(button.dataset.customMode));
@@ -572,16 +604,19 @@ async function loadDashboard() {
   setText("#overview-status", t("loading"));
   setText("#results-status", t("loading"));
   try {
-    const [health, datasets, models, experimentsPayload] = await Promise.all([
+    const [health, datasets, models, experimentsPayload, demoConfigs] = await Promise.all([
       apiFetch("/health"),
       apiFetch("/datasets"),
       apiFetch("/models"),
       apiFetch("/experiments"),
+      apiFetch("/demo/configs"),
     ]);
     state.overview = { health, datasets, models };
+    state.demoConfigs = normalizeDemoConfigs(demoConfigs);
     state.experiments = experimentsPayload.experiments || [];
     renderCustomModelOptions(models);
     renderDatasetCatalog(datasets);
+    renderJobDemoOptions();
     renderOverview(health, datasets, models, state.experiments);
     renderExperimentList();
     setText("#overview-status", t("experimentsLoaded"));
@@ -1242,9 +1277,93 @@ async function runCompareDemo(demoName, button) {
   });
 }
 
+async function submitSelectedDemoJob(button) {
+  const kind = currentJobDemoKind();
+  const demoName = document.querySelector("#job-demo-name").value;
+  const status = document.querySelector("#job-submit-status");
+  const output = document.querySelector("#job-submit-output");
+  if (!demoName) {
+    output.innerHTML = renderError(t("noRows"));
+    return;
+  }
+  await withBusyButton(button, status, `${t("runningPrefix")} ${demoName}...`, async () => {
+    const payload = await apiFetch(`/demo/jobs/${kind}/${demoName}`, { method: "POST" });
+    output.innerHTML = renderJobSubmission(payload);
+    document.querySelector("#job-id").value = payload.job_id || "";
+    await loadJobs();
+  });
+}
+
+async function submitAllDemoJobs(button) {
+  const kind = currentJobDemoKind();
+  const configs = state.demoConfigs[kind] || [];
+  const status = document.querySelector("#job-submit-status");
+  const output = document.querySelector("#job-submit-output");
+  if (!configs.length) {
+    output.innerHTML = renderError(t("noRows"));
+    return;
+  }
+  await withBusyButton(button, status, `${t("runningPrefix")} ${kind} jobs...`, async () => {
+    const payloads = [];
+    for (const demoName of configs) {
+      payloads.push(await apiFetch(`/demo/jobs/${kind}/${demoName}`, { method: "POST" }));
+    }
+    output.innerHTML = renderTable(payloads, [
+      "job_id",
+      "job_type",
+      "status",
+      "experiment_name",
+      "created_at",
+    ]);
+    const lastJob = payloads[payloads.length - 1];
+    document.querySelector("#job-id").value = lastJob?.job_id || "";
+    await loadJobs();
+  });
+}
+
+function renderJobSubmission(payload) {
+  const cards = [
+    metric(t("jobSubmitted"), payload.job_id || "-", payload.experiment_name || "-"),
+    metric(t("statusLabel"), payload.status || "-", t("jobId")),
+    metric(t("jobType"), payload.job_type || "-", payload.run_id || payload.compare_run_id || "-"),
+  ];
+  return `<div class="summary">${cards.join("")}</div>`;
+}
+
+function currentJobDemoKind() {
+  return document.querySelector("#job-demo-kind").value === "compare" ? "compare" : "train";
+}
+
+function renderJobDemoOptions() {
+  const kindSelect = document.querySelector("#job-demo-kind");
+  const configSelect = document.querySelector("#job-demo-name");
+  if (!kindSelect || !configSelect) {
+    return;
+  }
+  const kind = currentJobDemoKind();
+  const previous = configSelect.value;
+  const configs = state.demoConfigs[kind] || [];
+  configSelect.innerHTML = configs
+    .map((name) => `<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`)
+    .join("");
+  configSelect.value = configs.includes(previous) ? previous : configs[0] || "";
+}
+
+function normalizeDemoConfigs(payload = {}) {
+  return {
+    train: Array.isArray(payload.train) && payload.train.length
+      ? payload.train
+      : fallbackDemoConfigs.train,
+    compare: Array.isArray(payload.compare) && payload.compare.length
+      ? payload.compare
+      : fallbackDemoConfigs.compare,
+  };
+}
+
 function initializeCustomBuilder() {
   renderCustomModelOptions({ models: fallbackModels });
   renderDatasetCatalog({ datasets: [] });
+  renderJobDemoOptions();
   syncCustomDataSource();
   setCustomMode("train");
   renderCustomPreview();
@@ -1257,6 +1376,7 @@ function renderDatasetCatalog(datasetsPayload = {}) {
   renderDatasetDomainFilterOptions(allRows);
   const rows = filterDatasetRows(allRows);
   state.datasetCatalog.rows = rows;
+  state.datasetCatalog.selectedKey = resolveDatasetSelection(rows);
   setText("#dataset-catalog-status", t("experimentsLoaded"));
   setText(
     "#dataset-catalog-count",
@@ -1269,57 +1389,97 @@ function renderDatasetCatalog(datasetsPayload = {}) {
     renderCustomDatasetOptions();
     return;
   }
-  const body = rows
+
+  const options = rows
     .map(
-      (row) => {
-        const deleteAction = row.user_defined
-          ? `<button class="table-action ghost danger-action" type="button" data-delete-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("deleteDataset"))}</button>`
-          : "";
-        const profileAction = row.dataset_type === "csv" && row.path
-          ? `<button class="table-action ghost" type="button" data-profile-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("datasetProfile"))}</button>`
-          : "";
-        return `<tr>
-        <td>
-          <strong>${escapeHtml(row.name || "-")}</strong>
-          <small>${escapeHtml(row.description || "-")}</small>
-        </td>
-        <td>${escapeHtml(row.domain || "-")}</td>
-        <td>${escapeHtml(row.dataset_type || "-")}</td>
-        <td>${escapeHtml(row.frequency || "-")}</td>
-        <td>${renderSourceLink(row.source)}</td>
-        <td>
-          <div class="table-actions">
-            <button class="table-action ghost" type="button" data-use-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("useDataset"))}</button>
-            ${profileAction}
-            ${deleteAction}
-          </div>
-        </td>
-      </tr>`;
-      },
+      (row) => `<option value="${escapeHtml(row._catalogKey)}">${escapeHtml(datasetOptionLabel(row))}</option>`,
     )
     .join("");
-  list.innerHTML = `<div class="table-wrap"><table class="dataset-table">
-    <thead><tr><th>${escapeHtml(t("datasetName"))}</th><th>${escapeHtml(t("datasetDomain"))}</th><th>type</th><th>${escapeHtml(t("frequency"))}</th><th>${escapeHtml(t("datasetSource"))}</th><th>${escapeHtml(t("useDataset"))}</th></tr></thead>
-    <tbody>${body}</tbody>
-  </table></div>`;
-  list.querySelectorAll("[data-use-dataset]").forEach((button) => {
+  list.innerHTML = `<label class="field dataset-picker">
+    <span>${escapeHtml(t("selectDataset"))}</span>
+    <select id="dataset-catalog-select">${options}</select>
+  </label>
+  <div id="dataset-catalog-detail"></div>`;
+  const select = list.querySelector("#dataset-catalog-select");
+  select.value = state.datasetCatalog.selectedKey;
+  select.addEventListener("change", (event) => {
+    state.datasetCatalog.selectedKey = event.target.value;
+    renderDatasetCatalogDetail();
+  });
+  renderDatasetCatalogDetail();
+  renderCustomDatasetOptions();
+}
+
+function renderDatasetCatalogDetail() {
+  const detail = document.querySelector("#dataset-catalog-detail");
+  if (!detail) {
+    return;
+  }
+  const row = state.datasetCatalog.rows.find(
+    (item) => item._catalogKey === state.datasetCatalog.selectedKey,
+  );
+  if (!row) {
+    detail.innerHTML = `<div class="empty-state compact-empty"><p>${escapeHtml(t("noRows"))}</p></div>`;
+    return;
+  }
+  const deleteAction = row.user_defined
+    ? `<button class="table-action ghost danger-action" type="button" data-delete-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("deleteDataset"))}</button>`
+    : "";
+  const profileAction = row.dataset_type === "csv" && row.path
+    ? `<button class="table-action ghost" type="button" data-profile-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("datasetProfile"))}</button>`
+    : "";
+  const path = row.path ? escapeHtml(row.path) : escapeHtml(t("noDatasetPath"));
+  detail.innerHTML = `<article class="dataset-detail-card">
+    <div class="panel-heading">
+      <div>
+        <h3>${escapeHtml(row.name || "-")}</h3>
+        <p class="section-caption">${escapeHtml(row.description || "-")}</p>
+      </div>
+      <span class="count-pill">${escapeHtml(row.domain || "-")}</span>
+    </div>
+    <dl class="dataset-detail-grid">
+      <div><dt>type</dt><dd>${escapeHtml(row.dataset_type || "-")}</dd></div>
+      <div><dt>${escapeHtml(t("frequency"))}</dt><dd>${escapeHtml(row.frequency || "-")}</dd></div>
+      <div><dt>${escapeHtml(t("targetCols"))}</dt><dd>${escapeHtml((row.target_cols || []).join(", ") || "-")}</dd></div>
+      <div><dt>${escapeHtml(t("featureCols"))}</dt><dd>${escapeHtml((row.feature_cols || []).join(", ") || "-")}</dd></div>
+      <div class="span-2"><dt>${escapeHtml(t("datasetSource"))}</dt><dd>${renderSourceLink(row.source)}</dd></div>
+      <div class="span-2"><dt>path</dt><dd>${path}</dd></div>
+    </dl>
+    <div class="table-actions">
+      <button class="table-action ghost" type="button" data-use-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("useDataset"))}</button>
+      ${profileAction}
+      ${deleteAction}
+    </div>
+  </article>`;
+  detail.querySelectorAll("[data-use-dataset]").forEach((button) => {
     button.addEventListener("click", () => {
       applyDatasetTemplate(button.dataset.useDataset);
       document.querySelector("#custom-dataset-template").value = button.dataset.useDataset;
       setDashboardPage("custom", { updateHash: true, smooth: true });
     });
   });
-  list.querySelectorAll("[data-delete-dataset]").forEach((button) => {
+  detail.querySelectorAll("[data-delete-dataset]").forEach((button) => {
     button.addEventListener("click", () => {
       deleteUserDataset(button.dataset.deleteDataset);
     });
   });
-  list.querySelectorAll("[data-profile-dataset]").forEach((button) => {
+  detail.querySelectorAll("[data-profile-dataset]").forEach((button) => {
     button.addEventListener("click", () => {
       profileDataset(button.dataset.profileDataset);
     });
   });
-  renderCustomDatasetOptions();
+}
+
+function resolveDatasetSelection(rows) {
+  const previous = state.datasetCatalog.selectedKey;
+  if (rows.some((row) => row._catalogKey === previous)) {
+    return previous;
+  }
+  return rows[0]?._catalogKey || "";
+}
+
+function datasetOptionLabel(row) {
+  return [row.name || "-", row.domain || "-", row.dataset_type || "-"].join(" · ");
 }
 
 function mergeDatasetRows(serverRows, customRows) {
@@ -1494,10 +1654,11 @@ async function saveUserDataset(event) {
       ...state.datasetCatalog.customRows.filter((item) => normalizeName(item.name) !== normalized),
       savedRow,
     ];
+    const catalogKey = `user:${normalized}`;
+    state.datasetCatalog.selectedKey = catalogKey;
     saveUserDatasets();
     state.overview.datasets = await apiFetch("/datasets");
     renderDatasetCatalog(state.overview.datasets || { datasets: [] });
-    const catalogKey = `user:${normalized}`;
     document.querySelector("#custom-dataset-template").value = catalogKey;
     applyDatasetTemplate(catalogKey);
     output.innerHTML = `<p class="muted">${escapeHtml(t("datasetSaved"))}</p>`;
@@ -1512,6 +1673,9 @@ async function clearUserDatasets() {
   try {
     await apiFetch("/datasets/user", { method: "DELETE" });
     state.datasetCatalog.customRows = [];
+    if (state.datasetCatalog.selectedKey.startsWith("user:")) {
+      state.datasetCatalog.selectedKey = "";
+    }
     saveUserDatasets();
     state.overview.datasets = await apiFetch("/datasets");
     renderDatasetCatalog(state.overview.datasets || { datasets: [] });
@@ -1534,6 +1698,9 @@ async function deleteUserDataset(catalogKey) {
     state.datasetCatalog.customRows = state.datasetCatalog.customRows.filter(
       (item) => normalizeName(item.name) !== normalized,
     );
+    if (state.datasetCatalog.selectedKey === catalogKey) {
+      state.datasetCatalog.selectedKey = "";
+    }
     saveUserDatasets();
     state.overview.datasets = await apiFetch("/datasets");
     renderDatasetCatalog(state.overview.datasets || { datasets: [] });
@@ -1955,7 +2122,7 @@ async function loadJobs() {
     output.innerHTML = renderTable(payload.jobs || [], [
       "job_id",
       "status",
-      "kind",
+      "job_type",
       "created_at",
       "run_id",
       "error",
@@ -1993,9 +2160,11 @@ async function withBusyButton(button, status, loadingText, callback) {
     status.textContent = t("idle");
   } catch (error) {
     status.textContent = t("error");
-    const output = button.dataset.trainDemo
-      ? document.querySelector("#train-output")
-      : document.querySelector("#compare-output");
+    const output = button.dataset.outputTarget
+      ? document.querySelector(button.dataset.outputTarget)
+      : button.dataset.trainDemo
+        ? document.querySelector("#train-output")
+        : document.querySelector("#compare-output");
     output.innerHTML = renderError(error.message);
   } finally {
     buttons.forEach((item) => {
@@ -2657,6 +2826,7 @@ function applyLanguage() {
   document.querySelector("#experiment-search").placeholder =
     state.language === "zh" ? "实验名 / run_id / 类型" : "experiment / run_id / type";
   renderDatasetCatalog(state.overview.datasets || { datasets: [] });
+  renderJobDemoOptions();
   renderCustomPreview();
 }
 

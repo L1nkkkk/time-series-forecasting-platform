@@ -264,6 +264,48 @@ main {
   min-width: 0;
 }
 
+.dataset-picker {
+  margin-bottom: 12px;
+}
+
+.dataset-detail-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.dataset-detail-card h3 {
+  margin: 0;
+}
+
+.dataset-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.dataset-detail-grid div {
+  min-width: 0;
+}
+
+.dataset-detail-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.dataset-detail-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .dataset-filters {
   display: grid;
   gap: 10px;
@@ -951,7 +993,11 @@ pre {
 .operations-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.job-launch-grid {
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
 }
 
 .custom-grid {
@@ -1150,6 +1196,7 @@ pre {
 
   .form-grid,
   .dataset-filters,
+  .dataset-detail-grid,
   .monitor-toolbar,
   .form-grid.three {
     grid-template-columns: 1fr;

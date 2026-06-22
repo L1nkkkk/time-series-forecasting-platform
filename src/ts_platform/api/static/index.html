@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>时间序列平台实验中心</title>
-    <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-page-nav" />
-    <script src="/ui/static/app.js?v=20260622-page-nav" defer></script>
+    <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-job-dataset-select" />
+    <script src="/ui/static/app.js?v=20260622-job-dataset-select" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -473,6 +473,31 @@
               <button type="button" data-compare-demo="compare_feature_forecast">Run compare_feature_forecast</button>
             </div>
             <div id="compare-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="job-launch-title">
+            <div class="panel-heading">
+              <h3 id="job-launch-title" data-i18n="jobLaunchTitle">异步演示任务</h3>
+              <span id="job-submit-status" class="status" data-i18n="idle">空闲</span>
+            </div>
+            <div class="form-grid job-launch-grid">
+              <label class="field">
+                <span data-i18n="jobDemoKind">任务类型</span>
+                <select id="job-demo-kind">
+                  <option value="train" data-i18n="filterTrain">训练</option>
+                  <option value="compare" data-i18n="filterCompare">对比</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="jobDemoConfig">演示配置</span>
+                <select id="job-demo-name"></select>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="submit-demo-job" type="button" data-output-target="#job-submit-output" data-i18n="submitDemoJob">提交任务</button>
+              <button id="submit-all-demo-jobs" class="ghost" type="button" data-output-target="#job-submit-output" data-i18n="submitAllDemoJobs">提交当前类别全部</button>
+            </div>
+            <div id="job-submit-output" class="output"></div>
           </div>
 
           <div class="tool-panel" aria-labelledby="jobs-title">
