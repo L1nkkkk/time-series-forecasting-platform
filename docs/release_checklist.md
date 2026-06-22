@@ -51,6 +51,7 @@ Suggested checks:
 - `GET /experiments`
 - `POST /jobs/train`
 - `GET /jobs`
+- Dashboard completed-run Markdown report export
 
 API smoke is intentionally manual for this release checklist.
 
@@ -73,6 +74,7 @@ API smoke is intentionally manual for this release checklist.
 - CHANGELOG updated.
 - docs/roadmap updated.
 - docs/demo_guide updated.
+- docs/report_export updated when dashboard report fields change.
 
 ## Repository Hygiene
 

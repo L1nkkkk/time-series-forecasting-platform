@@ -55,6 +55,13 @@ def _metadata_from_entry(entry: dict[str, Any], index: int) -> DatasetMetadata:
     ):
         msg = f"Dataset catalog entry {index} field 'target_cols' must be a list of strings"
         raise ValueError(msg)
+    feature_cols = entry.get("feature_cols")
+    if feature_cols is not None and (
+        not isinstance(feature_cols, list)
+        or not all(isinstance(item, str) for item in feature_cols)
+    ):
+        msg = f"Dataset catalog entry {index} field 'feature_cols' must be a list of strings"
+        raise ValueError(msg)
     timestamp_col = entry.get("timestamp_col")
     if timestamp_col is not None and not isinstance(timestamp_col, str):
         msg = f"Dataset catalog entry {index} field 'timestamp_col' must be a string"
@@ -94,5 +101,6 @@ def _metadata_from_entry(entry: dict[str, Any], index: int) -> DatasetMetadata:
         license=license_name,
         citation=citation,
         target_cols=target_cols,
+        feature_cols=feature_cols,
         timestamp_col=timestamp_col,
     )

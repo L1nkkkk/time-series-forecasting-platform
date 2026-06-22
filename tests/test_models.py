@@ -10,10 +10,12 @@ from ts_platform.models.linear import LinearForecastModel
 from ts_platform.models.mlp import MLPForecastModel
 from ts_platform.models.moving_average import MovingAverageForecastModel
 from ts_platform.models.naive import NaiveLastValueModel
+from ts_platform.models.nbeats import NBeatsForecastModel
 from ts_platform.models.recurrent import GRUForecastModel, LSTMForecastModel, RNNForecastModel
 from ts_platform.models.registry import build_model
 from ts_platform.models.seasonal_naive import SeasonalNaiveForecastModel
 from ts_platform.models.tcn import TCNForecastModel
+from ts_platform.models.transformer import TransformerForecastModel
 
 
 class _DummyForecastModel(BaseForecastModel):
@@ -29,6 +31,8 @@ def test_model_forward_shapes() -> None:
         SeasonalNaiveForecastModel(input_len=8, output_len=3, num_features=2, season_length=4),
         LinearForecastModel(input_len=8, output_len=3, num_features=2),
         MLPForecastModel(input_len=8, output_len=3, num_features=2, hidden_sizes=[16]),
+        NBeatsForecastModel(input_len=8, output_len=3, num_features=2, hidden_size=16),
+        TransformerForecastModel(input_len=8, output_len=3, num_features=2, d_model=16),
     ]
 
     for model in models:
@@ -153,6 +157,18 @@ def test_build_model_feature_aware_mlp() -> None:
     assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
 
 
+def test_build_model_feature_aware_nbeats() -> None:
+    model = build_model(
+        ModelConfig(name="nbeats", params={"hidden_size": 16, "num_blocks": 2}),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
 def test_build_model_feature_aware_rnn() -> None:
     model = build_model(
         ModelConfig(name="rnn", params={"hidden_size": 8}),
@@ -168,6 +184,21 @@ def test_build_model_feature_aware_rnn() -> None:
 def test_build_model_feature_aware_tcn() -> None:
     model = build_model(
         ModelConfig(name="tcn", params={"hidden_channels": 8, "num_layers": 2}),
+        input_len=6,
+        output_len=2,
+        input_dim=4,
+        target_dim=2,
+    )
+
+    assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_transformer() -> None:
+    model = build_model(
+        ModelConfig(
+            name="transformer",
+            params={"d_model": 16, "num_heads": 4, "num_layers": 1, "dim_feedforward": 32},
+        ),
         input_len=6,
         output_len=2,
         input_dim=4,
@@ -208,10 +239,12 @@ def test_existing_models_have_input_and_target_dim_attributes() -> None:
         SeasonalNaiveForecastModel(input_len=6, output_len=2, num_features=2, season_length=3),
         LinearForecastModel(input_len=6, output_len=2, num_features=2),
         MLPForecastModel(input_len=6, output_len=2, num_features=2, hidden_sizes=[8]),
+        NBeatsForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=16),
         RNNForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         GRUForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         LSTMForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         TCNForecastModel(input_len=6, output_len=2, num_features=2, hidden_channels=8),
+        TransformerForecastModel(input_len=6, output_len=2, num_features=2, d_model=16),
     ]
 
     for model in models:
@@ -228,10 +261,12 @@ def test_model_forward_shapes_still_target_only() -> None:
         SeasonalNaiveForecastModel(input_len=6, output_len=2, num_features=2, season_length=3),
         LinearForecastModel(input_len=6, output_len=2, num_features=2),
         MLPForecastModel(input_len=6, output_len=2, num_features=2, hidden_sizes=[8]),
+        NBeatsForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=16),
         RNNForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         GRUForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         LSTMForecastModel(input_len=6, output_len=2, num_features=2, hidden_size=8),
         TCNForecastModel(input_len=6, output_len=2, num_features=2, hidden_channels=8),
+        TransformerForecastModel(input_len=6, output_len=2, num_features=2, d_model=16),
     ]
 
     for model in models:
@@ -246,6 +281,12 @@ def test_linear_feature_aware_shape() -> None:
 
 def test_mlp_feature_aware_shape() -> None:
     model = MLPForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
+
+    assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
+
+
+def test_nbeats_feature_aware_shape() -> None:
+    model = NBeatsForecastModel(input_len=6, output_len=2, input_dim=4, target_dim=2)
 
     assert model(torch.randn(4, 6, 4)).shape == (4, 2, 2)
 
@@ -506,5 +547,82 @@ def test_tcn_model_registered() -> None:
     assert "tcn" in MODEL_REGISTRY.names()
 
 
+def test_transformer_model_shape() -> None:
+    model = TransformerForecastModel(
+        input_len=6,
+        output_len=3,
+        num_features=2,
+        d_model=16,
+        num_heads=4,
+        num_layers=1,
+        dim_feedforward=32,
+    )
+    x = torch.randn(4, 6, 2)
+
+    y = model(x)
+
+    assert y.shape == (4, 3, 2)
+    assert torch.isfinite(y).all()
+
+
+@pytest.mark.parametrize(
+    ("params", "message"),
+    (
+        ({"d_model": 0}, "d_model must be positive"),
+        ({"num_heads": 0}, "num_heads must be positive"),
+        ({"d_model": 10, "num_heads": 4}, "d_model must be divisible by num_heads"),
+        ({"num_layers": 0}, "num_layers must be positive"),
+        ({"dim_feedforward": 0}, "dim_feedforward must be positive"),
+        ({"dropout": -0.1}, "dropout must be >= 0 and < 1"),
+        ({"dropout": 1.0}, "dropout must be >= 0 and < 1"),
+    ),
+)
+def test_transformer_rejects_invalid_params(params: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        TransformerForecastModel(input_len=4, output_len=2, num_features=1, **params)
+
+
+def test_transformer_model_registered() -> None:
+    assert "transformer" in MODEL_REGISTRY.names()
+
+
+def test_nbeats_model_shape() -> None:
+    model = NBeatsForecastModel(
+        input_len=6,
+        output_len=3,
+        num_features=2,
+        hidden_size=16,
+        num_blocks=2,
+        num_layers=2,
+    )
+    x = torch.randn(4, 6, 2)
+
+    y = model(x)
+
+    assert y.shape == (4, 3, 2)
+    assert torch.isfinite(y).all()
+
+
+@pytest.mark.parametrize(
+    ("params", "message"),
+    (
+        ({"hidden_size": 0}, "hidden_size must be positive"),
+        ({"num_blocks": 0}, "num_blocks must be positive"),
+        ({"num_layers": 0}, "num_layers must be positive"),
+        ({"dropout": -0.1}, "dropout must be >= 0 and < 1"),
+        ({"dropout": 1.0}, "dropout must be >= 0 and < 1"),
+    ),
+)
+def test_nbeats_rejects_invalid_params(params: dict[str, object], message: str) -> None:
+    with pytest.raises(ValueError, match=message):
+        NBeatsForecastModel(input_len=4, output_len=2, num_features=1, **params)
+
+
+def test_nbeats_model_registered() -> None:
+    assert "nbeats" in MODEL_REGISTRY.names()
+
+
 def test_model_registry_includes_recurrent_and_tcn() -> None:
-    assert {"rnn", "gru", "lstm", "tcn"}.issubset(set(MODEL_REGISTRY.names()))
+    assert {"rnn", "gru", "lstm", "tcn", "transformer", "nbeats"}.issubset(
+        set(MODEL_REGISTRY.names())
+    )

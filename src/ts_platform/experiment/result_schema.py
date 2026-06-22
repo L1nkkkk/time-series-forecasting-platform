@@ -18,6 +18,7 @@ def result_payload(
     test_metrics: MetricGroups,
     resumed_from: str | None,
     data_metadata: dict[str, Any] | None = None,
+    forecast_samples: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical serializable training result payload."""
 
@@ -30,6 +31,8 @@ def result_payload(
     }
     if data_metadata is not None:
         payload["data_metadata"] = data_metadata
+    if forecast_samples is not None:
+        payload["forecast_samples"] = forecast_samples
     if resumed_from is not None:
         payload["resumed_from"] = resumed_from
     return payload

@@ -19,6 +19,7 @@ class DatasetMetadata:
     license: str | None = None
     citation: str | None = None
     target_cols: list[str] | None = None
+    feature_cols: list[str] | None = None
     timestamp_col: str | None = None
 
 

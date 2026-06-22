@@ -36,6 +36,7 @@ def test_train_artifacts_json_contains_expected_entries(tmp_path) -> None:
         "checkpoint",
         "config_snapshot",
         "environment",
+        "forecast_samples",
         "train_log",
     }.issubset(artifact_names)
 

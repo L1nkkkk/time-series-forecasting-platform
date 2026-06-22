@@ -14,8 +14,8 @@ The current MVP focuses on a runnable local forecasting platform:
 
 - Synthetic forecasting dataset.
 - Local CSV forecasting dataset with time-based splits.
-- Naive last-value, moving-average, seasonal-naive, linear, MLP, RNN, GRU,
-  LSTM, and TCN forecasting models.
+- Naive last-value, moving-average, seasonal-naive, linear, MLP, N-BEATS, RNN,
+  GRU, LSTM, TCN, and Transformer forecasting models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
 - Config snapshots, checkpoints, metrics output, and environment metadata.
@@ -28,6 +28,7 @@ The current MVP focuses on a runnable local forecasting platform:
   metadata.
 - Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
 - Artifact manifests that make train and compare outputs discoverable.
+- Original-scale forecast sample artifacts for visual prediction inspection.
 - Safe manifest-based artifact downloads for JSON, YAML, CSV, and log files.
 - Local asynchronous train/compare jobs for the demo API.
 - Optional SQLite job metadata backend prototype for local jobs.
@@ -36,6 +37,8 @@ The current MVP focuses on a runnable local forecasting platform:
 - Explicit SQLite retry/timeout policy prototype for local jobs.
 - Feature-aware CSV training and feature-aware compare with target-only
   metrics.
+- Public-source dataset catalog plus persisted user CSV dataset metadata for
+  the local dashboard.
 
 No BasicTS code is copied into this project.
 
@@ -43,6 +46,7 @@ No BasicTS code is copied into this project.
 
 - [docs/dashboard_demo.md](docs/dashboard_demo.md)
 - [docs/demo_guide.md](docs/demo_guide.md)
+- [docs/report_export.md](docs/report_export.md)
 - [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/final_report_outline.md](docs/final_report_outline.md)
 
@@ -129,7 +133,9 @@ This is a lightweight local demo UI served by FastAPI with static HTML, CSS,
 and vanilla JavaScript. It is not a production web UI. The dashboard calls the
 existing API for health, datasets, models, experiments, jobs, results,
 leaderboards, and artifacts, and it exposes whitelisted demo train/compare
-buttons. See [docs/dashboard_demo.md](docs/dashboard_demo.md).
+buttons. Completed runs can also be exported as Markdown reports for coursework
+or demo handoff notes. See [docs/dashboard_demo.md](docs/dashboard_demo.md) and
+[docs/report_export.md](docs/report_export.md).
 
 ## Metrics
 
@@ -343,10 +349,15 @@ Baseline model behavior:
   the forecast horizon.
 - `seasonal_naive`: cycles through the final `season_length` history steps
   until `output_len` predictions are produced.
+- `nbeats`: applies a compact generic N-BEATS-style residual block stack and
+  accumulates direct multi-step forecast components.
 - `rnn`, `gru`, and `lstm`: encode the input sequence and project the final
   hidden state directly to the full forecast horizon.
 - `tcn`: applies a lightweight causal-ish Conv1d stack and projects the final
   hidden time step directly to the full forecast horizon.
+- `transformer`: applies a lightweight Transformer encoder with learned
+  positional embeddings and projects the final encoded token to the full
+  forecast horizon.
 
 See [docs/leaderboard_format.md](docs/leaderboard_format.md) for output
 columns. In `leaderboard.json` and API responses, `model_params` is a JSON

@@ -93,6 +93,12 @@ def build_train_artifact_manifest(
             description="Runtime environment metadata",
         ),
         ArtifactEntry(
+            name="forecast_samples",
+            kind="json",
+            path=run_dir / "forecast_samples.json",
+            description="Original-scale forecast samples for visual inspection",
+        ),
+        ArtifactEntry(
             name="train_log",
             kind="log",
             path=run_dir / "train.log",

@@ -1,0 +1,297 @@
+datasets:
+  - name: etth1
+    dataset_type: external_csv
+    domain: energy
+    description: Electricity Transformer Temperature hourly benchmark used by Informer/Autoformer-style forecasting papers.
+    source: https://github.com/zhouhaoyi/ETDataset
+    frequency: H
+    license: see source
+    citation: ETT benchmark from the Informer/ETDataset project.
+
+  - name: etth2
+    dataset_type: external_csv
+    domain: energy
+    description: Electricity Transformer Temperature hourly benchmark from a second transformer station.
+    source: https://github.com/zhouhaoyi/ETDataset
+    frequency: H
+    license: see source
+    citation: ETT benchmark from the Informer/ETDataset project.
+
+  - name: ettm1
+    dataset_type: external_csv
+    domain: energy
+    description: Electricity Transformer Temperature 15-minute benchmark used for multivariate long-horizon forecasting.
+    source: https://github.com/zhouhaoyi/ETDataset
+    frequency: 15min
+    license: see source
+    citation: ETT benchmark from the Informer/ETDataset project.
+
+  - name: ettm2
+    dataset_type: external_csv
+    domain: energy
+    description: Electricity Transformer Temperature 15-minute benchmark from a second transformer station.
+    source: https://github.com/zhouhaoyi/ETDataset
+    frequency: 15min
+    license: see source
+    citation: ETT benchmark from the Informer/ETDataset project.
+
+  - name: electricity_load_diagrams_2011_2014
+    dataset_type: external_csv
+    domain: energy
+    description: Electricity consumption time series for 370 clients, commonly used as the Electricity benchmark.
+    source: https://archive.ics.uci.edu/dataset/321/electricityloaddiagrams20112014
+    frequency: 15min
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Electricity Load Diagrams 2011-2014.
+
+  - name: household_power_consumption
+    dataset_type: external_csv
+    domain: energy
+    description: Minute-level measurements of household electric power consumption.
+    source: https://archive.ics.uci.edu/dataset/235/individual+household+electric+power+consumption
+    frequency: 1min
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Individual household electric power consumption.
+
+  - name: solar_energy_lai
+    dataset_type: external_csv
+    domain: energy
+    description: Solar power production benchmark distributed with the LSTNet multivariate time-series data.
+    source: https://github.com/laiguokun/multivariate-time-series-data
+    frequency: 10min
+    license: see source
+    citation: Lai et al., Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks.
+
+  - name: exchange_rate_lai
+    dataset_type: external_csv
+    domain: finance
+    description: Daily exchange-rate benchmark for multivariate forecasting.
+    source: https://github.com/laiguokun/multivariate-time-series-data
+    frequency: D
+    license: see source
+    citation: Lai et al., Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks.
+
+  - name: traffic_lai
+    dataset_type: external_csv
+    domain: traffic
+    description: Road occupancy multivariate traffic benchmark from the LSTNet data collection.
+    source: https://github.com/laiguokun/multivariate-time-series-data
+    frequency: H
+    license: see source
+    citation: Lai et al., Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks.
+
+  - name: metr_la
+    dataset_type: external_matrix
+    domain: traffic
+    description: Los Angeles highway traffic speed benchmark frequently used by graph forecasting models.
+    source: https://github.com/liyaguang/DCRNN
+    frequency: 5min
+    license: see source
+    citation: Li et al., Diffusion Convolutional Recurrent Neural Network.
+
+  - name: pems_bay
+    dataset_type: external_matrix
+    domain: traffic
+    description: Bay Area traffic speed benchmark frequently paired with METR-LA.
+    source: https://github.com/liyaguang/DCRNN
+    frequency: 5min
+    license: see source
+    citation: Li et al., Diffusion Convolutional Recurrent Neural Network.
+
+  - name: caltrans_pems
+    dataset_type: external_portal
+    domain: traffic
+    description: California freeway sensor data portal used to derive multiple PeMS traffic forecasting benchmarks.
+    source: https://pems.dot.ca.gov/
+    frequency: varies
+    license: see portal
+    citation: California Department of Transportation Performance Measurement System.
+
+  - name: jena_climate
+    dataset_type: external_csv
+    domain: weather
+    description: Weather station observations from the Max Planck Institute Jena climate dataset.
+    source: https://www.bgc-jena.mpg.de/wetter/
+    frequency: 10min
+    license: see source
+    citation: Max Planck Institute for Biogeochemistry, Jena weather station.
+
+  - name: air_quality_uci
+    dataset_type: external_csv
+    domain: environment
+    description: Hourly air-quality sensor response and pollutant concentration data.
+    source: https://archive.ics.uci.edu/dataset/360/air+quality
+    frequency: H
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Air Quality.
+
+  - name: beijing_pm25
+    dataset_type: external_csv
+    domain: environment
+    description: Hourly PM2.5 and meteorological measurements for Beijing.
+    source: https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data
+    frequency: H
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Beijing PM2.5 Data.
+
+  - name: bike_sharing_uci
+    dataset_type: external_csv
+    domain: mobility
+    description: Hourly and daily bike rental counts with weather and calendar covariates.
+    source: https://archive.ics.uci.edu/dataset/275/bike+sharing+dataset
+    frequency: H/D
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Bike Sharing Dataset.
+
+  - name: nyc_tlc_trip_records
+    dataset_type: external_parquet
+    domain: mobility
+    description: New York City taxi and for-hire vehicle trip records that can be aggregated into demand time series.
+    source: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+    frequency: trip-level
+    license: see NYC TLC page
+    citation: New York City Taxi and Limousine Commission Trip Record Data.
+
+  - name: m3_competition
+    dataset_type: external_collection
+    domain: forecasting
+    description: M3 forecasting competition collection with yearly, quarterly, monthly, and other series.
+    source: https://forecasters.org/resources/time-series-data/m3-competition/
+    frequency: mixed
+    license: see source
+    citation: Makridakis and Hibon, The M3-Competition.
+
+  - name: m4_competition
+    dataset_type: external_collection
+    domain: forecasting
+    description: M4 forecasting competition collection across yearly through hourly series.
+    source: https://github.com/Mcompetitions/M4-methods
+    frequency: mixed
+    license: see source
+    citation: Makridakis et al., The M4 Competition.
+
+  - name: m5_forecasting_accuracy
+    dataset_type: external_competition
+    domain: retail
+    description: Walmart hierarchical retail sales forecasting competition dataset.
+    source: https://www.kaggle.com/c/m5-forecasting-accuracy
+    frequency: D
+    license: see Kaggle competition page
+    citation: M5 Forecasting Accuracy competition.
+
+  - name: nn5_competition
+    dataset_type: external_collection
+    domain: finance
+    description: Daily cash machine withdrawal series from the NN5 forecasting competition.
+    source: http://www.neural-forecasting-competition.com/NN5/
+    frequency: D
+    license: see source
+    citation: NN5 Forecasting Competition.
+
+  - name: tourism_monthly
+    dataset_type: external_collection
+    domain: tourism
+    description: Tourism demand time series often used in hierarchical forecasting examples.
+    source: https://robjhyndman.com/data/tourism/
+    frequency: M/Q/Y
+    license: see source
+    citation: Australian tourism demand data curated by Rob J Hyndman.
+
+  - name: cif_2016
+    dataset_type: external_collection
+    domain: forecasting
+    description: CIF 2016 forecasting competition data collection.
+    source: https://robjhyndman.com/data/CIF2016.html
+    frequency: mixed
+    license: see source
+    citation: CIF 2016 Forecasting Competition.
+
+  - name: physionet_challenge_2012
+    dataset_type: external_collection
+    domain: medical
+    description: ICU patient time-stamped observations from the first two days of stay, used for in-hospital mortality prediction research.
+    source: https://physionet.org/challenge/2012/
+    frequency: irregular
+    license: PhysioNet Credentialed Health Data License where applicable
+    citation: PhysioNet/Computing in Cardiology Challenge 2012.
+
+  - name: mimic_iv_waveform
+    dataset_type: external_waveform
+    domain: medical
+    description: ICU physiological waveform and numeric bedside-monitor measurements linked to MIMIC-IV clinical data.
+    source: https://physionet.org/content/mimic4wdb/
+    frequency: waveform/numeric
+    license: PhysioNet Credentialed Health Data License
+    citation: MIMIC-IV Waveform Database.
+
+  - name: nasa_cmapss_turbofan
+    dataset_type: external_collection
+    domain: industrial
+    description: NASA C-MAPSS turbofan engine degradation simulation data for remaining-useful-life and predictive-maintenance forecasting.
+    source: https://www.nasa.gov/intelligent-systems-division/discovery-and-systems-health/pcoe/pcoe-data-set-repository/
+    frequency: cycle-level
+    license: see NASA PCoE repository
+    citation: NASA Ames Prognostics Center of Excellence C-MAPSS Turbofan Engine Degradation Simulation.
+
+  - name: gas_sensor_array_drift_uci
+    dataset_type: external_csv
+    domain: industrial
+    description: Chemical gas sensor array measurements collected across batches for sensor drift compensation studies.
+    source: https://archive.ics.uci.edu/ml/datasets/gas%2Bsensor%2Barray%2Bdrift%2Bdataset
+    frequency: batch/time ordered
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Gas Sensor Array Drift Dataset.
+
+  - name: hydraulic_system_condition_monitoring_uci
+    dataset_type: external_collection
+    domain: industrial
+    description: Multi-sensor hydraulic test-rig data for condition assessment of cooler, valve, pump, and accumulator components.
+    source: https://archive.ics.uci.edu/ml/datasets/condition%2Bmonitoring%2Bof%2Bhydraulic%2Bsystems
+    frequency: cycle-level
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Condition monitoring of hydraulic systems.
+
+  - name: steel_industry_energy_consumption_uci
+    dataset_type: external_csv
+    domain: industrial
+    description: Smart small-scale steel-industry energy consumption records with process and calendar covariates.
+    source: https://archive.ics.uci.edu/dataset/851/steel%2Bindustry%2Benergy%2Bconsumption
+    frequency: 15min
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Steel Industry Energy Consumption.
+
+  - name: appliances_energy_prediction_uci
+    dataset_type: external_csv
+    domain: building_energy
+    description: Low-energy building appliance-use measurements with indoor sensor and weather covariates at 10-minute resolution.
+    source: https://archive.ics.uci.edu/ml/datasets/appliances%2Benergy%2Bprediction
+    frequency: 10min
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Appliances Energy Prediction.
+
+  - name: metro_interstate_traffic_volume_uci
+    dataset_type: external_csv
+    domain: traffic
+    description: Hourly westbound I-94 traffic volume with weather and holiday covariates from the Minneapolis-St Paul area.
+    source: https://archive.ics.uci.edu/ml/datasets/metro%2Binterstate%2Btraffic%2Bvolume
+    frequency: H
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Metro Interstate Traffic Volume.
+
+  - name: beijing_multisite_air_quality_uci
+    dataset_type: external_csv
+    domain: environment
+    description: Hourly pollutants and meteorological variables from multiple Beijing monitoring sites.
+    source: https://archive.ics.uci.edu/dataset/501/beijing%2Bmulti%2Bsite%2Bair%2Bquality%2Bdata
+    frequency: H
+    license: see UCI page
+    citation: UCI Machine Learning Repository, Beijing Multi-Site Air Quality.
+
+  - name: monash_time_series_forecasting_repository
+    dataset_type: external_collection
+    domain: benchmark
+    description: Curated repository of benchmark forecasting datasets, including many commonly used univariate and multivariate collections.
+    source: https://forecastingdata.org/
+    frequency: mixed
+    license: see dataset pages
+    citation: Monash Time Series Forecasting Repository.

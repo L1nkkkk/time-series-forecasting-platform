@@ -491,7 +491,7 @@ def test_cli_compare_feature_forecast_smoke(tmp_path, capsys) -> None:
     payload = json.loads(stdout)
 
     assert exit_code == 0
-    assert payload["success_count"] == 9
+    assert payload["success_count"] == 11
     assert payload["failed_count"] == 0
     assert all(row["feature_aware"] is True for row in payload["rows"])
     assert all(row["input_dim"] == 3 for row in payload["rows"])
