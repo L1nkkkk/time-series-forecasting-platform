@@ -1,5 +1,7 @@
 # Dashboard Demo
 
+Chinese version: [dashboard_demo.zh-CN.md](dashboard_demo.zh-CN.md)
+
 ## Start
 
 ```bash
@@ -11,7 +13,11 @@ Open:
 http://127.0.0.1:8000/ui
 
 The dashboard opens in Chinese by default. Use the language button in the top
-bar to switch between Chinese and English.
+bar to switch between Chinese and English. Top navigation splits the dashboard
+into Overview, Datasets, Results, Custom Experiment, and Jobs pages so demos do
+not require scrolling through one long page. The Datasets page keeps the catalog
+behind a filtered dropdown selector, and the Jobs page can submit whitelisted
+demo configs as asynchronous local jobs.
 
 ## Recommended Demo Flow
 
@@ -25,13 +31,22 @@ bar to switch between Chinese and English.
 
    http://127.0.0.1:8000/ui
 
-3. Click Refresh in Overview.
+3. Use the top navigation to move between Overview, Datasets, Results, Custom
+   Experiment, and Jobs.
 
-4. Run `csv_feature_forecast` to show feature-aware training.
+4. Click Refresh in Overview.
 
-5. Run `compare_feature_forecast` to show model comparison.
+5. Open Datasets, filter if needed, choose one dataset from the dropdown, and
+   inspect its source/detail card.
 
-6. Inspect leaderboard columns:
+6. Run `csv_feature_forecast` to show feature-aware training.
+
+7. Run `compare_feature_forecast` to show model comparison.
+
+8. In Jobs, submit a train or compare demo config as an async local job and
+   refresh the job list.
+
+9. Inspect leaderboard columns:
 
    - `feature_aware`
    - `input_dim`
@@ -40,16 +55,14 @@ bar to switch between Chinese and English.
    - `target_cols`
    - `feature_cols`
 
-7. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
+10. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
    latest/best/delta summaries, and point tooltips.
 
-8. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
+11. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
    can be previewed or downloaded through the manifest-backed artifact API.
 
-9. Click Export Report on a completed run to download a Markdown summary for
+12. Click Export Report on a completed run to download a Markdown summary for
    the demo or final write-up.
-
-10. Optionally show Jobs as the local async prototype.
 
 ## Timing Notes
 
@@ -64,6 +77,8 @@ bar to switch between Chinese and English.
 - health
 - datasets
 - models
+- paged dashboard navigation
+- dataset dropdown selection
 - experiments
 - train demos
 - compare demos
@@ -71,7 +86,7 @@ bar to switch between Chinese and English.
 - Markdown report export
 - leaderboard
 - artifacts
-- jobs
+- async demo jobs
 
 ## Demo Buttons
 

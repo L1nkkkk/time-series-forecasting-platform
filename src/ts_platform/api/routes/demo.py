@@ -7,6 +7,7 @@ from typing import Any, Final
 
 from fastapi import APIRouter, HTTPException
 
+from ts_platform.api.routes import jobs as job_routes
 from ts_platform.api.services.compare_service import compare_with_safe_output_dir
 from ts_platform.api.services.training_service import train_with_safe_output_dir
 from ts_platform.api.settings import APISettings
@@ -63,6 +64,30 @@ def compare_demo(demo_name: str) -> dict[str, Any]:
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+
+
+@router.post("/jobs/train/{demo_name}")
+def submit_train_demo_job(demo_name: str) -> dict[str, Any]:
+    """Submit one whitelisted training demo config as a local job."""
+
+    config_path = _demo_config_path(demo_name, allowed=TRAIN_DEMO_NAMES)
+    try:
+        config = load_config(config_path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return job_routes.submit_train_job(config)
+
+
+@router.post("/jobs/compare/{demo_name}")
+def submit_compare_demo_job(demo_name: str) -> dict[str, Any]:
+    """Submit one whitelisted compare demo config as a local job."""
+
+    config_path = _demo_config_path(demo_name, allowed=COMPARE_DEMO_NAMES)
+    try:
+        config = load_compare_config(config_path)
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return job_routes.submit_compare_job(config)
 
 
 def _demo_config_path(demo_name: str, *, allowed: tuple[str, ...]) -> Path:

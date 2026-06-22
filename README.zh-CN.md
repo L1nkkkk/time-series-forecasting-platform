@@ -23,7 +23,7 @@
 - Artifact manifest，用于发现训练和对比产物。
 - 安全的 manifest-based artifact 读取，默认禁止 checkpoint 下载。
 - CLI、本地 FastAPI Demo API、本地异步 job prototype。
-- 轻量本地 Dashboard UI，用于答辩或现场展示。
+- 轻量本地 Dashboard UI，用于答辩或现场展示，支持分页导航、数据集下拉选择、自定义实验、训练监控、异步 demo job 和 Markdown 报告导出。
 
 ## 安装
 
@@ -86,17 +86,22 @@ uvicorn ts_platform.api.app:create_app --factory
 
 http://127.0.0.1:8000/ui
 
-Dashboard 默认显示中文，右上角可以点击 `English` 切换到英文界面。
+Dashboard 默认显示中文，右上角可以点击 `English` 切换到英文界面。顶部导航分为 `概览`、`数据集`、`实验结果`、`自定义实验`、`任务` 五页，避免所有内容堆在一个长页面中。
 
 推荐演示流程：
 
 1. 在 Overview 中点击 Refresh，展示后端状态、版本、数据集数量、模型列表和实验数量。
-2. 运行 `csv_feature_forecast`，展示 feature-aware 单次训练。
-3. 运行 `compare_feature_forecast`，展示多模型对比。
-4. 查看 leaderboard 中的 `feature_aware`、`input_dim`、`target_dim`、
+2. 进入 `数据集`，用搜索和领域筛选缩小范围，通过下拉选择一个数据集，查看来源、路径、目标列和特征列。
+3. 点击 `使用` 跳到 `自定义实验`，展示数据集元数据会自动填入训练表单。
+4. 在 `自定义实验` 中运行单模型训练，或切换到模型对比模式运行多模型对比。
+5. 在 `任务` 中用下拉选择训练/对比 demo，并提交为本地异步 job。
+6. 进入 `实验结果`，选择训练 run，查看 W&B 风格训练监控面板中的 `train_loss`、`val_mae`、`val_mse` 等曲线。
+7. 选择对比 run，查看 leaderboard 中的 `feature_aware`、`input_dim`、`target_dim`、
    `feature_dim`、`target_cols`、`feature_cols`。
-5. 在 Artifacts / Leaderboard Preview 面板中加载 leaderboard 和 artifacts。
-6. 可选展示 Jobs 面板，说明它是本地异步任务 prototype。
+8. 在 Artifacts / Leaderboard Preview 面板中加载 leaderboard 和 artifacts。
+9. 点击 `导出报告` 下载 Markdown 实验总结。
+
+如果需要展示 loss 明显下降的训练曲线，可以把自定义实验的 epoch 设置为 6 到 10，或参考中文 Dashboard 指南中的 `loss_demo_*` API 示例。
 
 现场展示时，如果时间有限，可以提前运行：
 
@@ -105,6 +110,8 @@ python -m ts_platform.cli.main compare --config configs/examples/compare_feature
 ```
 
 然后在 Dashboard 中直接 Load Leaderboard。
+
+更完整的中文演示文档见：`docs/dashboard_demo.zh-CN.md`。
 
 ## 配置说明
 
@@ -162,7 +169,8 @@ mypy src
 ## 文档入口
 
 - 英文 README：`README.md`
-- Dashboard Demo：`docs/dashboard_demo.md`
+- 中文 Dashboard 演示指南：`docs/dashboard_demo.zh-CN.md`
+- 英文 Dashboard Demo：`docs/dashboard_demo.md`
 - Demo Guide：`docs/demo_guide.md`
 - Release Checklist：`docs/release_checklist.md`
 - Roadmap：`docs/roadmap.md`

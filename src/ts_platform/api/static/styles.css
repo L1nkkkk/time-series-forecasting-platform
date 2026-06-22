@@ -75,6 +75,35 @@ body {
   justify-content: flex-end;
 }
 
+.page-nav {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+  padding: 4px;
+}
+
+.page-nav button {
+  background: transparent;
+  border-color: transparent;
+  color: #d7e5e8;
+  min-height: 34px;
+  padding: 6px 11px;
+}
+
+.page-nav button:hover,
+.page-nav button:focus-visible,
+.page-nav button.active {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #102127;
+}
+
 .eyebrow {
   color: #9fc5bd;
   font-size: 12px;
@@ -121,6 +150,10 @@ main {
   max-width: 1360px;
   padding: 22px clamp(14px, 3vw, 32px) 44px;
   width: 100%;
+}
+
+.page-section[hidden] {
+  display: none !important;
 }
 
 .overview-band,
@@ -229,6 +262,48 @@ main {
 
 .dataset-catalog-list {
   min-width: 0;
+}
+
+.dataset-picker {
+  margin-bottom: 12px;
+}
+
+.dataset-detail-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.dataset-detail-card h3 {
+  margin: 0;
+}
+
+.dataset-detail-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+
+.dataset-detail-grid div {
+  min-width: 0;
+}
+
+.dataset-detail-grid dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 3px;
+  text-transform: uppercase;
+}
+
+.dataset-detail-grid dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .dataset-filters {
@@ -918,7 +993,11 @@ pre {
 .operations-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.job-launch-grid {
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
 }
 
 .custom-grid {
@@ -1088,6 +1167,15 @@ pre {
     flex-direction: column;
   }
 
+  .page-nav {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .page-nav button {
+    width: auto;
+  }
+
   .topbar-actions,
   .detail-actions,
   .actions,
@@ -1108,6 +1196,7 @@ pre {
 
   .form-grid,
   .dataset-filters,
+  .dataset-detail-grid,
   .monitor-toolbar,
   .form-grid.three {
     grid-template-columns: 1fr;

@@ -133,8 +133,12 @@ This is a lightweight local demo UI served by FastAPI with static HTML, CSS,
 and vanilla JavaScript. It is not a production web UI. The dashboard calls the
 existing API for health, datasets, models, experiments, jobs, results,
 leaderboards, and artifacts, and it exposes whitelisted demo train/compare
-buttons. Completed runs can also be exported as Markdown reports for coursework
-or demo handoff notes. See [docs/dashboard_demo.md](docs/dashboard_demo.md) and
+buttons. The UI is split into Overview, Datasets, Results, Custom Experiment,
+and Jobs pages to keep demos focused. The Datasets page uses a filtered selector
+with one selected dataset detail card, and the Jobs page can submit whitelisted
+demo configs as local async jobs from dropdown controls. Completed runs can also
+be exported as Markdown reports for coursework or demo handoff notes. See
+[docs/dashboard_demo.md](docs/dashboard_demo.md) and
 [docs/report_export.md](docs/report_export.md).
 
 ## Metrics
@@ -458,6 +462,8 @@ Available endpoints:
 - `GET /demo/configs`
 - `POST /demo/train/{demo_name}`
 - `POST /demo/compare/{demo_name}`
+- `POST /demo/jobs/train/{demo_name}`
+- `POST /demo/jobs/compare/{demo_name}`
 - `GET /health`
 - `GET /datasets`
 - `GET /datasets/{dataset_name}`

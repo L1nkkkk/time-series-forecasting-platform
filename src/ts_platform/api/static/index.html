@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>时间序列平台实验中心</title>
-    <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-report-export" />
-    <script src="/ui/static/app.js?v=20260622-report-export" defer></script>
+    <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-job-dataset-select" />
+    <script src="/ui/static/app.js?v=20260622-job-dataset-select" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -14,6 +14,13 @@
         <h1 data-i18n="appTitle">时间序列平台实验中心</h1>
         <p class="topbar-subtitle" data-i18n="appSubtitle">管理运行结果、对比模型表现、检查训练产物</p>
       </div>
+      <nav class="page-nav" aria-label="Dashboard pages">
+        <button class="active" type="button" data-page-nav="overview" data-i18n="pageOverview">概览</button>
+        <button type="button" data-page-nav="datasets" data-i18n="pageDatasets">数据集</button>
+        <button type="button" data-page-nav="results" data-i18n="pageResults">实验结果</button>
+        <button type="button" data-page-nav="custom" data-i18n="pageCustom">自定义实验</button>
+        <button type="button" data-page-nav="jobs" data-i18n="pageJobs">任务</button>
+      </nav>
       <div class="topbar-actions">
         <button id="language-toggle" class="secondary" type="button">English</button>
         <button id="refresh-all" type="button" data-i18n="refreshAll">刷新全部</button>
@@ -21,7 +28,7 @@
     </header>
 
     <main>
-      <section class="overview-band" aria-labelledby="overview-title">
+      <section class="overview-band page-section" data-page-section="overview" aria-labelledby="overview-title">
         <div class="section-heading">
           <div>
             <h2 id="overview-title" data-i18n="overviewTitle">运行概览</h2>
@@ -33,7 +40,7 @@
         <div id="overview-error" class="error" role="alert"></div>
       </section>
 
-      <section class="dataset-catalog" aria-labelledby="dataset-catalog-title">
+      <section class="dataset-catalog page-section" data-page-section="datasets" aria-labelledby="dataset-catalog-title" hidden>
         <div class="section-heading">
           <div>
             <h2 id="dataset-catalog-title" data-i18n="datasetCatalogTitle">数据集库</h2>
@@ -116,7 +123,7 @@
         </div>
       </section>
 
-      <section class="workbench" aria-labelledby="results-title">
+      <section class="workbench page-section" data-page-section="results" aria-labelledby="results-title" hidden>
         <div class="section-heading">
           <div>
             <h2 id="results-title" data-i18n="resultsTitle">实验结果管理</h2>
@@ -203,7 +210,7 @@
         </div>
       </section>
 
-      <section class="custom-builder" aria-labelledby="custom-title">
+      <section class="custom-builder page-section" data-page-section="custom" aria-labelledby="custom-title" hidden>
         <div class="section-heading">
           <div>
             <h2 id="custom-title" data-i18n="customTitle">自定义实验</h2>
@@ -434,7 +441,7 @@
         </div>
       </section>
 
-      <section class="operations" aria-labelledby="operations-title">
+      <section class="operations page-section" data-page-section="jobs" aria-labelledby="operations-title" hidden>
         <div class="section-heading">
           <div>
             <h2 id="operations-title" data-i18n="operationsTitle">运行与任务</h2>
@@ -466,6 +473,31 @@
               <button type="button" data-compare-demo="compare_feature_forecast">Run compare_feature_forecast</button>
             </div>
             <div id="compare-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="job-launch-title">
+            <div class="panel-heading">
+              <h3 id="job-launch-title" data-i18n="jobLaunchTitle">异步演示任务</h3>
+              <span id="job-submit-status" class="status" data-i18n="idle">空闲</span>
+            </div>
+            <div class="form-grid job-launch-grid">
+              <label class="field">
+                <span data-i18n="jobDemoKind">任务类型</span>
+                <select id="job-demo-kind">
+                  <option value="train" data-i18n="filterTrain">训练</option>
+                  <option value="compare" data-i18n="filterCompare">对比</option>
+                </select>
+              </label>
+              <label class="field">
+                <span data-i18n="jobDemoConfig">演示配置</span>
+                <select id="job-demo-name"></select>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="submit-demo-job" type="button" data-output-target="#job-submit-output" data-i18n="submitDemoJob">提交任务</button>
+              <button id="submit-all-demo-jobs" class="ghost" type="button" data-output-target="#job-submit-output" data-i18n="submitAllDemoJobs">提交当前类别全部</button>
+            </div>
+            <div id="job-submit-output" class="output"></div>
           </div>
 
           <div class="tool-panel" aria-labelledby="jobs-title">

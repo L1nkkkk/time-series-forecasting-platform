@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
-from ts_platform.api.routes import datasets, demo, experiments
+from ts_platform.api.jobs.runner import JobRunner
+from ts_platform.api.routes import datasets, demo, experiments, jobs
 from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
@@ -104,7 +105,11 @@ def test_ui_index_served() -> None:
     assert "/ui/static/styles.css" in response.text
     assert "dataset-search" in response.text
     assert "dataset-domain-filter" in response.text
-    assert "20260622-report-export" in response.text
+    assert "job-demo-kind" in response.text
+    assert "submit-demo-job" in response.text
+    assert "20260622-job-dataset-select" in response.text
+    assert "data-page-nav" in response.text
+    assert "data-page-section" in response.text
     assert "export-report-run" in response.text
 
 
@@ -135,6 +140,10 @@ def test_ui_static_assets_served() -> None:
     assert "collectTrainingSeries" in script.text
     assert "buildExperimentReport" in script.text
     assert "downloadTextFile" in script.text
+    assert "setDashboardPage" in script.text
+    assert "pageFromHash" in script.text
+    assert "dataset-catalog-select" in script.text
+    assert "submitSelectedDemoJob" in script.text
     assert "exportReport" in script.text
     assert "eyebrow" in script.text
     assert "Number.isInteger" in script.text
@@ -146,6 +155,10 @@ def test_ui_static_assets_served() -> None:
     assert ".custom-grid" in styles.text
     assert ".danger-action" in styles.text
     assert ".dataset-filters" in styles.text
+    assert ".dataset-detail-card" in styles.text
+    assert ".job-launch-grid" in styles.text
+    assert ".page-nav" in styles.text
+    assert ".page-section" in styles.text
     assert ".monitor-panels" in styles.text
     assert ".monitor-chart" in styles.text
     assert ".profile-panel" in styles.text
@@ -193,6 +206,64 @@ def test_demo_compare_rejects_unknown_demo_name() -> None:
     response = client.post("/demo/compare/not_allowed")
 
     assert response.status_code == 404
+
+
+def test_demo_train_job_submits_whitelisted_config(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    runner = JobRunner(
+        runs_root=safe_root,
+        jobs_root=tmp_path / "jobs",
+        train_func=lambda config, runs_root: {
+            "experiment_name": config.experiment.name,
+            "run_id": "fake_train_run",
+            "run_dir": str(runs_root / config.experiment.name / "fake_train_run"),
+        },
+    )
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", runner)
+    monkeypatch.setattr(jobs, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    client = TestClient(create_app())
+
+    try:
+        response = client.post("/demo/jobs/train/simple_forecast")
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert payload["job_type"] == "train"
+        assert payload["experiment_name"] == "simple_forecast"
+        assert payload["job_id"]
+        assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
+    finally:
+        jobs.shutdown_job_runner()
+
+
+def test_demo_compare_job_submits_whitelisted_config(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    runner = JobRunner(
+        runs_root=safe_root,
+        jobs_root=tmp_path / "jobs",
+        compare_func=lambda config, runs_root: {
+            "experiment_name": config.experiment.name,
+            "compare_run_id": "fake_compare_run",
+            "compare_run_dir": str(runs_root / config.experiment.name / "fake_compare_run"),
+        },
+    )
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", runner)
+    monkeypatch.setattr(jobs, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    client = TestClient(create_app())
+
+    try:
+        response = client.post("/demo/jobs/compare/compare_forecast")
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert payload["job_type"] == "compare"
+        assert payload["experiment_name"] == "compare_forecast"
+        assert payload["job_id"]
+        assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
+    finally:
+        jobs.shutdown_job_runner()
 
 
 def test_demo_train_simple_forecast_runs(tmp_path, monkeypatch) -> None:
