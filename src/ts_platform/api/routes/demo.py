@@ -8,6 +8,7 @@ from typing import Any, Final
 from fastapi import APIRouter, HTTPException
 
 from ts_platform.api.routes import jobs as job_routes
+from ts_platform.api.routes.errors import raise_execution_http_error
 from ts_platform.api.services.compare_service import compare_with_safe_output_dir
 from ts_platform.api.services.training_service import train_with_safe_output_dir
 from ts_platform.api.settings import APISettings
@@ -22,6 +23,7 @@ TRAIN_DEMO_NAMES: Final[tuple[str, ...]] = (
     "simple_forecast",
     "csv_forecast",
     "csv_feature_forecast",
+    "appliances_energy_half_hour_demo",
 )
 COMPARE_DEMO_NAMES: Final[tuple[str, ...]] = (
     "compare_forecast",
@@ -51,7 +53,10 @@ def train_demo(demo_name: str) -> dict[str, Any]:
         config = load_config(config_path)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    try:
+        return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        raise_execution_http_error("training", exc)
 
 
 @router.post("/compare/{demo_name}")
@@ -63,7 +68,10 @@ def compare_demo(demo_name: str) -> dict[str, Any]:
         config = load_compare_config(config_path)
     except (FileNotFoundError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    try:
+        return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        raise_execution_http_error("compare", exc)
 
 
 @router.post("/jobs/train/{demo_name}")

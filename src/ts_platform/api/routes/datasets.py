@@ -23,6 +23,7 @@ router = APIRouter()
 UPLOADS_ROOT = Path("data/uploads")
 USER_DATASETS_PATH = Path("data/user_datasets.json")
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_METADATA_TEXT_LENGTH = 4096
 SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
@@ -47,15 +48,19 @@ class UserDatasetRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     dataset_type: str = "csv"
     domain: str = Field(default="custom", min_length=1, max_length=80)
-    description: str = Field(default="User supplied local CSV dataset.", min_length=1)
-    source: str | None = None
-    path: str = Field(min_length=1)
-    timestamp_col: str | None = None
+    description: str = Field(
+        default="User supplied local CSV dataset.",
+        min_length=1,
+        max_length=MAX_METADATA_TEXT_LENGTH,
+    )
+    source: str | None = Field(default=None, max_length=MAX_METADATA_TEXT_LENGTH)
+    path: str = Field(min_length=1, max_length=MAX_METADATA_TEXT_LENGTH)
+    timestamp_col: str | None = Field(default=None, max_length=255)
     target_cols: list[str] = Field(min_length=1)
     feature_cols: list[str] = Field(default_factory=list)
-    frequency: str | None = None
-    license: str | None = "user-supplied"
-    citation: str | None = None
+    frequency: str | None = Field(default=None, max_length=255)
+    license: str | None = Field(default="user-supplied", max_length=255)
+    citation: str | None = Field(default=None, max_length=MAX_METADATA_TEXT_LENGTH)
 
     @field_validator("name")
     @classmethod
@@ -67,6 +72,14 @@ class UserDatasetRequest(BaseModel):
     def validate_dataset_type(cls, value: str) -> str:
         if value != "csv":
             msg = "user dataset metadata currently supports only csv datasets"
+            raise ValueError(msg)
+        return value
+
+    @field_validator("path")
+    @classmethod
+    def validate_local_csv_path(cls, value: str) -> str:
+        if value.lower().startswith(("http://", "https://")):
+            msg = "user CSV dataset path must be a local path"
             raise ValueError(msg)
         return value
 
@@ -106,10 +119,14 @@ def upload_csv_dataset(payload: CSVUploadRequest) -> dict[str, object]:
     if not columns:
         raise HTTPException(status_code=422, detail="CSV header row is required")
 
-    UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
     filename = _safe_upload_filename(payload.filename)
     destination = UPLOADS_ROOT / filename
-    destination.write_text(payload.content, encoding="utf-8", newline="")
+    try:
+        UPLOADS_ROOT.mkdir(parents=True, exist_ok=True)
+        destination.write_text(payload.content, encoding="utf-8", newline="")
+    except OSError as exc:
+        msg = f"CSV upload cannot be written: {destination}"
+        raise HTTPException(status_code=500, detail=msg) from exc
     return {
         "filename": filename,
         "path": destination.as_posix(),
@@ -145,7 +162,10 @@ def clear_user_datasets() -> dict[str, object]:
 def delete_user_dataset(dataset_name: str) -> dict[str, object]:
     """Remove one persisted user dataset metadata entry by name."""
 
-    safe_name = validate_safe_path_component(dataset_name, field_name="dataset.name")
+    try:
+        safe_name = validate_safe_path_component(dataset_name, field_name="dataset.name")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     rows = [
         item
         for item in _load_user_dataset_metadata()
@@ -284,12 +304,16 @@ def _load_user_dataset_metadata() -> list[DatasetMetadata]:
 
 
 def _save_user_dataset_metadata(rows: list[DatasetMetadata]) -> None:
-    USER_DATASETS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = [asdict(item) for item in rows]
-    USER_DATASETS_PATH.write_text(
-        json.dumps(payload, indent=2, sort_keys=True),
-        encoding="utf-8",
-    )
+    try:
+        USER_DATASETS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        USER_DATASETS_PATH.write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        msg = f"user dataset catalog cannot be written: {USER_DATASETS_PATH}"
+        raise HTTPException(status_code=500, detail=msg) from exc
 
 
 def _user_metadata_to_dict(metadata: DatasetMetadata) -> dict[str, Any]:

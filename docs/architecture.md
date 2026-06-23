@@ -415,9 +415,10 @@ the fixed runs root, then checked against the physical run directory returned by
 `ExperimentStore`. Manifest `run_dir` and `compare_run_dir` values remain
 metadata and cannot widen the boundary. This double check rejects both
 outside-root paths and cross-run paths under the same root. The file must exist
-before kind policy and size policy allow access. JSON, YAML, CSV, and log files
-are downloadable by default. Checkpoints are denied unless policy explicitly
-enables them, and files over 5 MiB are rejected by the default policy.
+before kind policy and size policy allow access. JSON, YAML, CSV, log, and
+model export files are downloadable by default. Checkpoints are denied unless
+policy explicitly enables them, and files over 5 MiB are rejected by the default
+policy.
 
 API routes build `ArtifactAccessPolicy` from `APISettings`, including
 `artifact_max_bytes`, `artifact_allowed_kinds`, and
@@ -433,9 +434,11 @@ artifact path resolves inside the current run directory before a manifest is
 written. Manifest directory fields are retained for compatibility and discovery,
 but download authorization uses `ExperimentStore.resolve_run()`.
 
-`Trainer.run()` writes train `artifacts.json` after `results.json` and the
-final checkpoint exist. The train manifest includes result, checkpoint, config
-snapshot, environment, and log entries when those files exist.
+`Trainer.run()` writes train `artifacts.json` after `results.json`, the final
+checkpoint, and the inference-focused model export exist. The train manifest
+includes result, checkpoint, model export, model export metadata, config
+snapshot, environment, forecast samples, and log entries when those files
+exist.
 
 `CompareRunner.run()` writes compare `artifacts.json` after parent
 `results.json`, `leaderboard.json`, and `leaderboard.csv` exist. The compare

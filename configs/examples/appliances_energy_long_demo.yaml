@@ -1,0 +1,70 @@
+experiment:
+  name: appliances_energy_long_demo
+  output_dir: runs
+  seed: 42
+  overwrite: true
+
+data:
+  name: csv
+  input_len: 144
+  output_len: 24
+  batch_size: 64
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  scaler:
+    name: standard
+  params:
+    path: data/external/appliances_energy/energydata_complete.csv
+    timestamp_col: date
+    target_cols: [Appliances]
+    feature_cols:
+      - lights
+      - T1
+      - RH_1
+      - T2
+      - RH_2
+      - T3
+      - RH_3
+      - T4
+      - RH_4
+      - T5
+      - RH_5
+      - T6
+      - RH_6
+      - T7
+      - RH_7
+      - T8
+      - RH_8
+      - T9
+      - RH_9
+      - T_out
+      - Press_mm_hg
+      - RH_out
+      - Windspeed
+      - Visibility
+      - Tdewpoint
+    missing_policy: error
+    sort_by_time: true
+
+model:
+  name: transformer
+  params:
+    d_model: 64
+    num_heads: 4
+    num_layers: 2
+    dim_feedforward: 128
+    dropout: 0.05
+
+training:
+  epochs: 18
+  learning_rate: 0.001
+  device: cpu
+  optimizer: adam
+  loss: mse
+  checkpoint_every: 3
+  num_workers: 0
+
+evaluation:
+  metrics: [mae, mse, rmse, wape]
+  include_scaled_metrics: false

@@ -32,6 +32,7 @@ python -m ts_platform.cli.main show-results --experiment compare_feature_forecas
 python -m ts_platform.cli.main show-leaderboard --experiment compare_feature_forecast --run latest
 python -m ts_platform.cli.main show-artifacts --experiment compare_feature_forecast --run latest
 python -m ts_platform.cli.main show-artifact --experiment compare_feature_forecast --run latest --artifact leaderboard_json
+python -m ts_platform.cli.main predict --model-export runs/csv_feature_forecast/latest/model_export.pt --values-json '[[[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]]'
 python -m ts_platform.cli.main list-jobs
 ```
 
@@ -49,9 +50,18 @@ Suggested checks:
 - `GET /datasets`
 - `GET /models`
 - `GET /experiments`
+- `POST /configs/train/run`
+- `POST /datasets/profile-csv`
+- `POST /datasets/catalog/config`
+- `POST /experiments/{experiment}/{run}/predict`
 - `POST /jobs/train`
 - `GET /jobs`
-- Dashboard completed-run Markdown report export
+- Dashboard completed-run Markdown report export, Results Run Lookup artifact
+  download with runs-root override, prediction values-file loading, Jobs CLI
+  settings, and CLI-parity panels
+- Optional hardening smoke: set `TS_PLATFORM_API_KEY`, verify `/models` returns
+  401 without a key and 200 with `x-api-key`; verify oversized requests return
+  413; enable `TS_PLATFORM_AUDIT_LOG_PATH` and confirm JSONL events are written.
 
 API smoke is intentionally manual for this release checklist.
 

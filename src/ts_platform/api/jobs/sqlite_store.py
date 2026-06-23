@@ -72,7 +72,11 @@ class SQLiteJobStore:
         with self._lock:
             job_id = self._new_job_id()
             job_dir = self._job_dir(job_id)
-            job_dir.mkdir(parents=True, exist_ok=False)
+            try:
+                job_dir.mkdir(parents=True, exist_ok=False)
+            except OSError as exc:
+                msg = f"job directory cannot be created: {job_dir}"
+                raise JobStoreError(msg) from exc
             config_snapshot_path = job_dir / "request_config.json"
             self._write_json(config_snapshot_path, config_payload)
             now = utc_now()

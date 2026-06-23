@@ -18,6 +18,7 @@ from ts_platform.api.services.experiment_store import (
 )
 from ts_platform.cli.main import build_parser, main
 from ts_platform.config.loader import load_config
+from ts_platform.runner.trainer import Trainer
 
 
 def test_cli_main_build_parser_contains_core_commands() -> None:
@@ -47,6 +48,7 @@ def test_cli_main_build_parser_contains_core_commands() -> None:
         "list-stale-jobs",
         "mark-stale-timeout",
         "retry-job",
+        "predict",
     ]:
         assert command in command_action.choices
 
@@ -69,6 +71,26 @@ def test_cli_train_runs(tmp_path, capsys) -> None:
     assert payload["test_metrics"]["original"]
     assert Path(payload["checkpoint_path"]).exists()
     assert (tmp_path / "cli" / "latest" / "results.json").exists()
+
+
+def test_cli_predict_model_export(tmp_path, capsys) -> None:
+    result = Trainer(tiny_config(tmp_path, name="cli_predict")).run()
+
+    exit_code = main(
+        [
+            "predict",
+            "--model-export",
+            str(result.model_export_path),
+            "--values-json",
+            json.dumps([[[0.0] for _ in range(6)]]),
+        ]
+    )
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+
+    assert exit_code == 0
+    assert payload["format"] == "ts_platform_prediction"
+    assert len(payload["prediction"][0]) == 2
 
 
 def test_cli_list_datasets(capsys) -> None:
@@ -430,6 +452,8 @@ def _write_cli_artifact_run(tmp_path) -> Path:
     leaderboard_path.write_text('[{"rank": 1, "model": "naive"}]', encoding="utf-8")
     checkpoint_path = run_dir / "checkpoint.pt"
     checkpoint_path.write_bytes(b"checkpoint")
+    model_export_path = run_dir / "model_export.pt"
+    model_export_path.write_bytes(b"model-export")
     (run_dir / "artifacts.json").write_text(
         json.dumps(
             {
@@ -449,6 +473,12 @@ def _write_cli_artifact_run(tmp_path) -> Path:
                         "kind": "checkpoint",
                         "path": str(checkpoint_path),
                         "description": "Checkpoint",
+                    },
+                    {
+                        "name": "model_export",
+                        "kind": "model",
+                        "path": str(model_export_path),
+                        "description": "Model export",
                     },
                 ],
             }
@@ -659,6 +689,51 @@ def test_cli_show_artifact_writes_output_file(tmp_path, capsys) -> None:
     assert exit_code == 0
     assert stdout == ""
     assert output_path.read_text(encoding="utf-8") == '[{"rank": 1, "model": "naive"}]'
+
+
+def test_cli_show_artifact_writes_binary_output_file(tmp_path, capsys) -> None:
+    _write_cli_artifact_run(tmp_path)
+    output_path = tmp_path / "downloads" / "model_export.pt"
+
+    exit_code = main(
+        [
+            "show-artifact",
+            "--experiment",
+            "cli_artifact",
+            "--run",
+            "latest",
+            "--artifact",
+            "model_export",
+            "--runs-root",
+            str(tmp_path),
+            "--output",
+            str(output_path),
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert stdout == ""
+    assert output_path.read_bytes() == b"model-export"
+
+
+def test_cli_show_artifact_rejects_binary_stdout(tmp_path) -> None:
+    _write_cli_artifact_run(tmp_path)
+
+    with pytest.raises(ValueError, match="binary"):
+        main(
+            [
+                "show-artifact",
+                "--experiment",
+                "cli_artifact",
+                "--run",
+                "latest",
+                "--artifact",
+                "model_export",
+                "--runs-root",
+                str(tmp_path),
+            ]
+        )
 
 
 def test_cli_show_artifact_rejects_unknown_artifact(tmp_path) -> None:

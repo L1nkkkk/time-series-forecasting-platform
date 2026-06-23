@@ -83,16 +83,18 @@ checks even when storage moves behind an abstraction.
 Current configuration:
 
 - `APISettings` dataclass.
+- `APISettings.from_env()` for initial API hardening settings:
+  `TS_PLATFORM_API_KEY`, `TS_PLATFORM_RATE_LIMIT_PER_MINUTE`,
+  `TS_PLATFORM_MAX_REQUEST_BODY_BYTES`, and `TS_PLATFORM_AUDIT_LOG_PATH`.
 
 Future configuration:
 
 - `pydantic-settings`.
-- Environment variables.
 - Deployment-specific config.
 - Secrets manager.
 
-This phase does not implement environment settings or secrets handling. It only
-documents the target configuration direction.
+This phase implements the first environment-driven request guards, but not a
+secrets manager or full deployment configuration model.
 
 ## Failure Modes
 

@@ -1,5 +1,6 @@
 const jsonHeaders = { Accept: "application/json" };
 const postJsonHeaders = { ...jsonHeaders, "Content-Type": "application/json" };
+const cudaUnavailableMessage = "CUDA is not available on this backend.";
 
 const fallbackModels = [
   "naive",
@@ -45,9 +46,16 @@ const monitorPalette = [
 const dashboardPages = new Set(["overview", "datasets", "results", "custom", "jobs"]);
 
 const fallbackDemoConfigs = {
-  train: ["simple_forecast", "csv_forecast", "csv_feature_forecast"],
+  train: [
+    "simple_forecast",
+    "csv_forecast",
+    "csv_feature_forecast",
+    "appliances_energy_half_hour_demo",
+  ],
   compare: ["compare_forecast", "compare_model_zoo", "compare_feature_forecast"],
 };
+
+const halfHourDemoName = "appliances_energy_half_hour_demo";
 
 const state = {
   experiments: [],
@@ -83,6 +91,7 @@ const state = {
     smoothing: 0.35,
     metric: "all",
   },
+  jobProgressTimer: null,
   filters: {
     search: "",
     type: "all",
@@ -179,6 +188,7 @@ const translations = {
     jobDemoKind: "Job type",
     jobId: "job_id",
     jobLaunchTitle: "Async Demo Jobs",
+    halfHourDemo: "Half-Hour Monitor Demo",
     jobSubmitted: "Job submitted",
     jobType: "job_type",
     jobsTitle: "Jobs",
@@ -357,6 +367,7 @@ const translations = {
     jobDemoKind: "任务类型",
     jobId: "job_id",
     jobLaunchTitle: "异步演示任务",
+    halfHourDemo: "一键半小时监控演示",
     jobSubmitted: "任务已提交",
     jobType: "任务类型",
     jobsTitle: "任务",
@@ -501,6 +512,16 @@ function bindControls() {
   document.querySelector("#favorite-run").addEventListener("click", toggleSelectedFavorite);
   document.querySelector("#export-report-run").addEventListener("click", exportSelectedReport);
   document.querySelector("#reload-run").addEventListener("click", reloadSelectedRun);
+  document.querySelector("#lookup-results").addEventListener("click", (event) => {
+    loadRunLookupPayload(event, "results");
+  });
+  document.querySelector("#lookup-leaderboard").addEventListener("click", (event) => {
+    loadRunLookupPayload(event, "leaderboard");
+  });
+  document.querySelector("#lookup-artifacts").addEventListener("click", (event) => {
+    loadRunLookupPayload(event, "artifacts");
+  });
+  document.querySelector("#download-lookup-artifact").addEventListener("click", downloadRunLookupArtifact);
   document.querySelectorAll("[data-detail-tab]").forEach((button) => {
     button.addEventListener("click", () => switchDetailTab(button.dataset.detailTab));
   });
@@ -514,6 +535,9 @@ function bindControls() {
   document.querySelector("#job-demo-kind").addEventListener("change", renderJobDemoOptions);
   document.querySelector("#submit-demo-job").addEventListener("click", (event) => {
     submitSelectedDemoJob(event.currentTarget);
+  });
+  document.querySelector("#start-half-hour-demo").addEventListener("click", (event) => {
+    startHalfHourDemo(event.currentTarget);
   });
   document.querySelector("#submit-all-demo-jobs").addEventListener("click", (event) => {
     submitAllDemoJobs(event.currentTarget);
@@ -565,6 +589,29 @@ function bindControls() {
     .querySelector("#load-job-result")
     .addEventListener("click", () => loadJobDetail("result"));
   document.querySelector("#load-job-logs").addEventListener("click", () => loadJobDetail("logs"));
+  document.querySelector("#load-job-progress").addEventListener("click", () => loadJobProgress());
+  document.querySelector("#auto-job-progress").addEventListener("change", toggleAutoJobProgress);
+  document.querySelector("#load-job-events").addEventListener("click", () => loadJobDetail("events"));
+  document.querySelector("#load-job-attempts").addEventListener("click", () => loadJobDetail("attempts"));
+  document.querySelector("#cancel-job").addEventListener("click", runCancelJob);
+  document.querySelector("#retry-job").addEventListener("click", runRetryJob);
+  document.querySelector("#list-stale-jobs").addEventListener("click", listStaleJobs);
+  document.querySelector("#mark-stale-timeout").addEventListener("click", markStaleTimeout);
+  document.querySelector("#worker-once").addEventListener("click", runWorkerOnce);
+  document.querySelector("#worker-loop").addEventListener("click", runWorkerLoop);
+  document.querySelector("#run-config-file").addEventListener("click", runConfigFile);
+  document.querySelector("#prediction-pick-values").addEventListener("click", () => {
+    document.querySelector("#prediction-values-file").click();
+  });
+  document.querySelector("#prediction-values-file").addEventListener("change", handlePredictionValuesFile);
+  document.querySelector("#predict-selected-run").addEventListener("click", predictSelectedRun);
+  document.querySelector("#predict-model-export-path").addEventListener("click", predictModelExportPath);
+  document.querySelector("#list-registered-datasets-tool").addEventListener("click", listRegisteredDatasetsTool);
+  document.querySelector("#list-models-tool").addEventListener("click", listModelsTool);
+  document.querySelector("#profile-csv-tool").addEventListener("click", profileCsvTool);
+  document.querySelector("#list-catalog-tool").addEventListener("click", listCatalogTool);
+  document.querySelector("#profile-catalog-tool").addEventListener("click", profileCatalogTool);
+  document.querySelector("#generate-catalog-config-tool").addEventListener("click", generateCatalogConfigTool);
 }
 
 function initializeDashboardPage() {
@@ -614,6 +661,7 @@ async function loadDashboard() {
     state.overview = { health, datasets, models };
     state.demoConfigs = normalizeDemoConfigs(demoConfigs);
     state.experiments = experimentsPayload.experiments || [];
+    syncDeviceOptions(health);
     renderCustomModelOptions(models);
     renderDatasetCatalog(datasets);
     renderJobDemoOptions();
@@ -655,15 +703,40 @@ function renderOverview(health, datasets, models, rows) {
     .sort((a, b) => a - b)[0];
   const datasetCount = countMergedDatasets(datasets);
   const modelCount = (models.models || []).length;
+  const deviceDetail = health.cuda_available
+    ? `CUDA ${health.cuda_device_count || 1}`
+    : "CPU only";
   const grid = document.querySelector("#overview-grid");
   grid.innerHTML = [
-    metric(t("backendStatus"), health.status || "-", `${t("version")} ${health.version || "-"}`),
+    metric(
+      t("backendStatus"),
+      health.status || "-",
+      `${t("version")} ${health.version || "-"} | ${deviceDetail}`,
+    ),
     metric(t("totalRuns"), rows.length, `${t("completedRuns")} ${completeRows.length}`),
     metric(t("trainRuns"), trainRows.length, t("trainTitle")),
     metric(t("compareRuns"), compareRows.length, t("compareTitle")),
     metric(t("datasetCount"), datasetCount, `${t("modelCount")} ${modelCount}`),
     metric(t("bestTrainMae"), bestTrain === undefined ? "-" : formatNumber(bestTrain), "MAE"),
   ].join("");
+}
+
+function syncDeviceOptions(health = {}) {
+  const select = document.querySelector("#custom-device");
+  const cudaOption = document.querySelector("#custom-device option[value='cuda']");
+  if (!select || !cudaOption) {
+    return;
+  }
+  const cudaAvailable = Boolean(health.cuda_available);
+  cudaOption.disabled = !cudaAvailable;
+  cudaOption.textContent = cudaAvailable ? "cuda" : "cuda (unavailable)";
+  cudaOption.title = cudaAvailable
+    ? `${health.cuda_device_count || 1} CUDA device(s) available`
+    : cudaUnavailableMessage;
+  select.title = cudaAvailable ? "" : cudaUnavailableMessage;
+  if (!cudaAvailable && select.value === "cuda") {
+    select.value = "cpu";
+  }
 }
 
 function renderExperimentList() {
@@ -788,6 +861,7 @@ function renderDetail() {
   setText("#detail-kind", `${formatRunType(summary.run_type)} · ${summary.status || "-"}`);
   setText("#detail-title", summary.experiment_name || "-");
   setText("#detail-subtitle", `${summary.run_id || "-"} · ${formatDate(summary.created_at)}`);
+  syncRunLookupFields(summary);
   document.querySelector("#favorite-run").textContent = state.favorites.has(key)
     ? t("unfavorite")
     : t("favorite");
@@ -808,9 +882,18 @@ function renderDetail() {
       : renderTrainOverview(results);
   document.querySelector("#detail-artifacts").innerHTML = renderArtifactsPanel(summary, artifacts);
   document.querySelector("#detail-raw").innerHTML = renderRawPanel(results, leaderboard, artifacts);
+  syncPredictionPath(results);
   bindTrainingMonitorControls();
   bindArtifactButtons();
   switchDetailTab(state.detailTab);
+}
+
+function syncPredictionPath(results) {
+  const input = document.querySelector("#prediction-model-export-path");
+  if (!input || input.value || !results?.model_export_path) {
+    return;
+  }
+  input.value = results.model_export_path;
 }
 
 function renderDetailMetrics(summary, results, leaderboard) {
@@ -914,6 +997,10 @@ function renderArtifactsPanel(summary, artifacts) {
       const action =
         row.kind === "checkpoint"
           ? `<span class="artifact-disabled">${escapeHtml(t("checkpointBlocked"))}</span>`
+          : row.kind === "model"
+            ? `<div class="table-actions">
+                <a class="table-action-link" href="${escapeHtml(artifactUrl)}" download>${escapeHtml(t("artifactDownload"))}</a>
+              </div>`
           : `<div class="table-actions">
               <button class="table-action ghost" type="button" data-artifact-name="${escapeHtml(row.name)}">${escapeHtml(t("artifactPreview"))}</button>
               <a class="table-action-link" href="${escapeHtml(artifactUrl)}" download>${escapeHtml(t("artifactDownload"))}</a>
@@ -1074,6 +1161,99 @@ function reloadSelectedRun() {
   if (state.selectedKey) {
     selectRun(state.selectedKey);
   }
+}
+
+function syncRunLookupFields(summary) {
+  const experimentInput = document.querySelector("#run-lookup-experiment");
+  const runInput = document.querySelector("#run-lookup-run");
+  if (!experimentInput || !runInput || !summary) {
+    return;
+  }
+  experimentInput.value = summary.experiment_name || "";
+  runInput.value = summary.run_id || summary.compare_run_id || "latest";
+}
+
+function readRunLookupFields(options = {}) {
+  const runsRoot = fieldValue("#run-lookup-runs-root") || "runs";
+  const experimentName = fieldValue("#run-lookup-experiment");
+  const runId = fieldValue("#run-lookup-run") || "latest";
+  const artifactName = fieldValue("#run-lookup-artifact");
+  if (!runsRoot) {
+    throw new Error("runs root is required");
+  }
+  if (!experimentName) {
+    throw new Error("experiment is required");
+  }
+  if (options.requireArtifact && !artifactName) {
+    throw new Error("artifact is required");
+  }
+  return { runsRoot, experimentName, runId, artifactName };
+}
+
+async function loadRunLookupPayload(event, kind) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#run-lookup-status");
+  const output = document.querySelector("#run-lookup-output");
+  let fields;
+  try {
+    fields = readRunLookupFields();
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    return;
+  }
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch(`/tools/experiments/${kind}`, {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        runs_root: fields.runsRoot,
+        experiment: fields.experimentName,
+        run: fields.runId,
+      }),
+    });
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function downloadRunLookupArtifact(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#run-lookup-status");
+  const output = document.querySelector("#run-lookup-output");
+  let fields;
+  try {
+    fields = readRunLookupFields({ requireArtifact: true });
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    return;
+  }
+  await withBusyButton(button, status, t("loading"), async () => {
+    const response = await fetch("/tools/experiments/artifact", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        runs_root: fields.runsRoot,
+        experiment: fields.experimentName,
+        run: fields.runId,
+        artifact: fields.artifactName,
+      }),
+    });
+    const blob = await response.blob();
+    if (!response.ok) {
+      const text = await blob.text();
+      throw new Error(`${response.status} ${text || response.statusText}`);
+    }
+    const filename =
+      filenameFromContentDisposition(response.headers.get("content-disposition")) ||
+      safeFilename(fields.artifactName);
+    downloadBlob(filename, blob);
+    output.innerHTML = renderJson({
+      downloaded: fields.artifactName,
+      experiment: fields.experimentName,
+      run: fields.runId,
+      runs_root: fields.runsRoot,
+      filename,
+    });
+  });
 }
 
 function exportSelectedReport() {
@@ -1241,6 +1421,10 @@ function safeFilename(value) {
 
 function downloadTextFile(filename, content) {
   const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+  downloadBlob(filename, blob);
+}
+
+function downloadBlob(filename, blob) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -1249,6 +1433,22 @@ function downloadTextFile(filename, content) {
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function filenameFromContentDisposition(value) {
+  if (!value) {
+    return "";
+  }
+  const utf8Match = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch {
+      return utf8Match[1].replace(/"/g, "");
+    }
+  }
+  const asciiMatch = value.match(/filename="?([^";]+)"?/i);
+  return asciiMatch ? asciiMatch[1] : "";
 }
 
 async function runTrainDemo(demoName, button) {
@@ -1291,6 +1491,24 @@ async function submitSelectedDemoJob(button) {
     output.innerHTML = renderJobSubmission(payload);
     document.querySelector("#job-id").value = payload.job_id || "";
     await loadJobs();
+    if (kind === "train") {
+      startAutoJobProgress();
+    }
+  });
+}
+
+async function startHalfHourDemo(button) {
+  const status = document.querySelector("#job-submit-status");
+  const output = document.querySelector("#job-submit-output");
+  document.querySelector("#job-demo-kind").value = "train";
+  renderJobDemoOptions();
+  document.querySelector("#job-demo-name").value = halfHourDemoName;
+  await withBusyButton(button, status, `${t("runningPrefix")} ${halfHourDemoName}...`, async () => {
+    const payload = await apiFetch(`/demo/jobs/train/${halfHourDemoName}`, { method: "POST" });
+    output.innerHTML = renderJobSubmission(payload);
+    document.querySelector("#job-id").value = payload.job_id || "";
+    await loadJobs();
+    startAutoJobProgress();
   });
 }
 
@@ -1318,6 +1536,9 @@ async function submitAllDemoJobs(button) {
     const lastJob = payloads[payloads.length - 1];
     document.querySelector("#job-id").value = lastJob?.job_id || "";
     await loadJobs();
+    if (lastJob?.job_type === "train") {
+      startAutoJobProgress();
+    }
   });
 }
 
@@ -2073,6 +2294,13 @@ function validateCustomConfig(config) {
   if (!config.evaluation.metrics.length) {
     throw new Error(t("metricsRequired"));
   }
+  if (
+    config.training.device === "cuda" &&
+    state.overview.health &&
+    !state.overview.health.cuda_available
+  ) {
+    throw new Error(cudaUnavailableMessage);
+  }
   if (config.data.name === "csv") {
     if (!config.data.params.path) {
       throw new Error(t("csvPathRequired"));
@@ -2114,11 +2342,46 @@ function renderRunCompletion(payload, title) {
   return `<div class="summary">${cards.join("")}</div>`;
 }
 
+function readJobCliSettings() {
+  return {
+    jobBackend: fieldValue("#job-backend") === "sqlite" ? "sqlite" : "json",
+    jobsRoot: fieldValue("#jobs-root") || "runs/jobs",
+    sqliteDb: fieldValue("#jobs-sqlite-db") || "runs/jobs.sqlite3",
+    runsRoot: fieldValue("#jobs-runs-root") || "runs",
+  };
+}
+
+function jobQuery(options = {}) {
+  const settings = readJobCliSettings();
+  const params = new URLSearchParams();
+  if (options.includeBackend) {
+    params.set("job_backend", settings.jobBackend);
+  }
+  if (options.includeJobsRoot !== false) {
+    params.set("jobs_root", settings.jobsRoot);
+  }
+  if (options.includeSqliteDb !== false) {
+    params.set("sqlite_db", settings.sqliteDb);
+  }
+  if (options.includeRunsRoot) {
+    params.set("runs_root", settings.runsRoot);
+  }
+  if (options.extra) {
+    Object.entries(options.extra).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        params.set(key, String(value));
+      }
+    });
+  }
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 async function loadJobs() {
   const output = document.querySelector("#jobs-output");
   output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
-    const payload = await apiFetch("/jobs");
+    const payload = await apiFetch(`/jobs${jobQuery({ includeBackend: true })}`);
     output.innerHTML = renderTable(payload.jobs || [], [
       "job_id",
       "status",
@@ -2140,10 +2403,478 @@ async function loadJobDetail(kind) {
     return;
   }
   const suffix = kind === "job" ? "" : `/${kind}`;
+  const query = jobQuery({
+    includeBackend: ["job", "result", "logs"].includes(kind),
+    includeRunsRoot: ["result", "logs"].includes(kind),
+  });
   output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
   try {
-    const payload = await apiFetch(`/jobs/${encodeURIComponent(jobId)}${suffix}`);
+    const payload = await apiFetch(`/jobs/${encodeURIComponent(jobId)}${suffix}${query}`);
     output.innerHTML = renderJson(payload);
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+  }
+}
+
+async function loadJobProgress(options = {}) {
+  const jobId = document.querySelector("#job-id").value.trim();
+  const output = document.querySelector("#jobs-output");
+  if (!jobId) {
+    output.innerHTML = renderError("job_id is required");
+    return;
+  }
+  const query = jobQuery({ includeBackend: true, includeRunsRoot: true });
+  if (!options.silent) {
+    output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
+  }
+  try {
+    const payload = await apiFetch(`/jobs/${encodeURIComponent(jobId)}/progress${query}`);
+    output.innerHTML = renderJobProgress(payload);
+    if (payload?.job?.status && !["queued", "running", "cancel_requested"].includes(payload.job.status)) {
+      stopAutoJobProgress();
+    }
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    stopAutoJobProgress();
+  }
+}
+
+function toggleAutoJobProgress(event) {
+  if (event.target.checked) {
+    startAutoJobProgress();
+    return;
+  }
+  stopAutoJobProgress();
+}
+
+function startAutoJobProgress() {
+  const checkbox = document.querySelector("#auto-job-progress");
+  if (checkbox) {
+    checkbox.checked = true;
+  }
+  if (state.jobProgressTimer !== null) {
+    window.clearInterval(state.jobProgressTimer);
+  }
+  loadJobProgress();
+  state.jobProgressTimer = window.setInterval(() => {
+    loadJobProgress({ silent: true });
+  }, 3000);
+}
+
+function stopAutoJobProgress() {
+  if (state.jobProgressTimer !== null) {
+    window.clearInterval(state.jobProgressTimer);
+    state.jobProgressTimer = null;
+  }
+  const checkbox = document.querySelector("#auto-job-progress");
+  if (checkbox) {
+    checkbox.checked = false;
+  }
+}
+
+function renderJobProgress(payload) {
+  const progress = payload?.progress || {};
+  const job = payload?.job || {};
+  const completed = progress.completed_epochs ?? "-";
+  const total = progress.total_epochs ?? "-";
+  const percent = progress.progress_percent ?? 0;
+  const latestLoss = progress.latest?.train_loss;
+  const latestValMae = progress.latest?.validation_metrics?.original?.mae;
+  const testMae = progress.test_metrics?.original?.mae;
+  return `<div class="summary">
+    ${metric("job", job.job_id || "-")}
+    ${metric("status", job.status || "-")}
+    ${metric("epoch", `${completed} / ${total}`)}
+    ${metric("progress", `${formatNumber(percent)}%`)}
+    ${metric("train_loss", latestLoss === undefined ? "-" : formatNumber(latestLoss))}
+    ${metric("val_mae", latestValMae === undefined ? "-" : formatNumber(latestValMae))}
+    ${metric("test_mae", testMae === undefined ? "-" : formatNumber(testMae))}
+    ${metric("updated", progress.updated_at || "-")}
+  </div>
+  ${progress.history ? renderTrainingMonitor({ history: progress.history }) : ""}
+  <h3>progress.json</h3>
+  ${renderJson(progress || null)}
+  <h3>log tail</h3>
+  <pre>${escapeHtml(payload?.log_tail || "")}</pre>`;
+}
+
+async function runCancelJob() {
+  const jobId = document.querySelector("#job-id").value.trim();
+  const output = document.querySelector("#jobs-output");
+  if (!jobId) {
+    output.innerHTML = renderError("job_id is required");
+    return;
+  }
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const payload = await apiFetch(
+      `/jobs/${encodeURIComponent(jobId)}/cancel${jobQuery({ includeBackend: true })}`,
+      { method: "POST" },
+    );
+    output.innerHTML = renderJson(payload);
+    await loadJobs();
+  });
+}
+
+async function runRetryJob() {
+  const jobId = document.querySelector("#job-id").value.trim();
+  const output = document.querySelector("#jobs-output");
+  if (!jobId) {
+    output.innerHTML = renderError("job_id is required");
+    return;
+  }
+  let maxAttempts;
+  try {
+    maxAttempts = readNumber("#retry-max-attempts", "max attempts", { integer: true, min: 1 });
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    return;
+  }
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const payload = await apiFetch(
+      `/jobs/${encodeURIComponent(jobId)}/retry${jobQuery({
+        extra: { max_attempts: maxAttempts },
+      })}`,
+      { method: "POST" },
+    );
+    output.innerHTML = renderJson(payload);
+    await loadJobs();
+  });
+}
+
+async function listStaleJobs() {
+  let seconds;
+  try {
+    seconds = readNumber("#stale-seconds", "stale seconds", { integer: true, min: 1 });
+  } catch (error) {
+    document.querySelector("#jobs-output").innerHTML = renderError(error.message);
+    return;
+  }
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const payload = await apiFetch(
+      `/jobs/stale${jobQuery({ extra: { older_than_seconds: seconds } })}`,
+    );
+    document.querySelector("#jobs-output").innerHTML = renderJson(payload);
+  });
+}
+
+async function markStaleTimeout() {
+  let seconds;
+  try {
+    seconds = readNumber("#stale-seconds", "stale seconds", { integer: true, min: 1 });
+  } catch (error) {
+    document.querySelector("#jobs-output").innerHTML = renderError(error.message);
+    return;
+  }
+  const reason = fieldValue("#timeout-reason");
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const payload = await apiFetch(
+      `/jobs/stale/timeout${jobQuery({
+        extra: { older_than_seconds: seconds, reason },
+      })}`,
+      {
+        method: "POST",
+      },
+    );
+    document.querySelector("#jobs-output").innerHTML = renderJson(payload);
+    await loadJobs();
+  });
+}
+
+async function runWorkerOnce() {
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const workerId = fieldValue("#worker-id") || "api_worker";
+    const payload = await apiFetch(
+      `/jobs/worker/once${jobQuery({
+        includeRunsRoot: true,
+        extra: { worker_id: workerId },
+      })}`,
+      {
+        method: "POST",
+      },
+    );
+    document.querySelector("#jobs-output").innerHTML = renderJson(payload);
+    await loadJobs();
+  });
+}
+
+async function runWorkerLoop() {
+  let maxJobs;
+  let maxIdleCycles;
+  let sleepSeconds;
+  try {
+    maxJobs = readNumber("#worker-max-jobs", "max jobs", { integer: true, min: 1 });
+    maxIdleCycles = readNumber("#worker-idle-cycles", "idle cycles", { integer: true, min: 1 });
+    sleepSeconds = readNumber("#worker-sleep-seconds", "sleep seconds", { min: 0 });
+  } catch (error) {
+    document.querySelector("#jobs-output").innerHTML = renderError(error.message);
+    return;
+  }
+  await runOperation("#jobs-output", "#jobs-output", async () => {
+    const settings = readJobCliSettings();
+    const payload = await apiFetch("/jobs/worker/loop", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        max_jobs: maxJobs,
+        max_idle_cycles: maxIdleCycles,
+        sleep_seconds: sleepSeconds,
+        worker_id: fieldValue("#worker-id") || "api_worker",
+        jobs_root: settings.jobsRoot,
+        sqlite_db: settings.sqliteDb,
+        runs_root: settings.runsRoot,
+      }),
+    });
+    document.querySelector("#jobs-output").innerHTML = renderJson(payload);
+    await loadJobs();
+  });
+}
+
+async function runConfigFile(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#config-file-status");
+  const output = document.querySelector("#config-file-output");
+  const kind = fieldValue("#config-file-kind") === "compare" ? "compare" : "train";
+  const mode = fieldValue("#config-file-mode") === "job" ? "job" : "sync";
+  const configPath = fieldValue("#config-file-path");
+  if (!configPath) {
+    output.innerHTML = renderError("config path is required");
+    return;
+  }
+  await withBusyButton(button, status, `${t("runningPrefix")} ${configPath}...`, async () => {
+    const endpoint = mode === "job" ? `/jobs/${kind}-config` : `/configs/${kind}/run`;
+    const payload = await apiFetch(endpoint, {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({ config_path: configPath }),
+    });
+    if (mode === "job") {
+      output.innerHTML = renderJobSubmission(payload);
+      document.querySelector("#job-id").value = payload.job_id || "";
+      await loadJobs();
+      if (kind === "train") {
+        startAutoJobProgress();
+      }
+      return;
+    }
+    output.innerHTML = renderRunCompletion(payload, kind === "compare" ? t("compareDemoComplete") : t("trainDemoComplete"));
+    await loadDashboard();
+    await selectRun(`${payload.experiment_name}::${payload.compare_run_id || payload.run_id}`);
+    setDashboardPage("results", { updateHash: true, smooth: true });
+  });
+}
+
+async function predictSelectedRun(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#prediction-status");
+  const output = document.querySelector("#prediction-output");
+  const selected = state.selectedRun?.summary;
+  if (!selected || !selected.experiment_name || !selected.run_id || selected.status !== "complete") {
+    output.innerHTML = renderError("select a completed training run first");
+    return;
+  }
+  let values;
+  try {
+    values = readPredictionValues();
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    return;
+  }
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch(
+      `/experiments/${encodeURIComponent(selected.experiment_name)}/${encodeURIComponent(selected.run_id)}/predict`,
+      {
+        method: "POST",
+        headers: postJsonHeaders,
+        body: JSON.stringify({ values }),
+      },
+    );
+    output.innerHTML = renderPredictionPayload(payload);
+  });
+}
+
+async function predictModelExportPath(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#prediction-status");
+  const output = document.querySelector("#prediction-output");
+  const modelExportPath = fieldValue("#prediction-model-export-path");
+  if (!modelExportPath) {
+    output.innerHTML = renderError("model export path is required");
+    return;
+  }
+  let values;
+  try {
+    values = readPredictionValues();
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+    return;
+  }
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/predict/model-export", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({ model_export_path: modelExportPath, values }),
+    });
+    output.innerHTML = renderPredictionPayload(payload);
+  });
+}
+
+function readPredictionValues() {
+  const rawValue = fieldValue("#prediction-values");
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      throw new Error("values must be a JSON array");
+    }
+    return parsed;
+  } catch (error) {
+    throw new Error(`values JSON: ${error.message}`);
+  }
+}
+
+async function handlePredictionValuesFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) {
+    return;
+  }
+  const status = document.querySelector("#prediction-status");
+  const output = document.querySelector("#prediction-output");
+  status.textContent = t("loading");
+  try {
+    const rawText = await file.text();
+    const parsed = JSON.parse(rawText);
+    if (!Array.isArray(parsed)) {
+      throw new Error("values must be a JSON array");
+    }
+    document.querySelector("#prediction-values").value = JSON.stringify(parsed, null, 2);
+    output.innerHTML = renderJson({
+      values_file: file.name,
+      top_level_windows: parsed.length,
+    });
+    status.textContent = t("idle");
+  } catch (error) {
+    status.textContent = t("error");
+    output.innerHTML = renderError(`values file: ${error.message}`);
+  } finally {
+    event.target.value = "";
+  }
+}
+
+function renderPredictionPayload(payload) {
+  return `<div class="summary">
+    ${metric("model", payload?.model?.name || "-")}
+    ${metric("output_len", payload?.model?.output_len || "-")}
+    ${metric("target_cols", (payload?.data?.target_cols || []).join(", ") || "-")}
+  </div>${renderJson(payload)}`;
+}
+
+async function listRegisteredDatasetsTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/datasets");
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function listModelsTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/models");
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function profileCsvTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/datasets/profile-csv", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        path: fieldValue("#dataset-tool-csv-path"),
+        target_cols: parseCommaList(fieldValue("#dataset-tool-target-cols")),
+        timestamp_col: fieldValue("#dataset-tool-timestamp-col") || null,
+        input_len: readNumber("#dataset-tool-input-len", "input_len", { integer: true, min: 1 }),
+        output_len: readNumber("#dataset-tool-output-len", "output_len", { integer: true, min: 1 }),
+        name: fieldValue("#dataset-tool-profile-name") || null,
+      }),
+    });
+    output.innerHTML = renderDatasetProfile(payload);
+  });
+}
+
+async function profileCatalogTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/datasets/catalog/profile", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        catalog_path: fieldValue("#dataset-tool-catalog-path"),
+        input_len: readNumber("#dataset-tool-input-len", "input_len", { integer: true, min: 1 }),
+        output_len: readNumber("#dataset-tool-output-len", "output_len", { integer: true, min: 1 }),
+      }),
+    });
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function listCatalogTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const payload = await apiFetch("/datasets/catalog/list", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify({
+        catalog_path: fieldValue("#dataset-tool-catalog-path"),
+      }),
+    });
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function generateCatalogConfigTool(event) {
+  const button = event.currentTarget;
+  const status = document.querySelector("#dataset-tools-status");
+  const output = document.querySelector("#dataset-tools-output");
+  await withBusyButton(button, status, t("loading"), async () => {
+    const requestPayload = {
+      catalog_path: fieldValue("#dataset-tool-catalog-path"),
+      dataset: fieldValue("#dataset-tool-dataset-name"),
+      input_len: readNumber("#dataset-tool-input-len", "input_len", { integer: true, min: 1 }),
+      output_len: readNumber("#dataset-tool-output-len", "output_len", { integer: true, min: 1 }),
+      model: fieldValue("#dataset-tool-model-name"),
+      epochs: readNumber("#dataset-tool-epochs", "epochs", { integer: true, min: 1 }),
+      batch_size: readNumber("#dataset-tool-batch-size", "batch_size", { integer: true, min: 1 }),
+    };
+    const outputPath = fieldValue("#dataset-tool-output-path");
+    if (outputPath) {
+      requestPayload.output_path = outputPath;
+    }
+    const payload = await apiFetch("/datasets/catalog/config", {
+      method: "POST",
+      headers: postJsonHeaders,
+      body: JSON.stringify(requestPayload),
+    });
+    output.innerHTML = renderJson(payload);
+  });
+}
+
+async function runOperation(statusSelector, outputSelector, callback) {
+  const status = document.querySelector(statusSelector);
+  const output = document.querySelector(outputSelector);
+  status.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
+  try {
+    await callback();
   } catch (error) {
     output.innerHTML = renderError(error.message);
   }

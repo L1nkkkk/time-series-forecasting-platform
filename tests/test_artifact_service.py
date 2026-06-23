@@ -279,6 +279,7 @@ def test_artifact_service_rejects_corrupt_manifest(tmp_path) -> None:
         ("yaml", "text/yaml"),
         ("csv", "text/csv"),
         ("log", "text/plain"),
+        ("model", "application/octet-stream"),
     ],
 )
 def test_artifact_service_sets_media_type(

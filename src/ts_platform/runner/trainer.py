@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,7 +41,9 @@ from ts_platform.runner.checkpoint import (
     save_checkpoint,
     validate_checkpoint_for_training,
 )
+from ts_platform.runner.devices import resolve_training_device
 from ts_platform.runner.evaluator import collect_forecast_samples, evaluate
+from ts_platform.runner.model_export import save_model_export
 from ts_platform.scaler.base import BaseScaler
 from ts_platform.scaler.registry import build_scaler
 
@@ -54,6 +57,8 @@ class TrainingResult:
     created_at: str
     experiment_name: str
     checkpoint_path: Path
+    model_export_path: Path
+    model_export_metadata_path: Path
     history: list[dict[str, Any]]
     validation_metrics: OptionalMetricGroups
     test_metrics: MetricGroups
@@ -72,6 +77,8 @@ class TrainingResult:
                 "experiment_name": self.experiment_name,
             },
             checkpoint_path=str(self.checkpoint_path),
+            model_export_path=str(self.model_export_path),
+            model_export_metadata_path=str(self.model_export_metadata_path),
             history=self.history,
             validation_metrics=self.validation_metrics,
             test_metrics=self.test_metrics,
@@ -97,6 +104,7 @@ class Trainer:
         """Run training, validation, testing, and artifact recording."""
 
         set_seed(self.config.experiment.seed)
+        device = self._resolve_device()
         resume_checkpoint = self._load_resume_checkpoint()
         recorder = ExperimentRecorder(
             self.config.experiment.output_dir,
@@ -106,7 +114,7 @@ class Trainer:
         run_dir = recorder.prepare()
         logger = setup_experiment_logger(run_dir)
         try:
-            return self._run_prepared(recorder, run_dir, logger, resume_checkpoint)
+            return self._run_prepared(recorder, run_dir, logger, resume_checkpoint, device)
         finally:
             close_experiment_logger_for_run_dir(run_dir)
 
@@ -116,6 +124,7 @@ class Trainer:
         run_dir: Path,
         logger: logging.Logger,
         resume_checkpoint: CheckpointPayload | None,
+        device: torch.device,
     ) -> TrainingResult:
         """Run training after the run directory and logger are ready."""
 
@@ -123,7 +132,6 @@ class Trainer:
         environment = collect_environment()
         recorder.save_environment(environment)
 
-        device = self._resolve_device()
         logger.info("Using device: %s", device)
 
         train_dataset = build_dataset(self.config.data, "train", self.config.experiment.seed)
@@ -182,6 +190,13 @@ class Trainer:
         history: list[dict[str, Any]] = []
         checkpoint_path = run_dir / "checkpoint.pt"
         validation_metrics: OptionalMetricGroups = None
+        self._write_progress(
+            run_dir,
+            recorder=recorder,
+            status="running",
+            history=history,
+            latest=None,
+        )
 
         if start_epoch > self.config.training.epochs:
             logger.info(
@@ -205,6 +220,13 @@ class Trainer:
                 row["validation_metrics"] = validation_metrics
             history.append(row)
             logger.info("epoch=%s train_loss=%.6f val=%s", epoch, train_loss, validation_metrics)
+            self._write_progress(
+                run_dir,
+                recorder=recorder,
+                status="running",
+                history=history,
+                latest=row,
+            )
 
             should_checkpoint = (
                 self.config.training.checkpoint_every
@@ -248,6 +270,16 @@ class Trainer:
             scaler=scaler,
             environment=environment,
         )
+        data_metadata = _data_metadata(train_dataset)
+        model_export_path, model_export_metadata_path = save_model_export(
+            run_dir / "model_export.pt",
+            run_dir / "model_export.json",
+            model=model,
+            config=self.config,
+            scaler=scaler,
+            metrics={"validation_metrics": validation_metrics, "test_metrics": test_metrics},
+            data_metadata=data_metadata,
+        )
         metadata = recorder.metadata()
         result = TrainingResult(
             run_dir=run_dir,
@@ -255,14 +287,24 @@ class Trainer:
             created_at=metadata["created_at"],
             experiment_name=metadata["experiment_name"],
             checkpoint_path=checkpoint_path,
+            model_export_path=model_export_path,
+            model_export_metadata_path=model_export_metadata_path,
             history=history,
             validation_metrics=validation_metrics,
             test_metrics=test_metrics,
-            data_metadata=_data_metadata(train_dataset),
+            data_metadata=data_metadata,
             forecast_samples=forecast_samples,
             resumed_from=resumed_from,
         )
         logger.info("test=%s", test_metrics)
+        self._write_progress(
+            run_dir,
+            recorder=recorder,
+            status="succeeded",
+            history=history,
+            latest=history[-1] if history else None,
+            test_metrics=test_metrics,
+        )
         recorder.save_results(result.to_dict())
         (run_dir / "forecast_samples.json").write_text(
             json.dumps(forecast_samples, indent=2, sort_keys=True),
@@ -274,10 +316,43 @@ class Trainer:
                 run_id=result.run_id,
                 run_dir=result.run_dir,
                 checkpoint_path=result.checkpoint_path,
+                model_export_path=result.model_export_path,
+                model_export_metadata_path=result.model_export_metadata_path,
             ),
             run_dir / "artifacts.json",
         )
         return result
+
+    def _write_progress(
+        self,
+        run_dir: Path,
+        *,
+        recorder: ExperimentRecorder,
+        status: str,
+        history: list[dict[str, Any]],
+        latest: dict[str, Any] | None,
+        test_metrics: MetricGroups | None = None,
+    ) -> None:
+        total_epochs = self.config.training.epochs
+        completed_epochs = int(latest["epoch"]) if latest and "epoch" in latest else 0
+        payload: dict[str, Any] = {
+            "status": status,
+            "run_id": recorder.run_id,
+            "experiment_name": self.config.experiment.name,
+            "run_dir": str(run_dir),
+            "updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "total_epochs": total_epochs,
+            "completed_epochs": completed_epochs,
+            "progress_percent": round((completed_epochs / total_epochs) * 100, 2),
+            "latest": latest,
+            "history": history,
+        }
+        if test_metrics is not None:
+            payload["test_metrics"] = test_metrics
+        (run_dir / "progress.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
 
     def _loader(
         self,
@@ -310,11 +385,7 @@ class Trainer:
         return FeatureAwareScalerBundle(target=target_scaler, features=feature_scaler)
 
     def _resolve_device(self) -> torch.device:
-        device = torch.device(self.config.training.device)
-        if device.type == "cuda" and not torch.cuda.is_available():
-            msg = "CUDA was requested but is not available"
-            raise RuntimeError(msg)
-        return device
+        return resolve_training_device(self.config.training.device)
 
     def _build_optimizer(self, model: nn.Module) -> torch.optim.Optimizer | None:
         params = [parameter for parameter in model.parameters() if parameter.requires_grad]

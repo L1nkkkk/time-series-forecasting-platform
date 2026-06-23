@@ -17,7 +17,14 @@ bar to switch between Chinese and English. Top navigation splits the dashboard
 into Overview, Datasets, Results, Custom Experiment, and Jobs pages so demos do
 not require scrolling through one long page. The Datasets page keeps the catalog
 behind a filtered dropdown selector, and the Jobs page can submit whitelisted
-demo configs as asynchronous local jobs.
+demo configs as asynchronous local jobs. The Jobs page also exposes local
+CLI-parity tools for config-path execution, model-export prediction,
+CSV/catalog profiling, catalog-to-config generation, SQLite job maintenance,
+and bounded local worker runs. The Results page exposes direct run lookup for
+results, leaderboards, artifact manifests, and artifact downloads, including a
+local runs-root override for CLI-style inspection. The Jobs page exposes local
+job backend, jobs-root, SQLite DB, and runs-root settings for job and worker
+commands.
 
 ## Recommended Demo Flow
 
@@ -46,7 +53,16 @@ demo configs as asynchronous local jobs.
 8. In Jobs, submit a train or compare demo config as an async local job and
    refresh the job list.
 
-9. Inspect leaderboard columns:
+9. Use Config File Runner to run or submit a local YAML/JSON train or compare
+   config path.
+
+10. Use Dataset CLI Tools to profile a CSV path, profile a catalog, or generate
+    a config from a catalog entry.
+
+11. Select a completed training run and use Model Export Prediction with pasted
+    JSON or a selected values JSON file to verify inference handoff.
+
+12. Inspect leaderboard columns:
 
    - `feature_aware`
    - `input_dim`
@@ -55,13 +71,18 @@ demo configs as asynchronous local jobs.
    - `target_cols`
    - `feature_cols`
 
-10. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
+13. Inspect the W&B-inspired training monitor with per-metric panels, smoothing,
    latest/best/delta summaries, and point tooltips.
 
-11. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
-   can be previewed or downloaded through the manifest-backed artifact API.
+14. Use Run Lookup on the Results page to load `results.json`, leaderboard
+   rows, `artifacts.json`, or download one named artifact for an experiment/run.
+   Set runs root when inspecting a non-default local run directory.
 
-12. Click Export Report on a completed run to download a Markdown summary for
+15. Inspect artifacts from the Artifacts tab. JSON, YAML, CSV, and log artifacts
+   can be previewed or downloaded through the manifest-backed artifact API.
+   Model export artifacts can be downloaded for inference handoff.
+
+16. Click Export Report on a completed run to download a Markdown summary for
    the demo or final write-up.
 
 ## Timing Notes
@@ -84,9 +105,14 @@ demo configs as asynchronous local jobs.
 - compare demos
 - training monitor
 - Markdown report export
+- direct run lookup
 - leaderboard
 - artifacts
 - async demo jobs
+- config-path train/compare execution
+- model-export prediction
+- CSV/catalog profiling and catalog-to-config generation
+- SQLite retry/stale/worker controls
 
 ## Demo Buttons
 
@@ -98,6 +124,9 @@ demo configs as asynchronous local jobs.
 ## Safety
 
 - Demo endpoints only use whitelist configs.
-- No arbitrary path execution.
+- Config-path, catalog-path, CSV-path, and model-export path tools are local
+  trusted-path utilities intended for the desktop/demo environment.
+- Run Lookup and job CLI settings can point at local runs roots, jobs roots, and
+  SQLite DB files for desktop/demo parity.
 - `output_dir` is still constrained to the runs root.
 - Checkpoint download remains blocked by default.
