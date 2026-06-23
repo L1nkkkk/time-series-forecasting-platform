@@ -76,7 +76,10 @@ class ExperimentStore:
         for run_dir in sorted(path for path in self.runs_root.glob("*/*") if path.is_dir()):
             if run_dir.parent.name == "jobs":
                 continue
-            self._assert_inside_root(run_dir)
+            try:
+                self._assert_inside_root(run_dir)
+            except UnsafePathComponentError:
+                continue
             results_path = run_dir / "results.json"
             try:
                 payload = self._read_json_object(results_path)
@@ -204,6 +207,8 @@ class ExperimentStore:
             "created_at": payload.get("created_at"),
             "run_dir": payload.get("run_dir", str(run_dir)),
             "checkpoint_path": payload.get("checkpoint_path"),
+            "model_export_path": payload.get("model_export_path"),
+            "model_export_metadata_path": payload.get("model_export_metadata_path"),
             "test_metrics": payload.get("test_metrics"),
         }
 

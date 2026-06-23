@@ -18,7 +18,8 @@ The current MVP focuses on a runnable local forecasting platform:
   GRU, LSTM, TCN, and Transformer forecasting models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
-- Config snapshots, checkpoints, metrics output, and environment metadata.
+- Config snapshots, checkpoints, inference model exports, metrics output, and
+  environment metadata.
 - CLI and a synchronous FastAPI demo API.
 - Original-scale evaluation metrics with optional scaled-space metrics.
 - Versioned checkpoints that can restore model, scaler, and optimizer state.
@@ -29,7 +30,8 @@ The current MVP focuses on a runnable local forecasting platform:
 - Multi-model compare runs with `leaderboard.json` and `leaderboard.csv`.
 - Artifact manifests that make train and compare outputs discoverable.
 - Original-scale forecast sample artifacts for visual prediction inspection.
-- Safe manifest-based artifact downloads for JSON, YAML, CSV, and log files.
+- Safe manifest-based artifact downloads for JSON, YAML, CSV, log, and model
+  export files.
 - Local asynchronous train/compare jobs for the demo API.
 - Optional SQLite job metadata backend prototype for local jobs.
 - Local `worker-once` prototype for queued SQLite jobs.
@@ -71,7 +73,8 @@ Run the example training config:
 py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 ```
 
-The run writes logs, a checkpoint, a config snapshot, environment metadata, and
+The run writes logs, a checkpoint, an inference-focused `model_export.pt`,
+`model_export.json` metadata, a config snapshot, environment metadata, and
 `results.json` plus `artifacts.json` under `runs/simple_forecast/latest/`
 because the example config sets `overwrite: true`.
 
@@ -136,10 +139,31 @@ leaderboards, and artifacts, and it exposes whitelisted demo train/compare
 buttons. The UI is split into Overview, Datasets, Results, Custom Experiment,
 and Jobs pages to keep demos focused. The Datasets page uses a filtered selector
 with one selected dataset detail card, and the Jobs page can submit whitelisted
-demo configs as local async jobs from dropdown controls. Completed runs can also
-be exported as Markdown reports for coursework or demo handoff notes. See
-[docs/dashboard_demo.md](docs/dashboard_demo.md) and
-[docs/report_export.md](docs/report_export.md).
+demo configs as local async jobs from dropdown controls. It also exposes local
+CLI-parity tools for config-path execution, model-export prediction, CSV/catalog
+profiling, catalog-to-config generation, SQLite job maintenance, and finite
+worker runs. The Results page includes explicit run lookup controls for
+results, leaderboards, artifact manifests, and artifact downloads, including a
+local runs-root override for CLI-style inspection. The Jobs page includes local
+job backend, jobs-root, SQLite DB, and runs-root settings for CLI-parity job and
+worker operations. Completed runs can also be exported as Markdown reports for
+coursework or demo handoff notes. See [docs/dashboard_demo.md](docs/dashboard_demo.md)
+and [docs/report_export.md](docs/report_export.md).
+
+### API Hardening Settings
+
+The local demo starts without an API key by default. Deployment-style runs can
+enable the first hardening controls through environment variables:
+
+- `TS_PLATFORM_API_KEY`: require `x-api-key` or `Authorization: Bearer ...` for
+  non-exempt API routes. `/health` and `/ui` remain open for local smoke tests.
+- `TS_PLATFORM_RATE_LIMIT_PER_MINUTE`: enable an in-memory per-client request
+  limit.
+- `TS_PLATFORM_MAX_REQUEST_BODY_BYTES`: override the request body limit. The
+  default is 10 MiB; set an empty value only when another gateway owns this
+  limit.
+- `TS_PLATFORM_AUDIT_LOG_PATH`: append JSONL request audit events to a local
+  file.
 
 ## Metrics
 
@@ -289,6 +313,8 @@ py -m ts_platform.cli.main show-results --experiment compare_forecast --run late
 py -m ts_platform.cli.main show-leaderboard --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
+py -m ts_platform.cli.main show-artifact --experiment csv_forecast --run latest --artifact model_export --output model_export.pt
+py -m ts_platform.cli.main predict --model-export runs/csv_forecast/latest/model_export.pt --values-json '[[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]]'
 py -m ts_platform.cli.main list-jobs
 py -m ts_platform.cli.main list-jobs --job-backend sqlite --sqlite-db runs/jobs.sqlite3
 py -m ts_platform.cli.main show-job --job-id 20260619T120000Z_a1b2c3
@@ -306,8 +332,13 @@ py -m ts_platform.cli.main worker-loop --sqlite-db runs/jobs.sqlite3 --jobs-root
 `leaderboard.json`. `show-artifacts` reads the run `artifacts.json` manifest.
 `show-artifact` reads one named artifact that is registered in that manifest.
 It prints JSON, YAML, CSV, and log artifacts to stdout by default, or writes
-them to `--output` when provided. Checkpoints are intentionally blocked by
-default in the CLI, and artifact files larger than 5 MiB are rejected.
+them to `--output` when provided. Binary artifacts such as `model_export`
+require `--output`. Checkpoints are intentionally blocked by default in the
+CLI, and artifact files larger than 5 MiB are rejected.
+`predict` loads a trusted local `model_export.pt` and returns original-scale
+forecast values plus scaled predictions for one input window or a batch of
+windows. The dashboard prediction panel accepts pasted values JSON or a selected
+values JSON file.
 `list-jobs` and `show-job` inspect local API job metadata under `runs/jobs` by
 default. The default job backend is JSON. The Phase 8A SQLite prototype stores
 metadata in `runs/jobs.sqlite3`; use `--job-backend sqlite` with
@@ -405,9 +436,10 @@ Every `results.json` includes `run_id`, `created_at`, `run_dir`, and
 reported as `compare_run_id`.
 
 Every completed train or compare run also writes `artifacts.json`. Train
-manifests include result, checkpoint, config snapshot, environment, and log
-entries when those files exist. Compare manifests include compare results,
-leaderboard JSON/CSV, compare config snapshot, and environment entries. See
+manifests include result, checkpoint, model export, model export metadata,
+config snapshot, environment, forecast samples, and log entries when those
+files exist. Compare manifests include compare results, leaderboard JSON/CSV,
+compare config snapshot, and environment entries. See
 [docs/artifacts.md](docs/artifacts.md). Manifest `run_dir` and
 `compare_run_dir` values are compatibility metadata; artifact download
 authorization uses the physical run directory resolved by `ExperimentStore`.
@@ -496,9 +528,9 @@ runs root. CLI training and compare still honor `experiment.output_dir` from
 their configs.
 
 `GET /experiments` lists complete train runs, complete compare runs, and
-incomplete run directories. Train summaries include checkpoint and test metric
-metadata. Compare summaries include the parent compare run id, primary metric,
-success/failure counts, and leaderboard paths.
+incomplete run directories. Train summaries include checkpoint, model export,
+and test metric metadata. Compare summaries include the parent compare run id,
+primary metric, success/failure counts, and leaderboard paths.
 
 `GET /datasets/{dataset_name}` returns catalog metadata. `GET
 /datasets/{dataset_name}/profile` profiles only local CSV datasets already
@@ -515,9 +547,9 @@ root and the physical run directory resolved by `ExperimentStore` for the
 requested `experiment_name` and `run_id`. Manifest `run_dir` and
 `compare_run_dir` values remain metadata only and cannot widen the download
 boundary, so a tampered manifest cannot point to another run's file. The API
-allows JSON, YAML, CSV, and log artifacts by default, rejects checkpoints
-unless explicitly enabled through `APISettings`, and rejects files larger than
-`APISettings.artifact_max_bytes` before returning a `FileResponse`.
+allows JSON, YAML, CSV, log, and model export artifacts by default, rejects
+checkpoints unless explicitly enabled through `APISettings`, and rejects files
+larger than `APISettings.artifact_max_bytes` before returning a `FileResponse`.
 `APISettings.artifact_allowed_kinds` controls the API downloadable kinds; the
 CLI keeps its default safe policy and does not expose a checkpoint download
 switch.
@@ -551,9 +583,10 @@ error when read directly. See [docs/jobs.md](docs/jobs.md).
 ## Production Hardening Roadmap
 
 The current platform is a research/demo MVP. It now has local jobs, safe result
-lookup, artifact manifests, and safe artifact downloads, but it is not a
-multi-tenant production service. The production hardening design is documented
-in:
+lookup, artifact manifests, safe artifact downloads, optional API-key
+protection, request-size limiting, optional in-memory rate limiting, and
+optional JSONL audit logging, but it is not a multi-tenant production service.
+The production hardening design is documented in:
 
 - [docs/durable_queue_design.md](docs/durable_queue_design.md)
 - [docs/deployment_design.md](docs/deployment_design.md)

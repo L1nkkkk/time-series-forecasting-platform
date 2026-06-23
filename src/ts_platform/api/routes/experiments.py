@@ -7,6 +7,7 @@ from typing import Any, NoReturn
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
+from ts_platform.api.routes.errors import raise_execution_http_error
 from ts_platform.api.services.artifact_service import (
     ArtifactAccessForbiddenError,
     ArtifactAccessPolicy,
@@ -41,14 +42,20 @@ def list_experiments() -> dict[str, list[dict[str, Any]]]:
 def train_experiment(config: PlatformConfig) -> dict[str, Any]:
     """Run a synchronous training demo from a config payload."""
 
-    return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    try:
+        return train_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        raise_execution_http_error("training", exc)
 
 
 @router.post("/experiments/compare")
 def compare_experiments(config: CompareConfig) -> dict[str, Any]:
     """Run a synchronous compare demo from a compare config payload."""
 
-    return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    try:
+        return compare_with_safe_output_dir(config, runs_root=RUNS_ROOT)
+    except (FileNotFoundError, OSError, RuntimeError, ValueError) as exc:
+        raise_execution_http_error("compare", exc)
 
 
 @router.get("/experiments/{experiment_name}/{run_id}/results")

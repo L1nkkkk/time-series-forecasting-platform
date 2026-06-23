@@ -34,11 +34,28 @@ def test_train_artifacts_json_contains_expected_entries(tmp_path) -> None:
     assert {
         "results",
         "checkpoint",
+        "model_export",
+        "model_export_metadata",
         "config_snapshot",
         "environment",
         "forecast_samples",
+        "progress",
         "train_log",
     }.issubset(artifact_names)
+
+
+def test_train_run_writes_progress_json(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="artifact_train_progress")).run()
+    payload = json.loads((result.run_dir / "progress.json").read_text(encoding="utf-8"))
+
+    assert payload["status"] == "succeeded"
+    assert payload["run_id"] == result.run_id
+    assert payload["experiment_name"] == "artifact_train_progress"
+    assert payload["completed_epochs"] == result.history[-1]["epoch"]
+    assert payload["total_epochs"] == result.history[-1]["epoch"]
+    assert payload["progress_percent"] == 100
+    assert payload["history"] == result.history
+    assert payload["test_metrics"] == result.test_metrics
 
 
 def test_artifact_manifest_paths_stay_inside_run_dir(tmp_path) -> None:
@@ -47,6 +64,8 @@ def test_artifact_manifest_paths_stay_inside_run_dir(tmp_path) -> None:
     run_dir.mkdir()
     (run_dir / "results.json").write_text("{}", encoding="utf-8")
     (run_dir / "checkpoint.pt").write_text("checkpoint", encoding="utf-8")
+    (run_dir / "model_export.pt").write_text("model", encoding="utf-8")
+    (run_dir / "model_export.json").write_text("{}", encoding="utf-8")
     outside.write_text("{}", encoding="utf-8")
 
     generated = build_train_artifact_manifest(
@@ -54,6 +73,8 @@ def test_artifact_manifest_paths_stay_inside_run_dir(tmp_path) -> None:
         run_id="20260619T120000Z_a1b2c3",
         run_dir=run_dir,
         checkpoint_path=run_dir / "checkpoint.pt",
+        model_export_path=run_dir / "model_export.pt",
+        model_export_metadata_path=run_dir / "model_export.json",
     )
 
     assert all(
@@ -85,4 +106,6 @@ def test_artifact_manifest_paths_stay_inside_run_dir(tmp_path) -> None:
             run_id="20260619T120000Z_a1b2c3",
             run_dir=run_dir,
             checkpoint_path=outside,
+            model_export_path=run_dir / "model_export.pt",
+            model_export_metadata_path=run_dir / "model_export.json",
         )

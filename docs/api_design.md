@@ -11,6 +11,24 @@ SQLite-only events/attempts observability endpoints and a finite `worker-loop`
 CLI. It still does not introduce Redis, Celery, RabbitMQ, Kubernetes, or a
 daemon worker.
 
+## Runtime Hardening
+
+The API keeps demo-friendly defaults but can enable deployment-style request
+guards through `APISettings.from_env()`:
+
+- `TS_PLATFORM_API_KEY` requires `x-api-key` or `Authorization: Bearer ...` for
+  non-exempt API routes. `/health` and `/ui` stay exempt so local smoke checks
+  still work.
+- `TS_PLATFORM_MAX_REQUEST_BODY_BYTES` caps request bodies by `Content-Length`.
+  The default is 10 MiB.
+- `TS_PLATFORM_RATE_LIMIT_PER_MINUTE` enables an in-memory per-client
+  sliding-window rate limit.
+- `TS_PLATFORM_AUDIT_LOG_PATH` appends JSONL request audit events with method,
+  path, status, client, and timestamp.
+
+These controls are process-local hardening, not full multi-user ownership or
+artifact ACLs.
+
 ## Endpoints
 
 ### GET /health
@@ -48,6 +66,8 @@ Response:
       "created_at": "2026-06-20T00:00:00+00:00",
       "run_dir": "runs/csv_forecast/latest",
       "checkpoint_path": "runs/csv_forecast/latest/checkpoint.pt",
+      "model_export_path": "runs/csv_forecast/latest/model_export.pt",
+      "model_export_metadata_path": "runs/csv_forecast/latest/model_export.json",
       "test_metrics": {"original": {}}
     },
     {
@@ -77,8 +97,8 @@ Runs with missing or damaged `results.json` are returned as
 Returns the stored `results.json` for a train run or compare parent run.
 `run_id` can be `latest` or a recorded `run_id` / `compare_run_id`.
 
-Train results include checkpoint path, history, validation metrics, and test
-metrics. Compare results include:
+Train results include checkpoint path, model export paths, history, validation
+metrics, and test metrics. Compare results include:
 
 - `run_type: compare`
 - `experiment_name`
@@ -108,7 +128,8 @@ endpoint returns only manifest metadata and does not download arbitrary files.
 
 Downloads one file registered in the run `artifacts.json` manifest.
 `artifact_name` is a safe path component such as `results`,
-`leaderboard_json`, `leaderboard_csv`, or `train_log`; it is not a file path.
+`leaderboard_json`, `leaderboard_csv`, `model_export`, or `train_log`; it is
+not a file path.
 The endpoint looks up the matching manifest entry by exact `name`, resolves the
 manifest path under the fixed runs root, then verifies the path also remains
 inside the physical run directory resolved by `ExperimentStore` for the
@@ -125,15 +146,34 @@ Default downloadable kinds are:
 - `yaml`: `text/yaml`
 - `csv`: `text/csv`
 - `log`: `text/plain`
+- `model`: `application/octet-stream`
 
-Checkpoint artifacts are blocked by default. They are model-state binaries and
-may be much larger or more sensitive than result metadata, so enabling them
-requires an explicit `APISettings.allow_checkpoint_download` change.
+Model export artifacts are downloadable by default and contain inference model
+weights plus deployment metadata, but no optimizer state. Checkpoint artifacts
+are blocked by default. They are full training-state binaries and may be much
+larger or more sensitive than result metadata, so enabling them requires an
+explicit `APISettings.allow_checkpoint_download` change.
 `APISettings.artifact_allowed_kinds` controls downloadable non-checkpoint kinds,
 and `APISettings.artifact_max_bytes` controls the size limit. Files larger than
 the configured limit are rejected before response creation. The endpoint ignores
 arbitrary path query parameters; clients can only request a manifest
 `artifact_name`.
+
+### POST /experiments/{experiment_name}/{run_id}/predict
+
+Runs inference against the completed run's manifest-backed `model_export`
+artifact. The request body contains `values`, shaped `[input_len, input_dim]`
+or `[batch, input_len, input_dim]`. The response includes original-scale
+`prediction`, `scaled_prediction`, model dimensions, and target/feature column
+metadata. This endpoint is intended for local trusted model exports and does
+not accept arbitrary checkpoint files.
+
+### POST /predict/model-export
+
+Runs inference from a trusted local `model_export.pt` path. This mirrors the CLI
+`predict --model-export` workflow for local demos and handoffs. Prefer the
+run-scoped `/experiments/{experiment_name}/{run_id}/predict` endpoint when the
+model export belongs to a tracked run.
 
 ### POST /experiments/compare
 
@@ -185,6 +225,61 @@ Response includes run metadata, artifact paths, history, and metrics:
 Metrics under `original` are the default authoritative values. `scaled` is
 present only when `evaluation.include_scaled_metrics` is true.
 
+### POST /configs/train/run
+
+Loads a local YAML or JSON training config path, validates it, overwrites
+`experiment.output_dir` with the API runs root, and runs synchronous training.
+
+### POST /configs/compare/run
+
+Loads a local YAML or JSON compare config path, validates it, overwrites
+`experiment.output_dir` with the API runs root, and runs synchronous compare.
+
+### POST /datasets/profile-csv
+
+Profiles one local CSV path with target columns, optional timestamp column, and
+optional input/output lengths. This mirrors `profile-dataset`.
+
+### POST /datasets/catalog/profile
+
+Profiles CSV entries in one local dataset catalog. Unsupported catalog entries
+return warning stubs instead of crashing the whole response. This mirrors
+`profile-catalog`.
+
+### POST /datasets/catalog/list
+
+Lists metadata entries from one local dataset catalog. This mirrors
+`list-datasets --catalog` for local demo tooling.
+
+### POST /datasets/catalog/config
+
+Generates a training config from one local catalog entry. The response always
+includes the config payload and can optionally write YAML to `output_path` for
+local demo parity with `make-config-from-catalog`.
+
+### POST /tools/experiments/results
+
+Reads `results.json` from a trusted local `runs_root`, `experiment`, and `run`.
+This mirrors `show-results --runs-root` for desktop/demo CLI parity while still
+using `ExperimentStore` safe component validation and run-directory resolution.
+
+### POST /tools/experiments/leaderboard
+
+Reads `leaderboard.json` from a trusted local `runs_root`, `experiment`, and
+`run`. This mirrors `show-leaderboard --runs-root`.
+
+### POST /tools/experiments/artifacts
+
+Reads `artifacts.json` from a trusted local `runs_root`, `experiment`, and
+`run`. This mirrors `show-artifacts --runs-root`.
+
+### POST /tools/experiments/artifact
+
+Downloads one manifest-backed artifact from a trusted local `runs_root`,
+`experiment`, `run`, and `artifact` name. This mirrors
+`show-artifact --runs-root --artifact --output`; browser clients receive a
+`FileResponse` instead of writing to a server-side output path.
+
 ### POST /jobs/train
 
 Accepts the same `PlatformConfig` request body as `POST /experiments/train`,
@@ -211,7 +306,9 @@ worker.
 Returns persisted job records newest first by `created_at`. Corrupt `job.json`
 metadata is skipped so a single damaged job does not prevent other jobs from
 being listed. SQLite backend reads use the same response shape and return clear
-job-store errors for SQLite database or schema failures.
+job-store errors for SQLite database or schema failures. Local demo clients can
+pass `job_backend`, `jobs_root`, and `sqlite_db` query parameters to mirror the
+CLI inspection flags.
 
 ```json
 {
@@ -237,12 +334,14 @@ job-store errors for SQLite database or schema failures.
 Returns SQLite stale `running` or `cancel_requested` jobs as a JSON array
 without mutating state. `older_than_seconds` defaults to `3600` and must be
 positive. The endpoint is SQLite-only; JSON backend requests return HTTP 400.
+`jobs_root` and `sqlite_db` query parameters mirror the CLI flags.
 
 ### GET /jobs/{job_id}
 
 Returns one persisted job record. `job_id` must be a safe path component.
 Corrupt metadata for the requested job returns HTTP 500 and requires manual
-cleanup.
+cleanup. `job_backend`, `jobs_root`, and `sqlite_db` query parameters mirror
+the CLI inspection flags.
 
 ### GET /jobs/{job_id}/events
 
@@ -251,6 +350,7 @@ SQLite-only because the JSON backend has no event table. When the configured
 backend is JSON, the endpoint returns HTTP 400 with
 `job events require sqlite backend`. Unsafe job ids return HTTP 400, missing
 jobs return HTTP 404, and SQLite store errors return HTTP 500.
+`jobs_root` and `sqlite_db` query parameters mirror the CLI flags.
 
 ### GET /jobs/{job_id}/attempts
 
@@ -259,6 +359,7 @@ is SQLite-only because attempts are created by the external worker prototype.
 When the configured backend is JSON, the endpoint returns HTTP 400 with
 `job attempts require sqlite backend`. Unsafe job ids return HTTP 400, missing
 jobs return HTTP 404, and SQLite store errors return HTTP 500.
+`jobs_root` and `sqlite_db` query parameters mirror the CLI flags.
 
 ### GET /jobs/{job_id}/result
 
@@ -266,13 +367,16 @@ Returns the saved `results.json` for a succeeded job. Jobs that are still
 `queued`, `running`, `cancel_requested`, `cancelled`, or `failed` return HTTP
 409 with a detail payload containing the current status and error field. Missing
 job ids return 404 and unsafe ids return 400.
+`job_backend`, `jobs_root`, `sqlite_db`, and `runs_root` query parameters
+mirror the CLI inspection flags.
 
 ### GET /jobs/{job_id}/logs
 
 Returns a JSON wrapper with `job_id`, `status`, `error`, `log_path`, and `log`.
 When the completed run has a `train.log`, the log text is included. Compare
 parent runs may not have a parent log, so `log` can be `null`; failures are
-still visible through the job `error` field.
+still visible through the job `error` field. `job_backend`, `jobs_root`,
+`sqlite_db`, and `runs_root` query parameters mirror the CLI inspection flags.
 
 ### POST /jobs/{job_id}/cancel
 
@@ -286,6 +390,11 @@ successful result. Terminal jobs return their current record unchanged.
 Explicitly marks a SQLite `running` or `cancel_requested` job as `timed_out`.
 The latest running attempt is marked failed when one exists. Terminal jobs are
 returned unchanged. JSON backend requests return HTTP 400.
+
+### POST /jobs/stale/timeout
+
+Marks all stale running SQLite jobs timed out using the same threshold semantics
+as `mark-stale-timeout`.
 
 ### POST /jobs/{job_id}/retry
 
@@ -320,6 +429,16 @@ with a clear backend error.
 
 - `in_process`: default; submit through the local `ThreadPoolExecutor`.
 - `external_worker`: queue-only API submit; requires `job_backend = "sqlite"`.
+
+### POST /jobs/worker/once
+
+Claims and runs at most one queued SQLite job in the API process. This mirrors
+`worker-once` for local demos and is intentionally bounded.
+
+### POST /jobs/worker/loop
+
+Runs a finite local SQLite worker loop with `max_jobs`, `max_idle_cycles`, and
+`sleep_seconds` bounds. This mirrors `worker-loop`.
 
 The external worker mode keeps the `/jobs` API response fields stable. The
 difference is when and where the transition from `queued` to `running` happens.

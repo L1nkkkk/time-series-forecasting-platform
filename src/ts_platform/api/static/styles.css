@@ -253,6 +253,16 @@ main {
   background: #ffffff;
 }
 
+.run-lookup-panel {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+}
+
+.run-lookup-panel .output:empty {
+  display: none;
+}
+
 .dataset-catalog-grid {
   display: grid;
   gap: 14px;

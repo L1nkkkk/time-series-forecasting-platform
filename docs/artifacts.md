@@ -33,6 +33,18 @@ Train runs use this shape:
       "description": "Final model checkpoint"
     },
     {
+      "name": "model_export",
+      "kind": "model",
+      "path": "runs/csv_forecast/latest/model_export.pt",
+      "description": "Inference model export without optimizer state"
+    },
+    {
+      "name": "model_export_metadata",
+      "kind": "json",
+      "path": "runs/csv_forecast/latest/model_export.json",
+      "description": "Inference model export metadata"
+    },
+    {
       "name": "config_snapshot",
       "kind": "yaml",
       "path": "runs/csv_forecast/latest/config_snapshot.yaml",
@@ -45,6 +57,12 @@ Train runs use this shape:
       "description": "Runtime environment metadata"
     },
     {
+      "name": "forecast_samples",
+      "kind": "json",
+      "path": "runs/csv_forecast/latest/forecast_samples.json",
+      "description": "Original-scale forecast samples for visual inspection"
+    },
+    {
       "name": "train_log",
       "kind": "log",
       "path": "runs/csv_forecast/latest/train.log",
@@ -55,6 +73,12 @@ Train runs use this shape:
 ```
 
 Optional missing files are skipped instead of failing the run.
+
+`checkpoint.pt` is a full training checkpoint for resume workflows. It can
+include optimizer state and training metadata. `model_export.pt` is a lighter
+inference package with model architecture, weights, dimensions, data metadata,
+metrics, and scaler state, but no optimizer state. The companion
+`model_export.json` is human-readable metadata for preview and audit.
 
 ## Compare Manifest
 
@@ -128,9 +152,11 @@ directory under the fixed runs root.
 - Cross-run manifest paths are rejected even when they stay under the same
   runs root.
 - The file must exist and be a regular file.
-- Allowed kinds are `json`, `yaml`, `csv`, and `log` by default.
+- Allowed kinds are `json`, `yaml`, `csv`, `log`, and `model` by default.
 - Checkpoint downloads are blocked by default because checkpoints can be large
   binary model state and may include sensitive training metadata.
+- Model export downloads are allowed by default and still go through manifest,
+  run-directory, kind-policy, and file-size checks.
 - Downloadable files are limited to 5 MiB by default.
 
 The API builds its artifact access policy from `APISettings`:
@@ -148,6 +174,7 @@ The default media types are:
 - `yaml`: `text/yaml`
 - `csv`: `text/csv`
 - `log`: `text/plain`
+- `model`: `application/octet-stream`
 - `checkpoint`: `application/octet-stream`, only when an explicit policy
   enables checkpoint downloads.
 
@@ -158,6 +185,7 @@ CLI:
 ```bash
 py -m ts_platform.cli.main show-artifacts --experiment compare_forecast --run latest
 py -m ts_platform.cli.main show-artifact --experiment compare_forecast --run latest --artifact leaderboard_json
+py -m ts_platform.cli.main show-artifact --experiment csv_forecast --run latest --artifact model_export --output model_export.pt
 ```
 
 API:
@@ -169,6 +197,7 @@ GET /experiments/{experiment_name}/{run_id}/artifacts/{artifact_name}
 
 `show-artifacts` and `GET /artifacts` return manifest metadata. `show-artifact`
 and `GET /artifacts/{artifact_name}` read a single registered artifact file.
-Unknown artifact names return not found errors, unsafe names are rejected, kind
-policy failures return forbidden errors, and oversized files are rejected before
-the response body is sent.
+Binary artifacts such as `model_export` require `show-artifact --output` in the
+CLI. Unknown artifact names return not found errors, unsafe names are rejected,
+kind policy failures return forbidden errors, and oversized files are rejected
+before the response body is sent.

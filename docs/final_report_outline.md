@@ -40,9 +40,11 @@ feature increments, documentation, and quality gates.
 - Original-scale metrics.
 - Artifacts manifest.
 - Safe artifact download.
+- Model export and prediction.
 - SQLite jobs.
 - Feature-aware training.
 - Checkpoint v2.
+- Local dashboard and CLI-parity API tools.
 
 ## 6. Testing and Quality Assurance
 
@@ -61,8 +63,9 @@ feature increments, documentation, and quality gates.
 
 ## 8. Limitations
 
-- No Web UI.
-- No auth.
+- Dashboard is local/demo-grade, not a production web application.
+- No multi-user auth or per-user authorization; only optional coarse API-key
+  protection.
 - No multi-tenant SaaS.
 - No Redis/Celery production queue.
 - No probabilistic forecasting.
@@ -70,9 +73,9 @@ feature increments, documentation, and quality gates.
 
 ## 9. Future Work
 
-- UI dashboard.
+- Production dashboard.
 - Production queue.
-- Auth.
+- Multi-user auth and authorization.
 - Deployment.
 - More datasets.
 - More models.

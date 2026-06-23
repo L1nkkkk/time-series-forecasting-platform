@@ -9,6 +9,8 @@ from ts_platform.api.services.artifact_service import ArtifactService
 from ts_platform.api.services.experiment_store import ExperimentStore
 from ts_platform.cli.utils import print_json, read_text_artifact
 
+TEXT_ARTIFACT_KINDS = {"json", "yaml", "csv", "log"}
+
 
 def register(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
@@ -54,6 +56,15 @@ def handle_show_artifact(args: argparse.Namespace) -> int:
         args.run,
         args.artifact,
     )
+    if artifact.kind not in TEXT_ARTIFACT_KINDS:
+        if not args.output:
+            msg = f"artifact {artifact.name!r} is binary; pass --output to write it to a file"
+            raise ValueError(msg)
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_bytes(artifact.path.read_bytes())
+        return 0
+
     content = read_text_artifact(artifact.path)
     if args.output:
         output_path = Path(args.output)

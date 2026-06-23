@@ -203,6 +203,27 @@ def test_api_submit_compare_job_returns_queued_or_running(
     assert payload["status"] in {"queued", "running"}
 
 
+def test_api_submit_train_config_job(tmp_path: Path, monkeypatch: Any, request: Any) -> None:
+    runner = _install_runner(
+        monkeypatch,
+        tmp_path,
+        request=request,
+        train_func=_write_train_result,
+    )
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_train_config")
+    config_path = tmp_path / "config.json"
+    config_path.write_text(json.dumps(config.model_dump(mode="json")), encoding="utf-8")
+
+    response = client.post("/jobs/train-config", json={"config_path": str(config_path)})
+    payload = response.json()
+    runner.wait(payload["job_id"], timeout=5)
+
+    assert response.status_code == 200
+    assert payload["job_type"] == "train"
+    assert payload["experiment_name"] == "api_job_train_config"
+
+
 def test_api_get_job(tmp_path: Path, monkeypatch: Any, request: Any) -> None:
     runner = _install_runner(
         monkeypatch,
@@ -347,6 +368,49 @@ def test_api_get_job_attempts_sqlite_backend(
     assert isinstance(payload, list)
     assert payload[0]["attempt_id"] == claimed.attempt_id
     assert payload[0]["worker_id"] == "api_worker"
+
+
+def test_api_worker_once_returns_idle_for_empty_sqlite_queue(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+
+    response = client.post("/jobs/worker/once")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "idle"}
+
+
+def test_api_timeout_stale_jobs_returns_empty_list_for_empty_sqlite_queue(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+
+    response = client.post("/jobs/stale/timeout?older_than_seconds=1")
+
+    assert response.status_code == 200
+    assert response.json() == {"timed_out": []}
+
+
+def test_api_worker_loop_returns_bounded_idle_payload(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    _configure_external_worker_mode(monkeypatch, tmp_path)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/jobs/worker/loop",
+        json={"max_jobs": 1, "max_idle_cycles": 1, "sleep_seconds": 0, "worker_id": "api_worker"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processed"] == 0
+    assert response.json()["idle_cycles"] == 1
 
 
 def test_api_get_job_events_requires_sqlite_backend(
@@ -694,6 +758,71 @@ def test_api_job_result_after_success(tmp_path: Path, monkeypatch: Any, request:
     assert response.json()["experiment_name"] == "api_job_result"
     assert logs_response.status_code == 200
     assert logs_response.json()["log"] == "training complete"
+
+
+def test_api_job_progress_reads_live_run_dir(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("train", "api_job_progress", {"config": True})
+    runner.store.mark_running(job.job_id)
+    run_dir = tmp_path / "runs" / "api_job_progress" / "latest"
+    run_dir.mkdir(parents=True)
+    (run_dir / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "run_id": "live",
+                "experiment_name": "api_job_progress",
+                "total_epochs": 5,
+                "completed_epochs": 2,
+                "progress_percent": 40,
+                "history": [{"epoch": 2, "train_loss": 0.5}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "train.log").write_text("epoch=1\nepoch=2 train_loss=0.5", encoding="utf-8")
+    client = TestClient(create_app())
+
+    response = client.get(f"/jobs/{job.job_id}/progress")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job"]["status"] == "running"
+    assert payload["run_dir"] == str(run_dir)
+    assert payload["progress"]["completed_epochs"] == 2
+    assert "epoch=2" in payload["log_tail"]
+
+
+def test_api_job_logs_rejects_oversized_log(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    def write_large_log(config: PlatformConfig, runs_root: Path) -> dict[str, Any]:
+        payload = _write_train_result(config, runs_root)
+        (Path(str(payload["run_dir"])) / "train.log").write_text("too long", encoding="utf-8")
+        return payload
+
+    monkeypatch.setattr(jobs, "API_SETTINGS", APISettings(artifact_max_bytes=4))
+    runner = _install_runner(
+        monkeypatch,
+        tmp_path,
+        request=request,
+        train_func=write_large_log,
+    )
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_job_large_log").model_dump(mode="json")
+    submitted = client.post("/jobs/train", json=config).json()
+    runner.wait(submitted["job_id"], timeout=5)
+
+    response = client.get(f"/jobs/{submitted['job_id']}/logs")
+
+    assert response.status_code == 413
+    assert "job log exceeds maximum size" in response.text
 
 
 def test_api_job_result_returns_conflict_when_not_ready(

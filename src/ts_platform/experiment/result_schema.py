@@ -17,6 +17,8 @@ def result_payload(
     validation_metrics: OptionalMetricGroups,
     test_metrics: MetricGroups,
     resumed_from: str | None,
+    model_export_path: str | None = None,
+    model_export_metadata_path: str | None = None,
     data_metadata: dict[str, Any] | None = None,
     forecast_samples: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -29,6 +31,10 @@ def result_payload(
         "validation_metrics": validation_metrics,
         "test_metrics": test_metrics,
     }
+    if model_export_path is not None:
+        payload["model_export_path"] = model_export_path
+    if model_export_metadata_path is not None:
+        payload["model_export_metadata_path"] = model_export_metadata_path
     if data_metadata is not None:
         payload["data_metadata"] = data_metadata
     if forecast_samples is not None:

@@ -46,7 +46,11 @@ class JsonJobStore:
         with self._lock:
             job_id = self._new_job_id()
             job_dir = self._job_dir(job_id)
-            job_dir.mkdir(parents=True, exist_ok=False)
+            try:
+                job_dir.mkdir(parents=True, exist_ok=False)
+            except OSError as exc:
+                msg = f"job directory cannot be created: {job_dir}"
+                raise JobStoreError(msg) from exc
             config_snapshot_path = job_dir / "request_config.json"
             self._write_json(config_snapshot_path, config_payload)
             now = utc_now()
@@ -225,10 +229,14 @@ class JsonJobStore:
 
     def _write_json(self, path: Path, payload: dict[str, Any]) -> None:
         self._assert_inside_root(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_name(f"{path.name}.tmp")
-        tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        tmp_path.replace(path)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+            tmp_path.replace(path)
+        except OSError as exc:
+            msg = f"job metadata cannot be written: {path}"
+            raise JobStoreError(msg) from exc
 
     def _read_json_object(self, path: Path) -> dict[str, Any]:
         payload = self._read_json(path)

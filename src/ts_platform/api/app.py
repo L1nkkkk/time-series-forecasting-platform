@@ -6,31 +6,35 @@ import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ts_platform import __version__
-from ts_platform.api.routes import datasets, demo, experiments, jobs, models
+from ts_platform.api.middleware import install_hardening_middleware
+from ts_platform.api.routes import datasets, demo, experiments, jobs, models, predict, tools
 from ts_platform.api.settings import APISettings
 from ts_platform.data.catalog_loader import register_dataset_catalog
+from ts_platform.runner.devices import device_status
 
 logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: APISettings | None = None) -> FastAPI:
     """Create the FastAPI application."""
 
-    settings = APISettings()
-    _load_local_catalogs(settings)
+    resolved_settings = settings or APISettings.from_env()
+    _load_local_catalogs(resolved_settings)
 
     app = FastAPI(title="TS Platform", version=__version__, lifespan=_lifespan)
+    install_hardening_middleware(app, resolved_settings)
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+    def health() -> dict[str, Any]:
+        return {"status": "ok", "version": __version__, **device_status()}
 
     @app.get("/ui", include_in_schema=False)
     @app.get("/ui/", include_in_schema=False)
@@ -44,6 +48,8 @@ def create_app() -> FastAPI:
     app.include_router(models.router)
     app.include_router(experiments.router)
     app.include_router(jobs.router)
+    app.include_router(predict.router)
+    app.include_router(tools.router)
     return app
 
 

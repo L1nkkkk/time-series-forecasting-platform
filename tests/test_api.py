@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from tests.helpers import tiny_config
 from ts_platform.api.app import create_app
 from ts_platform.api.jobs.runner import JobRunner
-from ts_platform.api.routes import datasets, demo, experiments, jobs
+from ts_platform.api.jobs.store import JsonJobStore
+from ts_platform.api.routes import datasets, demo, experiments, jobs, predict, tools
 from ts_platform.api.settings import APISettings
 from ts_platform.config.compare_schema import CompareConfig, CompareModelConfig
 from ts_platform.config.schema import (
@@ -80,6 +81,8 @@ def test_api_health_datasets_and_models() -> None:
 
     assert health.status_code == 200
     assert health.json()["status"] == "ok"
+    assert isinstance(health.json()["cuda_available"], bool)
+    assert isinstance(health.json()["cuda_device_count"], int)
     assert datasets.status_code == 200
     assert "synthetic" in datasets.json()["names"]
     assert "csv" in datasets.json()["names"]
@@ -88,6 +91,47 @@ def test_api_health_datasets_and_models() -> None:
     assert {"naive", "linear", "mlp", "transformer", "nbeats"}.issubset(
         set(models.json()["models"])
     )
+
+
+def test_api_key_auth_blocks_non_exempt_routes() -> None:
+    client = TestClient(create_app(APISettings(api_key="secret")))
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/models").status_code == 401
+    assert client.get("/models", headers={"x-api-key": "secret"}).status_code == 200
+    assert client.get("/models", headers={"authorization": "Bearer secret"}).status_code == 200
+
+
+def test_api_rejects_oversized_request_body() -> None:
+    client = TestClient(create_app(APISettings(max_request_body_bytes=10)))
+
+    response = client.post(
+        "/datasets/profile-csv",
+        content='{"too_large":"xxxxxxxxxxxxxxxxxxxxxxxx"}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+
+
+def test_api_rate_limit_returns_429() -> None:
+    client = TestClient(create_app(APISettings(rate_limit_requests_per_minute=1)))
+
+    assert client.get("/health").status_code == 200
+    assert client.get("/health").status_code == 429
+
+
+def test_api_audit_log_writes_jsonl(tmp_path) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    client = TestClient(create_app(APISettings(audit_log_path=audit_path)))
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    event = json.loads(audit_path.read_text(encoding="utf-8").splitlines()[0])
+    assert event["method"] == "GET"
+    assert event["path"] == "/health"
+    assert event["status_code"] == 200
 
 
 def test_ui_index_served() -> None:
@@ -107,10 +151,37 @@ def test_ui_index_served() -> None:
     assert "dataset-domain-filter" in response.text
     assert "job-demo-kind" in response.text
     assert "submit-demo-job" in response.text
-    assert "20260622-job-dataset-select" in response.text
+    assert "20260624-cli-parity" in response.text
     assert "data-page-nav" in response.text
     assert "data-page-section" in response.text
     assert "export-report-run" in response.text
+    assert "run-lookup-experiment" in response.text
+    assert "run-lookup-runs-root" in response.text
+    assert "lookup-results" in response.text
+    assert "download-lookup-artifact" in response.text
+    assert "run-config-file" in response.text
+    assert "prediction-values-file" in response.text
+    assert "predict-selected-run" in response.text
+    assert "list-registered-datasets-tool" in response.text
+    assert "list-models-tool" in response.text
+    assert "list-catalog-tool" in response.text
+    assert "profile-catalog-tool" in response.text
+    assert "worker-once" in response.text
+    assert "job-backend" in response.text
+    assert "jobs-root" in response.text
+    assert "jobs-sqlite-db" in response.text
+    assert "jobs-runs-root" in response.text
+    assert "dataset-tool-output-path" in response.text
+    assert "dataset-tool-profile-name" in response.text
+    assert "retry-max-attempts" in response.text
+    assert "timeout-reason" in response.text
+    assert "worker-id" in response.text
+    assert "worker-max-jobs" in response.text
+    assert "worker-idle-cycles" in response.text
+    assert "worker-sleep-seconds" in response.text
+    assert "load-job-progress" in response.text
+    assert "auto-job-progress" in response.text
+    assert "start-half-hour-demo" in response.text
 
 
 def test_ui_static_assets_served() -> None:
@@ -139,7 +210,21 @@ def test_ui_static_assets_served() -> None:
     assert "monitor-smoothing" in script.text
     assert "collectTrainingSeries" in script.text
     assert "buildExperimentReport" in script.text
+    assert "loadRunLookupPayload" in script.text
+    assert "downloadRunLookupArtifact" in script.text
+    assert "handlePredictionValuesFile" in script.text
+    assert "listRegisteredDatasetsTool" in script.text
+    assert "listModelsTool" in script.text
     assert "downloadTextFile" in script.text
+    assert "downloadBlob" in script.text
+    assert "readJobCliSettings" in script.text
+    assert "jobQuery" in script.text
+    assert "loadJobProgress" in script.text
+    assert "startAutoJobProgress" in script.text
+    assert "toggleAutoJobProgress" in script.text
+    assert "renderJobProgress" in script.text
+    assert "startHalfHourDemo" in script.text
+    assert "appliances_energy_half_hour_demo" in script.text
     assert "setDashboardPage" in script.text
     assert "pageFromHash" in script.text
     assert "dataset-catalog-select" in script.text
@@ -162,6 +247,7 @@ def test_ui_static_assets_served() -> None:
     assert ".monitor-panels" in styles.text
     assert ".monitor-chart" in styles.text
     assert ".profile-panel" in styles.text
+    assert ".run-lookup-panel" in styles.text
     assert ".table-action-link" in styles.text
 
 
@@ -176,6 +262,7 @@ def test_demo_configs_lists_whitelist() -> None:
         "simple_forecast",
         "csv_forecast",
         "csv_feature_forecast",
+        "appliances_energy_half_hour_demo",
         "compare_forecast",
         "compare_model_zoo",
         "compare_feature_forecast",
@@ -184,6 +271,7 @@ def test_demo_configs_lists_whitelist() -> None:
         "simple_forecast",
         "csv_forecast",
         "csv_feature_forecast",
+        "appliances_energy_half_hour_demo",
     ]
     assert payload["compare"] == [
         "compare_forecast",
@@ -231,6 +319,35 @@ def test_demo_train_job_submits_whitelisted_config(tmp_path, monkeypatch) -> Non
         assert response.status_code == 200
         assert payload["job_type"] == "train"
         assert payload["experiment_name"] == "simple_forecast"
+        assert payload["job_id"]
+        assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
+    finally:
+        jobs.shutdown_job_runner()
+
+
+def test_demo_half_hour_job_submits_whitelisted_config(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    runner = JobRunner(
+        runs_root=safe_root,
+        jobs_root=tmp_path / "jobs",
+        train_func=lambda config, runs_root: {
+            "experiment_name": config.experiment.name,
+            "run_id": "fake_half_hour_run",
+            "run_dir": str(runs_root / config.experiment.name / "fake_half_hour_run"),
+        },
+    )
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", runner)
+    monkeypatch.setattr(jobs, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    client = TestClient(create_app())
+
+    try:
+        response = client.post("/demo/jobs/train/appliances_energy_half_hour_demo")
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert payload["job_type"] == "train"
+        assert payload["experiment_name"] == "appliances_energy_half_hour_demo"
         assert payload["job_id"]
         assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
     finally:
@@ -318,6 +435,41 @@ def test_api_train_endpoint(tmp_path, monkeypatch) -> None:
     assert Path(payload["checkpoint_path"]).exists()
     assert Path(payload["run_dir"]).is_relative_to(safe_root)
     assert (safe_root / "api" / "latest" / "results.json").exists()
+
+
+def test_api_train_cuda_unavailable_returns_400(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr("ts_platform.runner.devices.torch.cuda.is_available", lambda: False)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_cuda")
+    config = config.model_copy(
+        update={"training": TrainingConfig(epochs=1, learning_rate=0.01, device="cuda")}
+    )
+
+    response = client.post("/experiments/train", json=config.model_dump(mode="json"))
+    payload = response.json()
+
+    assert response.status_code == 400
+    assert "CUDA was requested" in payload["detail"]
+    assert not (safe_root / "api_cuda" / "latest").exists()
+
+
+def test_api_train_runtime_failure_returns_clear_500(tmp_path, monkeypatch) -> None:
+    def fail_train(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("training exploded")
+
+    safe_root = tmp_path / "safe_runs"
+    monkeypatch.setattr(experiments, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr(experiments, "train_with_safe_output_dir", fail_train)
+    client = TestClient(create_app())
+    config = tiny_config(tmp_path / "requested", name="api_failure").model_dump(mode="json")
+
+    response = client.post("/experiments/train", json=config)
+    payload = response.json()
+
+    assert response.status_code == 500
+    assert payload["detail"] == "training failed: training exploded"
 
 
 def test_api_train_rejects_or_overrides_unsafe_output_dir(tmp_path, monkeypatch) -> None:
@@ -427,6 +579,26 @@ def test_api_upload_csv_dataset_rejects_non_csv(tmp_path, monkeypatch) -> None:
     assert "must be a .csv" in response.text
 
 
+def test_api_save_user_dataset_rejects_remote_csv_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/datasets/user",
+        json={
+            "name": "remote_csv",
+            "dataset_type": "csv",
+            "domain": "custom",
+            "description": "Remote path should not be stored as a local CSV.",
+            "path": "https://example.com/data.csv",
+            "target_cols": ["value"],
+        },
+    )
+
+    assert response.status_code == 422
+    assert "must be a local path" in response.text
+
+
 def test_api_save_user_dataset_persists_and_lists(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
     client = TestClient(create_app())
@@ -503,6 +675,16 @@ def test_api_delete_one_user_dataset(tmp_path, monkeypatch) -> None:
     assert response.status_code == 200
     assert any(item["name"] == "keep_me" for item in listed)
     assert not any(item["name"] == "delete_me" for item in listed)
+
+
+def test_api_delete_user_dataset_rejects_unsafe_name(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(datasets, "USER_DATASETS_PATH", tmp_path / "user_datasets.json")
+    client = TestClient(create_app())
+
+    response = client.delete("/datasets/user/bad%20name")
+
+    assert response.status_code == 400
+    assert "dataset.name must be a safe path component" in response.text
 
 
 def test_api_profile_user_dataset(tmp_path, monkeypatch) -> None:
@@ -631,6 +813,7 @@ def test_api_experiments_lists_run_metadata(tmp_path, monkeypatch) -> None:
     assert payload["experiments"][0]["experiment_name"] == "api_list"
     assert payload["experiments"][0]["run_id"]
     assert payload["experiments"][0]["created_at"]
+    assert payload["experiments"][0]["model_export_path"]
 
 
 def test_api_experiments_lists_train_and_compare_runs(tmp_path, monkeypatch) -> None:
@@ -730,6 +913,8 @@ def test_api_get_train_artifacts(tmp_path, monkeypatch) -> None:
     assert payload["run_type"] == "train"
     assert payload["run_id"] == result.run_id
     assert any(artifact["name"] == "checkpoint" for artifact in payload["artifacts"])
+    assert any(artifact["name"] == "model_export" for artifact in payload["artifacts"])
+    assert any(artifact["name"] == "model_export_metadata" for artifact in payload["artifacts"])
 
 
 def test_api_get_compare_artifacts(tmp_path, monkeypatch) -> None:
@@ -855,6 +1040,195 @@ def test_api_download_log_artifact(tmp_path, monkeypatch) -> None:
     assert response.status_code == 200
     assert response.text == "training complete\n"
     assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_api_download_model_export_artifact(tmp_path, monkeypatch) -> None:
+    result = Trainer(tiny_config(tmp_path, name="api_download_model_export")).run()
+    monkeypatch.setattr(experiments, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.get("/experiments/api_download_model_export/latest/artifacts/model_export")
+
+    assert response.status_code == 200
+    assert response.content == result.model_export_path.read_bytes()
+    assert response.headers["content-type"].startswith("application/octet-stream")
+    assert "model_export.pt" in response.headers["content-disposition"]
+
+
+def test_api_predict_from_model_export_path(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="api_predict_path")).run()
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/predict/model-export",
+        json={
+            "model_export_path": str(result.model_export_path),
+            "values": [[[0.0] for _ in range(6)]],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["format"] == "ts_platform_prediction"
+    assert len(payload["prediction"][0]) == 2
+
+
+def test_api_predict_from_run_model_export(tmp_path, monkeypatch) -> None:
+    Trainer(tiny_config(tmp_path, name="api_predict_run")).run()
+    monkeypatch.setattr(predict, "RUNS_ROOT", tmp_path)
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/experiments/api_predict_run/latest/predict",
+        json={"values": [[[0.0] for _ in range(6)]]},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["format"] == "ts_platform_prediction"
+    assert payload["model"]["output_len"] == 2
+
+
+def test_api_tools_lookup_run_with_custom_runs_root(tmp_path) -> None:
+    result = Trainer(tiny_config(tmp_path, name="api_tools_lookup")).run()
+    client = TestClient(create_app())
+    request = {
+        "runs_root": str(tmp_path),
+        "experiment": "api_tools_lookup",
+        "run": "latest",
+    }
+
+    results_response = client.post("/tools/experiments/results", json=request)
+    artifacts_response = client.post("/tools/experiments/artifacts", json=request)
+    artifact_response = client.post(
+        "/tools/experiments/artifact",
+        json={**request, "artifact": "results"},
+    )
+
+    assert results_response.status_code == 200
+    assert results_response.json()["run_id"] == result.run_id
+    assert artifacts_response.status_code == 200
+    assert any(item["name"] == "results" for item in artifacts_response.json()["artifacts"])
+    assert artifact_response.status_code == 200
+    assert artifact_response.json()["run_id"] == result.run_id
+
+
+def test_api_jobs_list_with_custom_jobs_root(tmp_path) -> None:
+    store = JsonJobStore(tmp_path / "custom_jobs")
+    job = store.create_job("train", "custom_job", {"experiment": {"name": "custom_job"}})
+    client = TestClient(create_app())
+
+    list_response = client.get(
+        "/jobs",
+        params={
+            "job_backend": "json",
+            "jobs_root": str(store.jobs_root),
+        },
+    )
+    get_response = client.get(
+        f"/jobs/{job.job_id}",
+        params={
+            "job_backend": "json",
+            "jobs_root": str(store.jobs_root),
+        },
+    )
+
+    assert list_response.status_code == 200
+    assert list_response.json()["jobs"][0]["job_id"] == job.job_id
+    assert get_response.status_code == 200
+    assert get_response.json()["experiment_name"] == "custom_job"
+
+
+def test_api_profile_csv_path(tmp_path) -> None:
+    csv_path = tmp_path / "series.csv"
+    csv_path.write_text("timestamp,value\n2024-01-01,1\n2024-01-02,2\n", encoding="utf-8")
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/datasets/profile-csv",
+        json={
+            "path": str(csv_path),
+            "target_cols": ["value"],
+            "timestamp_col": "timestamp",
+            "input_len": 1,
+            "output_len": 1,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["row_count"] == 2
+    assert response.json()["can_build_windows"] is True
+
+
+def test_api_profile_catalog_and_generate_config(tmp_path) -> None:
+    csv_path = tmp_path / "series.csv"
+    catalog_path = tmp_path / "catalog.yaml"
+    csv_path.write_text("timestamp,value\n2024-01-01,1\n2024-01-02,2\n", encoding="utf-8")
+    catalog_path.write_text(
+        "\n".join(
+            [
+                "datasets:",
+                "  - name: local_series",
+                "    dataset_type: csv",
+                "    domain: test",
+                "    description: Local test data",
+                "    source: local",
+                f"    path: {csv_path.as_posix()}",
+                "    timestamp_col: timestamp",
+                "    target_cols: [value]",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    client = TestClient(create_app())
+
+    profile_response = client.post(
+        "/datasets/catalog/profile",
+        json={"catalog_path": str(catalog_path), "input_len": 1, "output_len": 1},
+    )
+    list_response = client.post(
+        "/datasets/catalog/list",
+        json={"catalog_path": str(catalog_path)},
+    )
+    config_response = client.post(
+        "/datasets/catalog/config",
+        json={
+            "catalog_path": str(catalog_path),
+            "dataset": "local_series",
+            "input_len": 1,
+            "output_len": 1,
+            "model": "linear",
+            "epochs": 1,
+            "output_path": str(tmp_path / "generated.yaml"),
+        },
+    )
+
+    assert profile_response.status_code == 200
+    assert profile_response.json()["profiles"][0]["name"] == "local_series"
+    assert list_response.status_code == 200
+    assert list_response.json()["datasets"][0]["name"] == "local_series"
+    assert config_response.status_code == 200
+    assert config_response.json()["config"]["experiment"]["name"] == "train_local_series_linear"
+    assert Path(config_response.json()["output"]).exists()
+
+
+def test_api_run_train_config_path(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    config = tiny_config(tmp_path / "requested", name="api_train_config_path")
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        json.dumps(config.model_dump(mode="json")),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(tools, "API_SETTINGS", APISettings(runs_root=safe_root))
+    client = TestClient(create_app())
+
+    response = client.post("/configs/train/run", json={"config_path": str(config_path)})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["experiment_name"] == "api_train_config_path"
+    assert Path(payload["run_dir"]).is_relative_to(safe_root)
 
 
 def test_api_download_unknown_artifact_returns_404(tmp_path, monkeypatch) -> None:

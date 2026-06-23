@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>时间序列平台实验中心</title>
     <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-job-dataset-select" />
-    <script src="/ui/static/app.js?v=20260622-job-dataset-select" defer></script>
+    <script src="/ui/static/app.js?v=20260624-cli-parity" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -176,6 +176,37 @@
           </aside>
 
           <section class="detail-panel" aria-labelledby="detail-title">
+            <div class="run-lookup-panel">
+              <div class="panel-heading">
+                <h3 id="run-lookup-title">Run Lookup</h3>
+                <span id="run-lookup-status" class="status" data-i18n="idle">绌洪棽</span>
+              </div>
+              <div class="form-grid">
+                <label class="field">
+                  <span>experiment</span>
+                  <input id="run-lookup-experiment" type="text" autocomplete="off" />
+                </label>
+                <label class="field">
+                  <span>run</span>
+                  <input id="run-lookup-run" type="text" value="latest" autocomplete="off" />
+                </label>
+                <label class="field span-2">
+                  <span>runs root</span>
+                  <input id="run-lookup-runs-root" type="text" value="runs" autocomplete="off" />
+                </label>
+                <label class="field span-2">
+                  <span>artifact</span>
+                  <input id="run-lookup-artifact" type="text" value="results" autocomplete="off" />
+                </label>
+              </div>
+              <div class="actions">
+                <button id="lookup-results" type="button" data-output-target="#run-lookup-output">Results</button>
+                <button id="lookup-leaderboard" class="ghost" type="button" data-output-target="#run-lookup-output">Leaderboard</button>
+                <button id="lookup-artifacts" class="ghost" type="button" data-output-target="#run-lookup-output">Artifacts</button>
+                <button id="download-lookup-artifact" class="ghost" type="button" data-output-target="#run-lookup-output">Download Artifact</button>
+              </div>
+              <div id="run-lookup-output" class="output"></div>
+            </div>
             <div id="detail-empty" class="empty-state">
               <h3 data-i18n="emptyTitle">选择一个实验 run</h3>
               <p data-i18n="emptyBody">左侧结果库会显示本地 runs 目录中的训练和对比运行。</p>
@@ -495,9 +526,131 @@
             </div>
             <div class="actions">
               <button id="submit-demo-job" type="button" data-output-target="#job-submit-output" data-i18n="submitDemoJob">提交任务</button>
+              <button id="start-half-hour-demo" type="button" data-output-target="#job-submit-output" data-i18n="halfHourDemo">一键半小时监控演示</button>
               <button id="submit-all-demo-jobs" class="ghost" type="button" data-output-target="#job-submit-output" data-i18n="submitAllDemoJobs">提交当前类别全部</button>
             </div>
             <div id="job-submit-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="config-file-title">
+            <div class="panel-heading">
+              <h3 id="config-file-title">Config File Runner</h3>
+              <span id="config-file-status" class="status" data-i18n="idle">绌洪棽</span>
+            </div>
+            <div class="form-grid job-launch-grid">
+              <label class="field">
+                <span>Kind</span>
+                <select id="config-file-kind">
+                  <option value="train">train</option>
+                  <option value="compare">compare</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Mode</span>
+                <select id="config-file-mode">
+                  <option value="sync">run now</option>
+                  <option value="job">submit job</option>
+                </select>
+              </label>
+              <label class="field span-2">
+                <span>Config path</span>
+                <input id="config-file-path" type="text" value="configs/examples/simple_forecast.yaml" autocomplete="off" />
+              </label>
+            </div>
+            <div class="actions">
+              <button id="run-config-file" type="button" data-output-target="#config-file-output">Run Config</button>
+            </div>
+            <div id="config-file-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="prediction-title">
+            <div class="panel-heading">
+              <h3 id="prediction-title">Model Export Prediction</h3>
+              <span id="prediction-status" class="status" data-i18n="idle">绌洪棽</span>
+            </div>
+            <div class="form-grid">
+              <label class="field span-2">
+                <span>Model export path</span>
+                <input id="prediction-model-export-path" type="text" placeholder="runs/example/latest/model_export.pt" autocomplete="off" />
+              </label>
+              <label class="field span-2">
+                <span>Values JSON</span>
+                <textarea id="prediction-values" rows="6">[[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0]]]</textarea>
+              </label>
+            </div>
+            <div class="actions">
+              <button id="prediction-pick-values" class="ghost" type="button">Choose Values File</button>
+              <input id="prediction-values-file" type="file" accept=".json,application/json" hidden />
+              <button id="predict-selected-run" type="button" data-output-target="#prediction-output">Predict Selected Run</button>
+              <button id="predict-model-export-path" class="ghost" type="button" data-output-target="#prediction-output">Predict Path</button>
+            </div>
+            <div id="prediction-output" class="output"></div>
+          </div>
+
+          <div class="tool-panel" aria-labelledby="dataset-tools-title">
+            <div class="panel-heading">
+              <h3 id="dataset-tools-title">Dataset CLI Tools</h3>
+              <span id="dataset-tools-status" class="status" data-i18n="idle">绌洪棽</span>
+            </div>
+            <div class="form-grid">
+              <label class="field span-2">
+                <span>CSV path</span>
+                <input id="dataset-tool-csv-path" type="text" value="tests/fixtures/tiny_series.csv" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Target columns</span>
+                <input id="dataset-tool-target-cols" type="text" value="value" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Timestamp column</span>
+                <input id="dataset-tool-timestamp-col" type="text" value="timestamp" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Profile name</span>
+                <input id="dataset-tool-profile-name" type="text" autocomplete="off" />
+              </label>
+              <label class="field span-2">
+                <span>Catalog path</span>
+                <input id="dataset-tool-catalog-path" type="text" value="configs/datasets/local_csv.yaml" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Dataset</span>
+                <input id="dataset-tool-dataset-name" type="text" value="tiny_csv" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Model</span>
+                <input id="dataset-tool-model-name" type="text" value="linear" autocomplete="off" />
+              </label>
+              <label class="field">
+                <span>Input len</span>
+                <input id="dataset-tool-input-len" type="number" min="1" step="1" value="8" />
+              </label>
+              <label class="field">
+                <span>Output len</span>
+                <input id="dataset-tool-output-len" type="number" min="1" step="1" value="2" />
+              </label>
+              <label class="field">
+                <span>Epochs</span>
+                <input id="dataset-tool-epochs" type="number" min="1" step="1" value="1" />
+              </label>
+              <label class="field">
+                <span>Batch size</span>
+                <input id="dataset-tool-batch-size" type="number" min="1" step="1" value="8" />
+              </label>
+              <label class="field span-2">
+                <span>Generated config output path</span>
+                <input id="dataset-tool-output-path" type="text" placeholder="/tmp/tiny_csv_generated.yaml" autocomplete="off" />
+              </label>
+            </div>
+            <div class="actions">
+              <button id="list-registered-datasets-tool" class="ghost" type="button" data-output-target="#dataset-tools-output">List Registered Datasets</button>
+              <button id="list-models-tool" class="ghost" type="button" data-output-target="#dataset-tools-output">List Models</button>
+              <button id="profile-csv-tool" type="button" data-output-target="#dataset-tools-output">Profile CSV</button>
+              <button id="list-catalog-tool" class="ghost" type="button" data-output-target="#dataset-tools-output">List Catalog</button>
+              <button id="profile-catalog-tool" class="ghost" type="button" data-output-target="#dataset-tools-output">Profile Catalog</button>
+              <button id="generate-catalog-config-tool" class="ghost" type="button" data-output-target="#dataset-tools-output">Generate Config</button>
+            </div>
+            <div id="dataset-tools-output" class="output"></div>
           </div>
 
           <div class="tool-panel" aria-labelledby="jobs-title">
@@ -506,11 +659,50 @@
               <button id="refresh-jobs" type="button" data-i18n="refreshJobs">刷新任务</button>
             </div>
             <div class="form-row">
+              <label for="job-backend">job backend</label>
+              <select id="job-backend">
+                <option value="json">json</option>
+                <option value="sqlite">sqlite</option>
+              </select>
+              <label for="jobs-root">jobs root</label>
+              <input id="jobs-root" type="text" value="runs/jobs" autocomplete="off" />
+              <label for="jobs-sqlite-db">sqlite db</label>
+              <input id="jobs-sqlite-db" type="text" value="runs/jobs.sqlite3" autocomplete="off" />
+              <label for="jobs-runs-root">runs root</label>
+              <input id="jobs-runs-root" type="text" value="runs" autocomplete="off" />
+            </div>
+            <div class="form-row">
               <label for="job-id">job_id</label>
               <input id="job-id" type="text" autocomplete="off" />
               <button id="load-job" type="button" data-i18n="loadJob">加载任务</button>
               <button id="load-job-result" type="button" data-i18n="loadJobResult">加载任务结果</button>
               <button id="load-job-logs" type="button" data-i18n="loadJobLogs">加载任务日志</button>
+              <button id="load-job-progress" type="button">Progress</button>
+              <label class="check-row"><input id="auto-job-progress" type="checkbox" /><span>Auto Progress</span></label>
+            </div>
+            <div class="form-row">
+              <button id="load-job-events" type="button">Events</button>
+              <button id="load-job-attempts" type="button">Attempts</button>
+              <button id="cancel-job" type="button">Cancel</button>
+              <button id="retry-job" type="button">Retry</button>
+              <label for="stale-seconds">stale seconds</label>
+              <input id="stale-seconds" type="number" min="1" step="1" value="3600" />
+              <label for="retry-max-attempts">max attempts</label>
+              <input id="retry-max-attempts" type="number" min="1" step="1" value="3" />
+              <label for="timeout-reason">timeout reason</label>
+              <input id="timeout-reason" type="text" autocomplete="off" />
+              <button id="list-stale-jobs" type="button">List Stale</button>
+              <button id="mark-stale-timeout" type="button">Mark Timeout</button>
+              <label for="worker-id">worker id</label>
+              <input id="worker-id" type="text" value="api_worker" autocomplete="off" />
+              <label for="worker-max-jobs">max jobs</label>
+              <input id="worker-max-jobs" type="number" min="1" step="1" value="1" />
+              <label for="worker-idle-cycles">idle cycles</label>
+              <input id="worker-idle-cycles" type="number" min="1" step="1" value="1" />
+              <label for="worker-sleep-seconds">sleep seconds</label>
+              <input id="worker-sleep-seconds" type="number" min="0" step="0.1" value="0" />
+              <button id="worker-once" type="button">Worker Once</button>
+              <button id="worker-loop" type="button">Worker Loop</button>
             </div>
             <div id="jobs-output" class="output"></div>
           </div>

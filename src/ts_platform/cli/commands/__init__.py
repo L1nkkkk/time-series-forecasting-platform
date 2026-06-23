@@ -11,6 +11,7 @@ from ts_platform.cli.commands import (
     experiments,
     jobs,
     models,
+    predict,
     retry,
     train,
     worker,
@@ -31,3 +32,4 @@ def register_commands(
     jobs.register(subparsers)
     retry.register(subparsers)
     worker.register(subparsers)
+    predict.register(subparsers)

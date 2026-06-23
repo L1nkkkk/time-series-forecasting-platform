@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-ArtifactKind = Literal["json", "yaml", "csv", "checkpoint", "log"]
+ArtifactKind = Literal["json", "yaml", "csv", "checkpoint", "log", "model"]
 RunType = Literal["train", "compare"]
 
 
@@ -64,6 +64,8 @@ def build_train_artifact_manifest(
     run_id: str,
     run_dir: Path,
     checkpoint_path: Path,
+    model_export_path: Path,
+    model_export_metadata_path: Path,
 ) -> ArtifactManifest:
     """Build a manifest for a completed train run."""
 
@@ -79,6 +81,18 @@ def build_train_artifact_manifest(
             kind="checkpoint",
             path=checkpoint_path,
             description="Final model checkpoint",
+        ),
+        ArtifactEntry(
+            name="model_export",
+            kind="model",
+            path=model_export_path,
+            description="Inference model export without optimizer state",
+        ),
+        ArtifactEntry(
+            name="model_export_metadata",
+            kind="json",
+            path=model_export_metadata_path,
+            description="Inference model export metadata",
         ),
         ArtifactEntry(
             name="config_snapshot",
@@ -97,6 +111,12 @@ def build_train_artifact_manifest(
             kind="json",
             path=run_dir / "forecast_samples.json",
             description="Original-scale forecast samples for visual inspection",
+        ),
+        ArtifactEntry(
+            name="progress",
+            kind="json",
+            path=run_dir / "progress.json",
+            description="Per-epoch training progress",
         ),
         ArtifactEntry(
             name="train_log",

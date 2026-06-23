@@ -15,12 +15,13 @@ from ts_platform.api.services.experiment_store import (
 from ts_platform.config.schema import validate_safe_path_component
 
 DEFAULT_MAX_ARTIFACT_BYTES: Final = 5 * 1024 * 1024
-DEFAULT_ALLOWED_ARTIFACT_KINDS: Final = frozenset({"json", "yaml", "csv", "log"})
+DEFAULT_ALLOWED_ARTIFACT_KINDS: Final = frozenset({"json", "yaml", "csv", "log", "model"})
 ARTIFACT_MEDIA_TYPES: Final = {
     "json": "application/json",
     "yaml": "text/yaml",
     "csv": "text/csv",
     "log": "text/plain",
+    "model": "application/octet-stream",
     "checkpoint": "application/octet-stream",
 }
 
