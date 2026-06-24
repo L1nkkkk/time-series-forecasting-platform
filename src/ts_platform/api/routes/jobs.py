@@ -417,8 +417,19 @@ def get_job_progress(
         progress_path = run_dir / "progress.json"
         if progress_path.exists():
             progress_payload = _read_json_file(progress_path, runs_root=resolved_runs_root)
+            child_progress, child_log_path, child_log_tail = _read_compare_child_progress(
+                progress_payload,
+                runs_root=resolved_runs_root,
+                max_bytes=max_bytes,
+            )
+            if child_progress is not None:
+                progress_payload["current_model_progress"] = child_progress
+                _merge_compare_progress_percent(progress_payload, child_progress)
+            if child_log_path is not None:
+                log_path = child_log_path
+                log_tail = child_log_tail
         candidate_log_path = run_dir / "train.log"
-        if candidate_log_path.exists():
+        if log_path is None and candidate_log_path.exists():
             log_path = str(candidate_log_path)
             log_tail = _read_log_tail(candidate_log_path, max_bytes=max_bytes)
     return {
@@ -698,6 +709,51 @@ def _read_log_tail(path: Path, *, max_bytes: int) -> str:
         return content
     except OSError as exc:
         raise HTTPException(status_code=404, detail=f"job log cannot be read: {path}") from exc
+
+
+def _read_compare_child_progress(
+    progress_payload: dict[str, Any],
+    *,
+    runs_root: Path,
+    max_bytes: int,
+) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    if progress_payload.get("run_type") != "compare":
+        return None, None, None
+    run_dir_value = progress_payload.get("current_model_run_dir")
+    if not isinstance(run_dir_value, str) or not run_dir_value:
+        return None, None, None
+    run_dir = Path(run_dir_value)
+    _assert_inside_root(run_dir, runs_root)
+
+    child_progress = None
+    progress_path = run_dir / "progress.json"
+    if progress_path.exists():
+        child_progress = _read_json_file(progress_path, runs_root=runs_root)
+
+    log_path = None
+    log_tail = None
+    candidate_log_path = run_dir / "train.log"
+    if candidate_log_path.exists():
+        log_path = str(candidate_log_path)
+        log_tail = _read_log_tail(candidate_log_path, max_bytes=max_bytes)
+    return child_progress, log_path, log_tail
+
+
+def _merge_compare_progress_percent(
+    progress_payload: dict[str, Any],
+    child_progress: dict[str, Any],
+) -> None:
+    total_models = progress_payload.get("total_models")
+    completed_models = progress_payload.get("completed_models")
+    child_percent = child_progress.get("progress_percent")
+    if not isinstance(total_models, int) or total_models <= 0:
+        return
+    if not isinstance(completed_models, int):
+        return
+    if not isinstance(child_percent, int | float):
+        return
+    combined = ((completed_models + (float(child_percent) / 100.0)) / total_models) * 100.0
+    progress_payload["progress_percent"] = round(combined, 2)
 
 
 def _progress_run_dir(job: JobRecord, *, runs_root: Path) -> Path | None:

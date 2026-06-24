@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +58,9 @@ class TrainingResult:
     created_at: str
     experiment_name: str
     checkpoint_path: Path
+    best_checkpoint_path: Path | None
+    best_epoch: int | None
+    best_metric: dict[str, Any] | None
     model_export_path: Path
     model_export_metadata_path: Path
     history: list[dict[str, Any]]
@@ -77,6 +81,11 @@ class TrainingResult:
                 "experiment_name": self.experiment_name,
             },
             checkpoint_path=str(self.checkpoint_path),
+            best_checkpoint_path=(
+                str(self.best_checkpoint_path) if self.best_checkpoint_path is not None else None
+            ),
+            best_epoch=self.best_epoch,
+            best_metric=self.best_metric,
             model_export_path=str(self.model_export_path),
             model_export_metadata_path=str(self.model_export_metadata_path),
             history=self.history,
@@ -180,6 +189,7 @@ class Trainer:
                 target_dim=train_dataset.target_dim,
             ).to(device)
         optimizer = self._build_optimizer(model)
+        scheduler = self._build_scheduler(optimizer)
         start_epoch = 1
         resumed_from = self.config.training.resume_from
         if resume_checkpoint is not None:
@@ -189,13 +199,27 @@ class Trainer:
 
         history: list[dict[str, Any]] = []
         checkpoint_path = run_dir / "checkpoint.pt"
+        best_checkpoint_path = run_dir / "best_checkpoint.pt"
+        best_epoch: int | None = None
+        best_metric: dict[str, Any] | None = None
+        best_metric_value: float | None = None
+        best_model_state: dict[str, torch.Tensor] | None = None
+        early_stop_counter = 0
+        early_stopped = False
+        last_epoch = start_epoch - 1
         validation_metrics: OptionalMetricGroups = None
+        training_started_at = time.monotonic()
+        target_duration_seconds = self._target_duration_seconds()
+        target_epoch_seconds = self._target_epoch_seconds()
         self._write_progress(
             run_dir,
             recorder=recorder,
             status="running",
             history=history,
             latest=None,
+            elapsed_seconds=0.0,
+            target_duration_seconds=target_duration_seconds,
+            target_epoch_seconds=target_epoch_seconds,
         )
 
         if start_epoch > self.config.training.epochs:
@@ -205,6 +229,8 @@ class Trainer:
             )
 
         for epoch in range(start_epoch, self.config.training.epochs + 1):
+            last_epoch = epoch
+            epoch_started_at = time.monotonic()
             train_loss = self._train_one_epoch(model, train_loader, optimizer, device)
             if val_loader is not None:
                 validation_metrics = evaluate(
@@ -215,9 +241,48 @@ class Trainer:
                     scaler=_target_scaler(scaler),
                     include_scaled_metrics=self.config.evaluation.include_scaled_metrics,
                 )
+            metric_name = self._best_metric_name()
+            metric_value = _metric_value(validation_metrics, metric_name)
+            improved = _is_improved(
+                metric_value,
+                best_metric_value,
+                mode=self.config.training.early_stopping.mode,
+                min_delta=self.config.training.early_stopping.min_delta,
+            )
+            if improved and metric_value is not None:
+                best_metric_value = metric_value
+                best_epoch = epoch
+                best_metric = {
+                    "name": metric_name,
+                    "value": metric_value,
+                    "mode": self.config.training.early_stopping.mode,
+                }
+                best_model_state = _clone_model_state(model)
+                save_checkpoint(
+                    best_checkpoint_path,
+                    model=model,
+                    optimizer=optimizer,
+                    epoch=epoch,
+                    metrics={
+                        "validation_metrics": validation_metrics,
+                        "train_loss": train_loss,
+                        "best_metric": best_metric,
+                    },
+                    config=self.config,
+                    scaler=scaler,
+                    environment=environment,
+                )
+                early_stop_counter = 0
+            elif metric_value is not None:
+                early_stop_counter += 1
             row: dict[str, Any] = {"epoch": epoch, "train_loss": train_loss}
             if validation_metrics is not None:
                 row["validation_metrics"] = validation_metrics
+            row["learning_rate"] = _current_learning_rate(optimizer)
+            row["best_epoch"] = best_epoch
+            row["best_metric"] = best_metric
+            row["early_stop_counter"] = early_stop_counter
+            row["early_stopped"] = False
             history.append(row)
             logger.info("epoch=%s train_loss=%.6f val=%s", epoch, train_loss, validation_metrics)
             self._write_progress(
@@ -226,6 +291,25 @@ class Trainer:
                 status="running",
                 history=history,
                 latest=row,
+                best_epoch=best_epoch,
+                best_metric=best_metric,
+                early_stopped=early_stopped,
+                elapsed_seconds=time.monotonic() - training_started_at,
+                target_duration_seconds=target_duration_seconds,
+                target_epoch_seconds=target_epoch_seconds,
+            )
+            self._pace_epoch(
+                run_dir,
+                recorder=recorder,
+                epoch_started_at=epoch_started_at,
+                training_started_at=training_started_at,
+                history=history,
+                latest=row,
+                best_epoch=best_epoch,
+                best_metric=best_metric,
+                early_stopped=early_stopped,
+                target_duration_seconds=target_duration_seconds,
+                target_epoch_seconds=target_epoch_seconds,
             )
 
             should_checkpoint = (
@@ -243,6 +327,32 @@ class Trainer:
                     scaler=scaler,
                     environment=environment,
                 )
+            if scheduler is not None:
+                scheduler.step()
+            if self._should_stop_early(metric_value, early_stop_counter):
+                row["early_stopped"] = True
+                early_stopped = True
+                logger.info("early stopping at epoch=%s best_epoch=%s", epoch, best_epoch)
+                self._write_progress(
+                    run_dir,
+                    recorder=recorder,
+                    status="running",
+                    history=history,
+                    latest=row,
+                    best_epoch=best_epoch,
+                    best_metric=best_metric,
+                    early_stopped=early_stopped,
+                    elapsed_seconds=time.monotonic() - training_started_at,
+                    target_duration_seconds=target_duration_seconds,
+                    target_epoch_seconds=target_epoch_seconds,
+                )
+                break
+
+        if best_model_state is not None:
+            model.load_state_dict(best_model_state)
+            final_epoch = best_epoch or last_epoch
+        else:
+            final_epoch = last_epoch
 
         test_metrics = evaluate(
             model,
@@ -259,7 +369,6 @@ class Trainer:
             scaler=_target_scaler(scaler),
             target_cols=_dataset_columns(train_dataset, "target_cols"),
         )
-        final_epoch = max(start_epoch - 1, self.config.training.epochs)
         checkpoint_path = save_checkpoint(
             run_dir / "checkpoint.pt",
             model=model,
@@ -287,6 +396,11 @@ class Trainer:
             created_at=metadata["created_at"],
             experiment_name=metadata["experiment_name"],
             checkpoint_path=checkpoint_path,
+            best_checkpoint_path=(
+                best_checkpoint_path if best_checkpoint_path.exists() else checkpoint_path
+            ),
+            best_epoch=best_epoch,
+            best_metric=best_metric,
             model_export_path=model_export_path,
             model_export_metadata_path=model_export_metadata_path,
             history=history,
@@ -304,6 +418,12 @@ class Trainer:
             history=history,
             latest=history[-1] if history else None,
             test_metrics=test_metrics,
+            best_epoch=best_epoch,
+            best_metric=best_metric,
+            early_stopped=early_stopped,
+            elapsed_seconds=time.monotonic() - training_started_at,
+            target_duration_seconds=target_duration_seconds,
+            target_epoch_seconds=target_epoch_seconds,
         )
         recorder.save_results(result.to_dict())
         (run_dir / "forecast_samples.json").write_text(
@@ -318,6 +438,7 @@ class Trainer:
                 checkpoint_path=result.checkpoint_path,
                 model_export_path=result.model_export_path,
                 model_export_metadata_path=result.model_export_metadata_path,
+                best_checkpoint_path=result.best_checkpoint_path,
             ),
             run_dir / "artifacts.json",
         )
@@ -332,6 +453,13 @@ class Trainer:
         history: list[dict[str, Any]],
         latest: dict[str, Any] | None,
         test_metrics: MetricGroups | None = None,
+        best_epoch: int | None = None,
+        best_metric: dict[str, Any] | None = None,
+        early_stopped: bool = False,
+        elapsed_seconds: float | None = None,
+        target_duration_seconds: float | None = None,
+        target_epoch_seconds: float | None = None,
+        pacing_state: dict[str, Any] | None = None,
     ) -> None:
         total_epochs = self.config.training.epochs
         completed_epochs = int(latest["epoch"]) if latest and "epoch" in latest else 0
@@ -346,13 +474,84 @@ class Trainer:
             "progress_percent": round((completed_epochs / total_epochs) * 100, 2),
             "latest": latest,
             "history": history,
+            "best_epoch": best_epoch,
+            "best_metric": best_metric,
+            "early_stopped": early_stopped,
         }
+        if elapsed_seconds is not None:
+            payload["elapsed_seconds"] = round(max(0.0, elapsed_seconds), 2)
+        if target_duration_seconds is not None:
+            payload["target_duration_minutes"] = self.config.training.target_duration_minutes
+            payload["target_duration_seconds"] = round(target_duration_seconds, 2)
+            payload["estimated_remaining_seconds"] = round(
+                max(0.0, target_duration_seconds - (elapsed_seconds or 0.0)),
+                2,
+            )
+        if target_epoch_seconds is not None:
+            payload["target_epoch_seconds"] = round(target_epoch_seconds, 2)
+        if pacing_state is not None:
+            payload["pacing"] = pacing_state
         if test_metrics is not None:
             payload["test_metrics"] = test_metrics
         (run_dir / "progress.json").write_text(
             json.dumps(payload, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+    def _target_duration_seconds(self) -> float | None:
+        if self.config.training.target_duration_minutes is None:
+            return None
+        return self.config.training.target_duration_minutes * 60.0
+
+    def _target_epoch_seconds(self) -> float | None:
+        target_duration_seconds = self._target_duration_seconds()
+        if target_duration_seconds is None:
+            return None
+        return target_duration_seconds / self.config.training.epochs
+
+    def _pace_epoch(
+        self,
+        run_dir: Path,
+        *,
+        recorder: ExperimentRecorder,
+        epoch_started_at: float,
+        training_started_at: float,
+        history: list[dict[str, Any]],
+        latest: dict[str, Any],
+        best_epoch: int | None,
+        best_metric: dict[str, Any] | None,
+        early_stopped: bool,
+        target_duration_seconds: float | None,
+        target_epoch_seconds: float | None,
+    ) -> None:
+        if target_epoch_seconds is None or target_duration_seconds is None:
+            return
+        while True:
+            epoch_elapsed = time.monotonic() - epoch_started_at
+            remaining = target_epoch_seconds - epoch_elapsed
+            if remaining <= 0:
+                return
+            sleep_seconds = min(remaining, 3.0)
+            time.sleep(sleep_seconds)
+            epoch_elapsed = time.monotonic() - epoch_started_at
+            self._write_progress(
+                run_dir,
+                recorder=recorder,
+                status="running",
+                history=history,
+                latest=latest,
+                best_epoch=best_epoch,
+                best_metric=best_metric,
+                early_stopped=early_stopped,
+                elapsed_seconds=time.monotonic() - training_started_at,
+                target_duration_seconds=target_duration_seconds,
+                target_epoch_seconds=target_epoch_seconds,
+                pacing_state={
+                    "active": True,
+                    "epoch_elapsed_seconds": round(max(0.0, epoch_elapsed), 2),
+                    "epoch_sleep_remaining_seconds": round(max(0.0, remaining - sleep_seconds), 2),
+                },
+            )
 
     def _loader(
         self,
@@ -398,6 +597,43 @@ class Trainer:
         msg = f"unsupported optimizer: {self.config.training.optimizer}"
         raise ValueError(msg)
 
+    def _build_scheduler(
+        self,
+        optimizer: torch.optim.Optimizer | None,
+    ) -> torch.optim.lr_scheduler.LRScheduler | None:
+        if optimizer is None:
+            return None
+        scheduler_config = self.config.training.lr_scheduler
+        if scheduler_config.name == "none":
+            return None
+        if scheduler_config.name == "step":
+            return torch.optim.lr_scheduler.StepLR(
+                optimizer,
+                step_size=scheduler_config.step_size,
+                gamma=scheduler_config.gamma,
+            )
+        if scheduler_config.name == "cosine":
+            return torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=self.config.training.epochs,
+                eta_min=scheduler_config.eta_min,
+            )
+        msg = f"unsupported lr_scheduler: {scheduler_config.name}"
+        raise ValueError(msg)
+
+    def _best_metric_name(self) -> str:
+        return (
+            self.config.training.early_stopping.metric
+            or self.config.training.best_checkpoint_metric
+        )
+
+    def _should_stop_early(self, metric_value: float | None, early_stop_counter: int) -> bool:
+        if not self.config.training.early_stopping.enabled:
+            return False
+        if metric_value is None:
+            return False
+        return early_stop_counter >= self.config.training.early_stopping.patience
+
     def _train_one_epoch(
         self,
         model: nn.Module,
@@ -416,6 +652,11 @@ class Trainer:
             loss = self._loss(y_pred, y)
             if optimizer is not None:
                 loss.backward()  # type: ignore[no-untyped-call]
+                if self.config.training.gradient_clip_norm is not None:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(),
+                        self.config.training.gradient_clip_norm,
+                    )
                 optimizer.step()
             losses.append(float(loss.detach().cpu().item()))
         if not losses:
@@ -459,6 +700,44 @@ def _data_metadata(dataset: ForecastingDataset) -> dict[str, Any]:
         "feature_cols": _dataset_columns(dataset, "feature_cols"),
         "feature_aware": dataset.input_dim != dataset.target_dim,
     }
+
+
+def _metric_value(metrics: OptionalMetricGroups, metric_name: str) -> float | None:
+    if metrics is None:
+        return None
+    original = metrics.get("original")
+    if not isinstance(original, dict):
+        return None
+    value = original.get(metric_name)
+    if value is None:
+        return None
+    return float(value)
+
+
+def _is_improved(
+    metric_value: float | None,
+    best_metric_value: float | None,
+    *,
+    mode: str,
+    min_delta: float,
+) -> bool:
+    if metric_value is None:
+        return False
+    if best_metric_value is None:
+        return True
+    if mode == "max":
+        return metric_value > best_metric_value + min_delta
+    return metric_value < best_metric_value - min_delta
+
+
+def _clone_model_state(model: nn.Module) -> dict[str, torch.Tensor]:
+    return {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
+
+
+def _current_learning_rate(optimizer: torch.optim.Optimizer | None) -> float | None:
+    if optimizer is None or not optimizer.param_groups:
+        return None
+    return float(optimizer.param_groups[0]["lr"])
 
 
 def run_training(config_path: str | Path, logger: logging.Logger | None = None) -> TrainingResult:

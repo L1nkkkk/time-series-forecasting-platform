@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -94,8 +95,25 @@ class CompareRunner:
         recorder.save_environment(collect_environment())
 
         model_results: list[CompareModelResult] = []
+        total_models = len(self.config.models)
+        self._write_progress(
+            compare_run_dir,
+            status="running",
+            total_models=total_models,
+            completed_results=model_results,
+            current_model=None,
+            current_model_alias=None,
+        )
         for index, model_config in enumerate(self.config.models, start=1):
             model_alias = self._model_alias(index, model_config)
+            self._write_progress(
+                compare_run_dir,
+                status="running",
+                total_models=total_models,
+                completed_results=model_results,
+                current_model=model_config,
+                current_model_alias=model_alias,
+            )
             try:
                 model_results.append(self._run_model(model_config, model_alias, compare_run_dir))
             except Exception as exc:
@@ -115,6 +133,14 @@ class CompareRunner:
                         error=str(exc),
                     )
                 )
+            self._write_progress(
+                compare_run_dir,
+                status="running",
+                total_models=total_models,
+                completed_results=model_results,
+                current_model=None,
+                current_model_alias=None,
+            )
 
         rows = self._leaderboard_rows(model_results)
         leaderboard_json_path = compare_run_dir / "leaderboard.json"
@@ -143,6 +169,14 @@ class CompareRunner:
                 leaderboard_csv_path=result.leaderboard_csv_path,
             ),
             compare_run_dir / "artifacts.json",
+        )
+        self._write_progress(
+            compare_run_dir,
+            status="succeeded",
+            total_models=total_models,
+            completed_results=model_results,
+            current_model=None,
+            current_model_alias=None,
         )
         return result
 
@@ -277,3 +311,65 @@ class CompareRunner:
     def _model_alias(self, index: int, model_config: CompareModelConfig) -> str:
         alias = model_config.alias or model_config.name
         return f"{index:03d}_{alias}"
+
+    def _write_progress(
+        self,
+        compare_run_dir: Path,
+        *,
+        status: str,
+        total_models: int,
+        completed_results: list[CompareModelResult],
+        current_model: CompareModelConfig | None,
+        current_model_alias: str | None,
+    ) -> None:
+        completed_models = len(completed_results)
+        model_statuses = [self._progress_row_from_result(result) for result in completed_results]
+        current_model_run_dir = None
+        if current_model is not None and current_model_alias is not None:
+            current_model_run_dir = compare_run_dir / "models" / current_model_alias / "latest"
+            model_statuses.append(
+                {
+                    "model_name": current_model.name,
+                    "model_alias": current_model_alias,
+                    "status": "running",
+                    "run_dir": str(current_model_run_dir),
+                    "error": None,
+                }
+            )
+
+        payload = {
+            "status": status,
+            "run_type": "compare",
+            "experiment_name": self.config.experiment.name,
+            "compare_run_dir": str(compare_run_dir),
+            "updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "total_models": total_models,
+            "completed_models": completed_models,
+            "progress_percent": round((completed_models / total_models) * 100, 2)
+            if total_models
+            else 100.0,
+            "current_model": current_model.name if current_model is not None else None,
+            "current_model_alias": current_model_alias,
+            "current_model_run_dir": str(current_model_run_dir)
+            if current_model_run_dir is not None
+            else None,
+            "model_statuses": model_statuses,
+        }
+        (compare_run_dir / "progress.json").write_text(
+            json.dumps(payload, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+
+    def _progress_row_from_result(self, result: CompareModelResult) -> dict[str, Any]:
+        return {
+            "model_name": result.model_name,
+            "model_alias": result.model_alias,
+            "status": result.status,
+            "run_id": result.run_id,
+            "run_dir": str(result.run_dir) if result.run_dir is not None else None,
+            "primary_metric": self.config.primary_metric or self.config.evaluation.metrics[0],
+            "primary_metric_value": (result.test_metrics or {}).get(
+                self.config.primary_metric or self.config.evaluation.metrics[0]
+            ),
+            "error": result.error,
+        }

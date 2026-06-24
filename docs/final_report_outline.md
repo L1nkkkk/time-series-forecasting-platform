@@ -8,7 +8,21 @@ inspection, and safe artifact access.
 
 ## 2. Requirements
 
+Start from the course topic screenshot:
+
+- Topic 3: a rapid development platform for deep learning time-series models.
+- Type: development.
+- Environment: Python and PyTorch.
+- Required skills: Python, Git, and PyTorch.
+- Level: 2.
+
+Explain that the topic asks for more than a single forecasting script: it
+requires a centralized dataset library, dataset access APIs, multiple advanced
+forecasting models, a rapid training framework, and a comparison workflow for
+researchers or industry users.
+
 - Dataset catalog.
+- Prepared dataset assets and dataset access APIs.
 - Model zoo.
 - Training framework.
 - Compare.
@@ -43,6 +57,9 @@ feature increments, documentation, and quality gates.
 - Model export and prediction.
 - SQLite jobs.
 - Feature-aware training.
+- Public dataset preparation, cache manifest, and generated training configs.
+- DLinear, NLinear, and PatchTST model implementations.
+- Best checkpoint, early stopping, gradient clipping, and LR scheduler support.
 - Checkpoint v2.
 - Local dashboard and CLI-parity API tools.
 
@@ -58,6 +75,7 @@ feature increments, documentation, and quality gates.
 ## 7. Results and Demo
 
 - Model zoo compare.
+- Ideal target demo on prepared ETTh1 data.
 - Feature-aware compare.
 - Leaderboard.
 

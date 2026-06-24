@@ -151,7 +151,7 @@ def test_ui_index_served() -> None:
     assert "dataset-domain-filter" in response.text
     assert "job-demo-kind" in response.text
     assert "submit-demo-job" in response.text
-    assert "20260624-cli-parity" in response.text
+    assert "20260624-job-monitor" in response.text
     assert "data-page-nav" in response.text
     assert "data-page-section" in response.text
     assert "export-report-run" in response.text
@@ -181,7 +181,12 @@ def test_ui_index_served() -> None:
     assert "worker-sleep-seconds" in response.text
     assert "load-job-progress" in response.text
     assert "auto-job-progress" in response.text
+    assert 'data-page-nav="monitor"' in response.text
+    assert "auto-running-jobs" in response.text
+    assert "job-monitor-output" in response.text
     assert "start-half-hour-demo" in response.text
+    assert "start-ideal-target-demo" in response.text
+    assert "start-ideal-training-demo" in response.text
 
 
 def test_ui_static_assets_served() -> None:
@@ -223,8 +228,21 @@ def test_ui_static_assets_served() -> None:
     assert "startAutoJobProgress" in script.text
     assert "toggleAutoJobProgress" in script.text
     assert "renderJobProgress" in script.text
+    assert "renderCompareJobProgress" in script.text
+    assert "monitorSubmittedJob" in script.text
+    assert "refreshRunningJobsMonitor" in script.text
+    assert "startRunningJobsMonitor" in script.text
+    assert "renderRunningJobsMonitor" in script.text
+    assert "renderJobMonitorChart" in script.text
+    assert "renderJobMonitorLineChart" in script.text
+    assert "activeJobStatuses" in script.text
     assert "startHalfHourDemo" in script.text
+    assert "startIdealTargetDemo" in script.text
+    assert "startIdealTrainingDemo" in script.text
     assert "appliances_energy_half_hour_demo" in script.text
+    assert "ideal_target_demo" in script.text
+    assert "ideal_training_30min_demo" in script.text
+    assert "secondsToMinutes" in script.text
     assert "setDashboardPage" in script.text
     assert "pageFromHash" in script.text
     assert "dataset-catalog-select" in script.text
@@ -244,6 +262,10 @@ def test_ui_static_assets_served() -> None:
     assert ".job-launch-grid" in styles.text
     assert ".page-nav" in styles.text
     assert ".page-section" in styles.text
+    assert ".job-monitor-grid" in styles.text
+    assert ".job-progress-bar" in styles.text
+    assert ".job-monitor-chart-panel" in styles.text
+    assert ".job-line-train" in styles.text
     assert ".monitor-panels" in styles.text
     assert ".monitor-chart" in styles.text
     assert ".profile-panel" in styles.text
@@ -263,20 +285,24 @@ def test_demo_configs_lists_whitelist() -> None:
         "csv_forecast",
         "csv_feature_forecast",
         "appliances_energy_half_hour_demo",
+        "ideal_training_30min_demo",
         "compare_forecast",
         "compare_model_zoo",
         "compare_feature_forecast",
+        "ideal_target_demo",
     ]
     assert payload["train"] == [
         "simple_forecast",
         "csv_forecast",
         "csv_feature_forecast",
         "appliances_energy_half_hour_demo",
+        "ideal_training_30min_demo",
     ]
     assert payload["compare"] == [
         "compare_forecast",
         "compare_model_zoo",
         "compare_feature_forecast",
+        "ideal_target_demo",
     ]
 
 
@@ -284,6 +310,14 @@ def test_demo_train_rejects_unknown_demo_name() -> None:
     client = TestClient(create_app())
 
     response = client.post("/demo/train/not_allowed")
+
+    assert response.status_code == 404
+
+
+def test_demo_train_rejects_job_only_ideal_training_demo() -> None:
+    client = TestClient(create_app())
+
+    response = client.post("/demo/train/ideal_training_30min_demo")
 
     assert response.status_code == 404
 
@@ -350,6 +384,50 @@ def test_demo_half_hour_job_submits_whitelisted_config(tmp_path, monkeypatch) ->
         assert payload["experiment_name"] == "appliances_energy_half_hour_demo"
         assert payload["job_id"]
         assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
+    finally:
+        jobs.shutdown_job_runner()
+
+
+def test_demo_ideal_training_job_submits_paced_config(tmp_path, monkeypatch) -> None:
+    safe_root = tmp_path / "safe_runs"
+    captured: dict[str, object] = {}
+
+    def fake_train(config, runs_root):
+        captured["experiment_name"] = config.experiment.name
+        captured["target_duration_minutes"] = config.training.target_duration_minutes
+        return {
+            "experiment_name": config.experiment.name,
+            "run_id": "fake_ideal_training_run",
+            "run_dir": str(runs_root / config.experiment.name / "fake_ideal_training_run"),
+        }
+
+    runner = JobRunner(
+        runs_root=safe_root,
+        jobs_root=tmp_path / "jobs",
+        train_func=fake_train,
+    )
+
+    def fake_prepare(demo_name: str) -> None:
+        captured["prepared"] = demo_name
+
+    monkeypatch.setattr(demo, "_prepare_required_demo_assets", fake_prepare)
+    monkeypatch.setattr(jobs, "_JOB_RUNNER", runner)
+    monkeypatch.setattr(jobs, "RUNS_ROOT", safe_root)
+    monkeypatch.setattr(jobs, "JOBS_ROOT", tmp_path / "jobs")
+    client = TestClient(create_app())
+
+    try:
+        response = client.post("/demo/jobs/train/ideal_training_30min_demo")
+        payload = response.json()
+
+        assert response.status_code == 200
+        assert payload["job_type"] == "train"
+        assert payload["experiment_name"] == "ideal_training_30min_demo"
+        assert payload["job_id"]
+        assert runner.wait(payload["job_id"], timeout=5).status == "succeeded"
+        assert captured["prepared"] == "ideal_training_30min_demo"
+        assert captured["experiment_name"] == "ideal_training_30min_demo"
+        assert captured["target_duration_minutes"] == 30
     finally:
         jobs.shutdown_job_runner()
 

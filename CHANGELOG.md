@@ -34,6 +34,15 @@
 - Feature-aware training.
 - Checkpoint schema v2.
 - Feature-aware compare and leaderboard metadata.
+- Prepared public dataset assets with download, local CSV materialization,
+  cache manifest, generated catalog, and generated train config support.
+- Dataset asset CLI/API commands for prepare, cache status, and cache clearing.
+- DLinear, NLinear, and PatchTST forecasting models.
+- Best checkpoint tracking, early stopping, gradient clipping, and step/cosine
+  learning-rate scheduler controls.
+- Ideal target demo comparing linear, DLinear, NLinear, and PatchTST on ETTh1.
+- Course requirement mapping documentation for the time-series deep learning
+  rapid development platform topic.
 
 ### Changed
 
@@ -41,6 +50,8 @@
 - Leaderboard rows include data metadata.
 - BaseForecastModel supports input_dim / target_dim.
 - CSV data path remains target-only for metrics.
+- `compare_model_zoo` now includes the modern linear-family and PatchTST
+  baselines.
 
 ### Security / Safety
 

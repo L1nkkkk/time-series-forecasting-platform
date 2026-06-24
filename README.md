@@ -14,8 +14,9 @@ The current MVP focuses on a runnable local forecasting platform:
 
 - Synthetic forecasting dataset.
 - Local CSV forecasting dataset with time-based splits.
-- Naive last-value, moving-average, seasonal-naive, linear, MLP, N-BEATS, RNN,
-  GRU, LSTM, TCN, and Transformer forecasting models.
+- Naive last-value, moving-average, seasonal-naive, linear, DLinear, NLinear,
+  PatchTST, MLP, N-BEATS, RNN, GRU, LSTM, TCN, and Transformer forecasting
+  models.
 - Standard and min-max scalers.
 - MAE, MSE, RMSE, MAPE, and WAPE metrics.
 - Config snapshots, checkpoints, inference model exports, metrics output, and
@@ -41,11 +42,17 @@ The current MVP focuses on a runnable local forecasting platform:
   metrics.
 - Public-source dataset catalog plus persisted user CSV dataset metadata for
   the local dashboard.
+- Prepared public dataset assets for selected benchmarks, including dataset
+  download, local CSV materialization, cache manifests, generated catalog
+  entries, and generated training configs.
+- Training controls for best validation checkpoints, early stopping,
+  gradient clipping, and step/cosine learning-rate schedulers.
 
 No BasicTS code is copied into this project.
 
 ## Demo Materials
 
+- [docs/course_requirements.zh-CN.md](docs/course_requirements.zh-CN.md)
 - [docs/dashboard_demo.md](docs/dashboard_demo.md)
 - [docs/demo_guide.md](docs/demo_guide.md)
 - [docs/report_export.md](docs/report_export.md)
@@ -107,6 +114,13 @@ Run the lightweight model zoo compare:
 
 ```bash
 py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
+```
+
+Prepare a public benchmark dataset and run the ideal target compare demo:
+
+```bash
+py -m ts_platform.cli.main prepare-dataset --dataset etth1
+py -m ts_platform.cli.main compare --config configs/examples/ideal_target_demo.yaml
 ```
 
 Run the feature-aware compare smoke:

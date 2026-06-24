@@ -22,6 +22,9 @@ training configs, compare configs, the CLI, `Trainer`, and `CompareRunner`.
 | `moving_average` | `MovingAverageForecastModel` | `window_size` | Smooth local-level baseline. |
 | `seasonal_naive` | `SeasonalNaiveForecastModel` | `season_length` | Simple repeating-season baseline. |
 | `linear` | `LinearForecastModel` | none | Small trainable direct projection. |
+| `dlinear` | `DLinearForecastModel` | `kernel_size` | Decomposition-linear long-horizon baseline. |
+| `nlinear` | `NLinearForecastModel` | none | Normalized linear long-horizon baseline. |
+| `patchtst` | `PatchTSTForecastModel` | `patch_len`, `stride`, `d_model`, `num_heads`, `num_layers`, `dim_feedforward`, `dropout` | Lightweight PatchTST-style Transformer baseline. |
 | `mlp` | `MLPForecastModel` | `hidden_sizes`, `dropout` | Nonlinear trainable baseline. |
 | `nbeats` | `NBeatsForecastModel` | `hidden_size`, `num_blocks`, `num_layers`, `dropout` | Generic N-BEATS-style residual forecaster. |
 | `rnn` | `RNNForecastModel` | `hidden_size`, `num_layers`, `dropout`, `bidirectional` | Vanilla recurrent baseline. |
@@ -61,6 +64,36 @@ Parameters:
 - `hidden_size`: positive integer hidden width, default `64`.
 - `num_blocks`: positive integer block count, default `3`.
 - `num_layers`: positive integer MLP depth inside each block, default `2`.
+- `dropout`: float where `0 <= dropout < 1`, default `0.0`.
+
+## DLinear and NLinear Models
+
+`dlinear` and `nlinear` implement lightweight members of the LTSF-Linear model
+family. They use the target-history slice when exogenous features are present,
+which makes them stable baselines for feature-aware datasets without requiring
+future-known covariates.
+
+Parameters:
+
+- `dlinear.kernel_size`: positive integer moving-average decomposition window,
+  default `25`.
+- `nlinear`: no model-specific parameters.
+
+## PatchTST Model
+
+`patchtst` splits each target channel into temporal patches, projects patches
+into a Transformer encoder, and forecasts each target channel independently.
+This implementation is intentionally compact for local CPU demos while keeping
+the same input/output contract as the rest of the platform.
+
+Parameters:
+
+- `patch_len`: positive integer patch length, default `8`.
+- `stride`: positive integer patch stride, default `4`.
+- `d_model`: positive integer hidden width, default `32`.
+- `num_heads`: positive integer attention head count, default `4`.
+- `num_layers`: positive integer encoder depth, default `1`.
+- `dim_feedforward`: positive integer feed-forward width, default `64`.
 - `dropout`: float where `0 <= dropout < 1`, default `0.0`.
 
 ## TCN Model
@@ -131,9 +164,12 @@ width:
 - `input_dim = len(target_cols) + len(feature_cols)`
 - `target_dim = len(target_cols)`
 
-Trainable models support feature-aware forward paths:
+Trainable models support feature-aware dimensions:
 
 - `linear`
+- `dlinear`
+- `nlinear`
+- `patchtst`
 - `mlp`
 - `nbeats`
 - `rnn`
@@ -142,8 +178,10 @@ Trainable models support feature-aware forward paths:
 - `tcn`
 - `transformer`
 
-These models consume the full `input_dim` history and project to
-`output_len * target_dim`.
+`linear`, `mlp`, `nbeats`, recurrent models, `tcn`, and `transformer` consume
+the full `input_dim` history. `dlinear`, `nlinear`, and `patchtst` use the
+target-history slice as stable long-horizon baselines when feature columns are
+present. All of them return `output_len * target_dim`.
 
 `BaseForecastModel.validate_input()` checks that model inputs are shaped
 `[batch, input_len, input_dim]`, and `target_slice()` returns the target-history

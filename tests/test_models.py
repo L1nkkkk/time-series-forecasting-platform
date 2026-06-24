@@ -7,10 +7,12 @@ from ts_platform.config.schema import ModelConfig
 from ts_platform.models import MODEL_REGISTRY
 from ts_platform.models.base import BaseForecastModel
 from ts_platform.models.linear import LinearForecastModel
+from ts_platform.models.linear_family import DLinearForecastModel, NLinearForecastModel
 from ts_platform.models.mlp import MLPForecastModel
 from ts_platform.models.moving_average import MovingAverageForecastModel
 from ts_platform.models.naive import NaiveLastValueModel
 from ts_platform.models.nbeats import NBeatsForecastModel
+from ts_platform.models.patchtst import PatchTSTForecastModel
 from ts_platform.models.recurrent import GRUForecastModel, LSTMForecastModel, RNNForecastModel
 from ts_platform.models.registry import build_model
 from ts_platform.models.seasonal_naive import SeasonalNaiveForecastModel
@@ -30,6 +32,9 @@ def test_model_forward_shapes() -> None:
         MovingAverageForecastModel(input_len=8, output_len=3, num_features=2),
         SeasonalNaiveForecastModel(input_len=8, output_len=3, num_features=2, season_length=4),
         LinearForecastModel(input_len=8, output_len=3, num_features=2),
+        DLinearForecastModel(input_len=8, output_len=3, num_features=2, kernel_size=3),
+        NLinearForecastModel(input_len=8, output_len=3, num_features=2),
+        PatchTSTForecastModel(input_len=8, output_len=3, num_features=2, patch_len=4),
         MLPForecastModel(input_len=8, output_len=3, num_features=2, hidden_sizes=[16]),
         NBeatsForecastModel(input_len=8, output_len=3, num_features=2, hidden_size=16),
         TransformerForecastModel(input_len=8, output_len=3, num_features=2, d_model=16),
@@ -40,7 +45,9 @@ def test_model_forward_shapes() -> None:
 
 
 def test_model_registry() -> None:
-    assert {"naive", "linear", "mlp"}.issubset(set(MODEL_REGISTRY.names()))
+    assert {"naive", "linear", "mlp", "dlinear", "nlinear", "patchtst"}.issubset(
+        set(MODEL_REGISTRY.names())
+    )
 
 
 def test_base_model_old_num_features_constructor() -> None:
@@ -143,6 +150,23 @@ def test_build_model_feature_aware_linear() -> None:
     )
 
     assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
+
+
+def test_build_model_feature_aware_modern_baselines() -> None:
+    for model_config in [
+        ModelConfig(name="dlinear", params={"kernel_size": 3}),
+        ModelConfig(name="nlinear"),
+        ModelConfig(name="patchtst", params={"patch_len": 3, "stride": 1, "d_model": 16}),
+    ]:
+        model = build_model(
+            model_config,
+            input_len=6,
+            output_len=2,
+            input_dim=4,
+            target_dim=2,
+        )
+
+        assert model(torch.randn(3, 6, 4)).shape == (3, 2, 2)
 
 
 def test_build_model_feature_aware_mlp() -> None:

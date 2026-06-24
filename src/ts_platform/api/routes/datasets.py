@@ -16,6 +16,14 @@ from pydantic import BaseModel, Field, field_validator
 
 from ts_platform.config.schema import validate_safe_path_component
 from ts_platform.data import DATASET_CATALOG, DATASET_REGISTRY
+from ts_platform.data.assets import (
+    clear_dataset_asset,
+    dataset_asset_status,
+    list_dataset_cache,
+    metadata_to_prepared_dict,
+    prepare_dataset_asset,
+    prepared_metadata_from_status,
+)
 from ts_platform.data.catalog import DatasetMetadata
 from ts_platform.data.profile import profile_csv_dataset
 
@@ -175,6 +183,51 @@ def delete_user_dataset(dataset_name: str) -> dict[str, object]:
     return {"datasets": [_user_metadata_to_dict(item) for item in rows]}
 
 
+@router.get("/datasets/cache")
+def get_dataset_cache() -> dict[str, Any]:
+    """Return prepared dataset cache records."""
+
+    return list_dataset_cache()
+
+
+@router.delete("/datasets/cache/{dataset_name}")
+def delete_dataset_cache(dataset_name: str) -> dict[str, Any]:
+    """Remove one prepared dataset asset."""
+
+    try:
+        return clear_dataset_asset(dataset_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/datasets/{dataset_name}/asset")
+def get_dataset_asset(dataset_name: str) -> dict[str, Any]:
+    """Return preparation status for one catalog dataset."""
+
+    try:
+        metadata = _get_catalog_dataset_metadata(dataset_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return dataset_asset_status(metadata)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/datasets/{dataset_name}/prepare")
+def prepare_dataset(dataset_name: str) -> dict[str, Any]:
+    """Download and prepare one catalog dataset as a local CSV asset."""
+
+    try:
+        metadata = _get_catalog_dataset_metadata(dataset_name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    try:
+        return prepare_dataset_asset(metadata)
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/datasets/{dataset_name}")
 def get_dataset_detail(dataset_name: str) -> dict[str, Any]:
     """Return catalog metadata for one dataset."""
@@ -242,7 +295,9 @@ def _read_csv_columns(content: str) -> list[str]:
 
 def _merged_dataset_rows() -> list[dict[str, Any]]:
     rows: dict[str, dict[str, Any]] = {}
-    for catalog_item in DATASET_CATALOG.list():
+    for metadata in _catalog_metadata_rows():
+        status = dataset_asset_status(metadata)
+        catalog_item = metadata_to_prepared_dict(metadata, status)
         name = catalog_item.get("name")
         if isinstance(name, str) and name.strip():
             rows[name.strip().lower()] = catalog_item
@@ -252,8 +307,13 @@ def _merged_dataset_rows() -> list[dict[str, Any]]:
 
 
 def _metadata_detail(dataset_name: str) -> dict[str, Any]:
-    metadata = _get_dataset_metadata(dataset_name)
-    payload = asdict(metadata)
+    if _is_user_dataset(dataset_name):
+        metadata = _get_dataset_metadata(dataset_name)
+        payload = asdict(metadata)
+    else:
+        metadata = _get_catalog_dataset_metadata(dataset_name)
+        status = dataset_asset_status(metadata)
+        payload = metadata_to_prepared_dict(metadata, status)
     normalized = dataset_name.strip().lower()
     if any(item.name.strip().lower() == normalized for item in _load_user_dataset_metadata()):
         payload["user_defined"] = True
@@ -265,7 +325,21 @@ def _get_dataset_metadata(dataset_name: str) -> DatasetMetadata:
     for item in _load_user_dataset_metadata():
         if item.name.strip().lower() == normalized:
             return item
+    metadata = DATASET_CATALOG.get(dataset_name)
+    return prepared_metadata_from_status(metadata, dataset_asset_status(metadata))
+
+
+def _get_catalog_dataset_metadata(dataset_name: str) -> DatasetMetadata:
     return DATASET_CATALOG.get(dataset_name)
+
+
+def _catalog_metadata_rows() -> list[DatasetMetadata]:
+    return [DATASET_CATALOG.get(name) for name in DATASET_CATALOG.names()]
+
+
+def _is_user_dataset(dataset_name: str) -> bool:
+    normalized = dataset_name.strip().lower()
+    return any(item.name.strip().lower() == normalized for item in _load_user_dataset_metadata())
 
 
 def _metadata_from_user_payload(payload: UserDatasetRequest) -> DatasetMetadata:

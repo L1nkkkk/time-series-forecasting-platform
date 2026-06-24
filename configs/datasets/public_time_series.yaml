@@ -4,9 +4,16 @@ datasets:
     domain: energy
     description: Electricity Transformer Temperature hourly benchmark used by Informer/Autoformer-style forecasting papers.
     source: https://github.com/zhouhaoyi/ETDataset
+    download_url: https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTh1.csv
+    archive_format: raw_csv
+    local_path: ETTh1.csv
+    version: v1
     frequency: H
     license: see source
     citation: ETT benchmark from the Informer/ETDataset project.
+    timestamp_col: date
+    target_cols: [OT]
+    feature_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL]
 
   - name: etth2
     dataset_type: external_csv
@@ -22,9 +29,16 @@ datasets:
     domain: energy
     description: Electricity Transformer Temperature 15-minute benchmark used for multivariate long-horizon forecasting.
     source: https://github.com/zhouhaoyi/ETDataset
+    download_url: https://raw.githubusercontent.com/zhouhaoyi/ETDataset/main/ETT-small/ETTm1.csv
+    archive_format: raw_csv
+    local_path: ETTm1.csv
+    version: v1
     frequency: 15min
     license: see source
     citation: ETT benchmark from the Informer/ETDataset project.
+    timestamp_col: date
+    target_cols: [OT]
+    feature_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL]
 
   - name: ettm2
     dataset_type: external_csv
@@ -67,18 +81,28 @@ datasets:
     domain: finance
     description: Daily exchange-rate benchmark for multivariate forecasting.
     source: https://github.com/laiguokun/multivariate-time-series-data
+    download_url: https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/exchange_rate/exchange_rate.txt
+    archive_format: raw_matrix
+    local_path: exchange_rate_lai.csv
+    version: v1
     frequency: D
     license: see source
     citation: Lai et al., Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks.
+    target_cols: [value_0]
 
   - name: traffic_lai
     dataset_type: external_csv
     domain: traffic
     description: Road occupancy multivariate traffic benchmark from the LSTNet data collection.
     source: https://github.com/laiguokun/multivariate-time-series-data
+    download_url: https://raw.githubusercontent.com/laiguokun/multivariate-time-series-data/master/traffic/traffic.txt
+    archive_format: raw_matrix
+    local_path: traffic_lai.csv
+    version: v1
     frequency: H
     license: see source
     citation: Lai et al., Modeling Long- and Short-Term Temporal Patterns with Deep Neural Networks.
+    target_cols: [value_0]
 
   - name: metr_la
     dataset_type: external_matrix
