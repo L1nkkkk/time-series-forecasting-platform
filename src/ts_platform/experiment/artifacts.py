@@ -66,6 +66,7 @@ def build_train_artifact_manifest(
     checkpoint_path: Path,
     model_export_path: Path,
     model_export_metadata_path: Path,
+    best_checkpoint_path: Path | None = None,
 ) -> ArtifactManifest:
     """Build a manifest for a completed train run."""
 
@@ -125,6 +126,15 @@ def build_train_artifact_manifest(
             description="Training log",
         ),
     ]
+    if best_checkpoint_path is not None:
+        entries.append(
+            ArtifactEntry(
+                name="best_checkpoint",
+                kind="checkpoint",
+                path=best_checkpoint_path,
+                description="Best validation checkpoint",
+            )
+        )
     return ArtifactManifest(
         run_type="train",
         experiment_name=experiment_name,

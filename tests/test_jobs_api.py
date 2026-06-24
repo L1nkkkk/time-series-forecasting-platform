@@ -797,6 +797,61 @@ def test_api_job_progress_reads_live_run_dir(
     assert "epoch=2" in payload["log_tail"]
 
 
+def test_api_compare_job_progress_reads_current_model_progress(
+    tmp_path: Path,
+    monkeypatch: Any,
+    request: Any,
+) -> None:
+    runner = _install_runner(monkeypatch, tmp_path, request=request)
+    job = runner.store.create_job("compare", "api_compare_progress", {"config": True})
+    runner.store.mark_running(job.job_id)
+    compare_dir = tmp_path / "runs" / "api_compare_progress" / "latest"
+    child_dir = compare_dir / "models" / "002_dlinear" / "latest"
+    child_dir.mkdir(parents=True)
+    (compare_dir / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "run_type": "compare",
+                "experiment_name": "api_compare_progress",
+                "total_models": 4,
+                "completed_models": 1,
+                "progress_percent": 25,
+                "current_model": "dlinear",
+                "current_model_alias": "002_dlinear",
+                "current_model_run_dir": str(child_dir),
+                "model_statuses": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (child_dir / "progress.json").write_text(
+        json.dumps(
+            {
+                "status": "running",
+                "run_type": "train",
+                "completed_epochs": 2,
+                "total_epochs": 4,
+                "progress_percent": 50,
+                "history": [{"epoch": 2, "train_loss": 0.5}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (child_dir / "train.log").write_text("epoch=1\nepoch=2 train_loss=0.5", encoding="utf-8")
+    client = TestClient(create_app())
+
+    response = client.get(f"/jobs/{job.job_id}/progress")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job"]["status"] == "running"
+    assert payload["run_dir"] == str(compare_dir)
+    assert payload["progress"]["progress_percent"] == 37.5
+    assert payload["progress"]["current_model_progress"]["completed_epochs"] == 2
+    assert "epoch=2" in payload["log_tail"]
+
+
 def test_api_job_logs_rejects_oversized_log(
     tmp_path: Path,
     monkeypatch: Any,

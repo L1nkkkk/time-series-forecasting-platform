@@ -8,6 +8,9 @@ from ts_platform.cli.utils import print_json
 from ts_platform.data import (
     DATASET_CATALOG,
     DATASET_REGISTRY,
+    clear_dataset_asset,
+    list_dataset_cache,
+    prepare_dataset_asset,
     profile_csv_dataset,
     register_dataset_catalog,
 )
@@ -74,6 +77,36 @@ def register(
     make_config_parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
     make_config_parser.set_defaults(handler=handle_make_config_from_catalog)
 
+    prepare_parser = subparsers.add_parser(
+        "prepare-dataset",
+        help="Download and prepare one public catalog dataset as a local CSV asset",
+    )
+    prepare_parser.add_argument("--dataset", required=True, help="Catalog dataset name")
+    prepare_parser.add_argument(
+        "--catalog",
+        default="configs/datasets/public_time_series.yaml",
+        help="Dataset catalog YAML path",
+    )
+    prepare_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Redownload and rebuild the local dataset asset",
+    )
+    prepare_parser.set_defaults(handler=handle_prepare_dataset)
+
+    show_cache_parser = subparsers.add_parser(
+        "show-dataset-cache",
+        help="Show prepared dataset cache manifest entries",
+    )
+    show_cache_parser.set_defaults(handler=handle_show_dataset_cache)
+
+    clear_cache_parser = subparsers.add_parser(
+        "clear-dataset-cache",
+        help="Remove one prepared dataset asset from the local cache",
+    )
+    clear_cache_parser.add_argument("--dataset", required=True, help="Prepared dataset name")
+    clear_cache_parser.set_defaults(handler=handle_clear_dataset_cache)
+
 
 def handle_list_datasets(args: argparse.Namespace) -> int:
     """List registered datasets."""
@@ -133,4 +166,27 @@ def handle_make_config_from_catalog(args: argparse.Namespace) -> int:
         "config": config.model_dump(mode="json"),
     }
     print_json(payload)
+    return 0
+
+
+def handle_prepare_dataset(args: argparse.Namespace) -> int:
+    """Download and prepare one catalog dataset."""
+
+    metadata = find_catalog_metadata(load_dataset_catalog(args.catalog), args.dataset)
+    payload = prepare_dataset_asset(metadata, force=args.force)
+    print_json(payload)
+    return 0
+
+
+def handle_show_dataset_cache(args: argparse.Namespace) -> int:
+    """Show the prepared dataset cache manifest."""
+
+    print_json(list_dataset_cache())
+    return 0
+
+
+def handle_clear_dataset_cache(args: argparse.Namespace) -> int:
+    """Remove one prepared dataset from the local cache."""
+
+    print_json(clear_dataset_asset(args.dataset))
     return 0

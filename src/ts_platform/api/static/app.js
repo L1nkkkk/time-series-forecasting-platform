@@ -7,6 +7,9 @@ const fallbackModels = [
   "moving_average",
   "seasonal_naive",
   "linear",
+  "dlinear",
+  "nlinear",
+  "patchtst",
   "mlp",
   "nbeats",
   "rnn",
@@ -18,19 +21,29 @@ const fallbackModels = [
 
 const defaultModelParams = {
   gru: { hidden_size: 8 },
+  dlinear: { kernel_size: 3 },
   linear: {},
   lstm: { hidden_size: 8 },
   mlp: { hidden_sizes: [8] },
   moving_average: { window_size: 2 },
   nbeats: { hidden_size: 16, num_blocks: 2, num_layers: 2 },
+  nlinear: {},
   naive: {},
+  patchtst: {
+    patch_len: 2,
+    stride: 1,
+    d_model: 16,
+    num_heads: 4,
+    num_layers: 1,
+    dim_feedforward: 32,
+  },
   rnn: { hidden_size: 8 },
   seasonal_naive: { season_length: 2 },
   tcn: { hidden_channels: 8, num_layers: 2 },
   transformer: { d_model: 16, num_heads: 4, num_layers: 1, dim_feedforward: 32 },
 };
 
-const defaultCompareSelections = new Set(["naive", "moving_average", "linear"]);
+const defaultCompareSelections = new Set(["linear", "dlinear", "nlinear"]);
 
 const monitorPalette = [
   "#2563eb",
@@ -43,7 +56,8 @@ const monitorPalette = [
   "#4d7c0f",
 ];
 
-const dashboardPages = new Set(["overview", "datasets", "results", "custom", "jobs"]);
+const dashboardPages = new Set(["overview", "datasets", "results", "custom", "monitor", "jobs"]);
+const activeJobStatuses = new Set(["queued", "running", "cancel_requested"]);
 
 const fallbackDemoConfigs = {
   train: [
@@ -51,11 +65,14 @@ const fallbackDemoConfigs = {
     "csv_forecast",
     "csv_feature_forecast",
     "appliances_energy_half_hour_demo",
+    "ideal_training_30min_demo",
   ],
-  compare: ["compare_forecast", "compare_model_zoo", "compare_feature_forecast"],
+  compare: ["compare_forecast", "compare_model_zoo", "compare_feature_forecast", "ideal_target_demo"],
 };
 
 const halfHourDemoName = "appliances_energy_half_hour_demo";
+const idealTargetDemoName = "ideal_target_demo";
+const idealTrainingDemoName = "ideal_training_30min_demo";
 
 const state = {
   experiments: [],
@@ -92,6 +109,7 @@ const state = {
     metric: "all",
   },
   jobProgressTimer: null,
+  runningJobsTimer: null,
   filters: {
     search: "",
     type: "all",
@@ -110,6 +128,8 @@ const translations = {
     artifactDownload: "Download",
     artifacts: "Artifacts",
     artifactsTitle: "Artifacts",
+    activeJobs: "Active jobs",
+    autoRunningJobs: "Auto refresh running jobs",
     backendStatus: "Backend",
     best: "Best",
     bestMetric: "Best metric",
@@ -160,10 +180,12 @@ const translations = {
     datasetDeleted: "Dataset deleted",
     datasetProfile: "Profile",
     datasetProfileTitle: "Dataset Profile",
+    datasetPrepared: "Dataset prepared",
     device: "Device",
     documentTitle: "TS Platform Experiment Center",
     emptyBody: "The local runs directory is listed on the left.",
     emptyTitle: "Select an experiment run",
+    elapsedTime: "Elapsed",
     epochs: "Epochs",
     error: "Error",
     evaluationSettings: "Evaluation Settings",
@@ -182,6 +204,8 @@ const translations = {
     filterCompare: "Compare",
     filterTrain: "Train",
     idle: "Idle",
+    idealTargetDemo: "Ideal Target Demo",
+    idealTrainingDemo: "Ideal Training 30-Min Demo",
     includeScaled: "Scaled metrics",
     inputLen: "Input length",
     jobDemoConfig: "Demo config",
@@ -189,6 +213,9 @@ const translations = {
     jobId: "job_id",
     jobLaunchTitle: "Async Demo Jobs",
     halfHourDemo: "Half-Hour Monitor Demo",
+    jobMonitorCaption: "Automatically tracks queued and running jobs.",
+    jobMonitorEyebrow: "Live Job Monitor",
+    jobMonitorTitle: "Running Jobs Monitor",
     jobSubmitted: "Job submitted",
     jobType: "job_type",
     jobsTitle: "Jobs",
@@ -203,6 +230,7 @@ const translations = {
     loading: "Loading...",
     loss: "Loss",
     latest: "Latest",
+    lastUpdated: "Last updated",
     metricsRequired: "Select at least one evaluation metric.",
     metricAll: "All metrics",
     metricFilter: "Metric",
@@ -214,6 +242,7 @@ const translations = {
     noArtifacts: "No artifacts.",
     noChartData: "No chart data available.",
     noDatasetPath: "External dataset: download it first, then enter the local CSV path.",
+    noActiveJobs: "No queued or running jobs.",
     noRows: "No rows.",
     operationsCaption: "Generate new results or inspect the local job queue",
     operationsTitle: "Runs and Jobs",
@@ -224,18 +253,24 @@ const translations = {
     pageCustom: "Custom",
     pageDatasets: "Datasets",
     pageJobs: "Jobs",
+    pageMonitor: "Monitor",
     pageOverview: "Overview",
     pageResults: "Results",
     primaryMetric: "primary_metric",
     primaryMetricRequired: "Primary metric must be one of the selected metrics.",
+    prepareDataset: "Prepare Dataset",
+    preparedStatus: "Prepared",
     refreshAll: "Refresh All",
     refreshJobs: "Refresh Jobs",
+    refreshMonitor: "Refresh Monitor",
     refreshPreview: "Refresh Preview",
+    remainingTime: "Remaining",
     reloadRun: "Reload",
     resultsCaption: "Filter, favorite, inspect, and visualize run outputs",
     resultsTitle: "Experiment Result Management",
     runPrefix: "Run",
     runningPrefix: "Running",
+    runningJobs: "Running jobs",
     saveDataset: "Save and Use",
     selectDataset: "Select dataset",
     scaler: "Scaler",
@@ -264,6 +299,7 @@ const translations = {
     targetColsRequired: "Target columns are required.",
     testMetrics: "Test Metrics",
     testRatio: "Test ratio",
+    targetDuration: "Target duration",
     timestampCol: "Timestamp column",
     trainDemoComplete: "Training complete",
     trainRatio: "Train ratio",
@@ -339,6 +375,7 @@ const translations = {
     datasetDeleted: "数据集已删除",
     datasetProfile: "体检",
     datasetProfileTitle: "数据集体检",
+    datasetPrepared: "数据集已准备",
     device: "设备",
     documentTitle: "时间序列平台实验中心",
     emptyBody: "左侧结果库会显示本地 runs 目录中的训练和对比运行。",
@@ -361,6 +398,9 @@ const translations = {
     filterCompare: "对比",
     filterTrain: "训练",
     idle: "空闲",
+  idealTargetDemo: "理想目标 Demo",
+  idealTrainingDemo: "\u7406\u60f3\u8bad\u7ec3 30 \u5206\u949f",
+  elapsedTime: "\u5df2\u7528\u65f6\u95f4",
     includeScaled: "Scaled metrics",
     inputLen: "输入长度",
     jobDemoConfig: "演示配置",
@@ -407,6 +447,8 @@ const translations = {
     pageResults: "实验结果",
     primaryMetric: "主指标",
     primaryMetricRequired: "主指标必须包含在已选评估指标中。",
+    prepareDataset: "准备数据集",
+    preparedStatus: "准备状态",
     refreshAll: "刷新全部",
     refreshJobs: "刷新任务",
     refreshPreview: "刷新预览",
@@ -462,6 +504,24 @@ const translations = {
   },
 };
 
+Object.assign(translations.zh, {
+  activeJobs: "\u6d3b\u8dc3\u4efb\u52a1",
+  autoRunningJobs: "\u81ea\u52a8\u5237\u65b0\u8fd0\u884c\u4efb\u52a1",
+  elapsedTime: "\u5df2\u7528\u65f6\u95f4",
+  idealTargetDemo: "\u7406\u60f3\u76ee\u6807 Demo",
+  idealTrainingDemo: "\u7406\u60f3\u8bad\u7ec3 30 \u5206\u949f",
+  jobMonitorCaption: "\u81ea\u52a8\u8ddf\u8e2a\u6392\u961f\u548c\u8fd0\u884c\u4e2d\u7684\u4efb\u52a1\u3002",
+  jobMonitorEyebrow: "\u5b9e\u65f6\u4efb\u52a1\u76d1\u63a7",
+  jobMonitorTitle: "\u8fd0\u884c\u76d1\u63a7",
+  lastUpdated: "\u6700\u8fd1\u66f4\u65b0",
+  noActiveJobs: "\u5f53\u524d\u6ca1\u6709\u6392\u961f\u6216\u8fd0\u884c\u4e2d\u7684\u4efb\u52a1\u3002",
+  pageMonitor: "\u76d1\u63a7",
+  refreshMonitor: "\u5237\u65b0\u76d1\u63a7",
+  remainingTime: "\u5269\u4f59\u65f6\u95f4",
+  runningJobs: "\u8fd0\u884c\u4e2d",
+  targetDuration: "\u76ee\u6807\u65f6\u957f",
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   bindControls();
   initializeCustomBuilder();
@@ -474,6 +534,11 @@ function bindControls() {
   document.querySelector("#language-toggle").addEventListener("click", toggleLanguage);
   document.querySelector("#refresh-all").addEventListener("click", loadDashboard);
   document.querySelector("#refresh-jobs").addEventListener("click", loadJobs);
+  document.querySelector("#refresh-running-jobs").addEventListener("click", () => {
+    refreshRunningJobsMonitor();
+  });
+  document.querySelector("#auto-running-jobs").addEventListener("change", toggleRunningJobsMonitor);
+  document.querySelector("#job-monitor-output").addEventListener("click", handleJobMonitorClick);
   document.querySelectorAll("[data-page-nav]").forEach((button) => {
     button.addEventListener("click", () => {
       setDashboardPage(button.dataset.pageNav, { updateHash: true });
@@ -536,8 +601,14 @@ function bindControls() {
   document.querySelector("#submit-demo-job").addEventListener("click", (event) => {
     submitSelectedDemoJob(event.currentTarget);
   });
+  document.querySelector("#start-ideal-training-demo").addEventListener("click", (event) => {
+    startIdealTrainingDemo(event.currentTarget);
+  });
   document.querySelector("#start-half-hour-demo").addEventListener("click", (event) => {
     startHalfHourDemo(event.currentTarget);
+  });
+  document.querySelector("#start-ideal-target-demo").addEventListener("click", (event) => {
+    startIdealTargetDemo(event.currentTarget);
   });
   document.querySelector("#submit-all-demo-jobs").addEventListener("click", (event) => {
     submitAllDemoJobs(event.currentTarget);
@@ -639,6 +710,11 @@ function setDashboardPage(pageName, options = {}) {
       window.history.pushState(null, "", hash);
     }
   }
+  if (nextPage === "monitor") {
+    startRunningJobsMonitor();
+  } else {
+    stopRunningJobsMonitor({ uncheck: false });
+  }
   window.scrollTo({ top: 0, behavior: options.smooth ? "smooth" : "auto" });
 }
 
@@ -676,6 +752,9 @@ async function loadDashboard() {
     document.querySelector("#overview-error").textContent = error.message;
   }
   loadJobs();
+  if (state.page === "monitor") {
+    refreshRunningJobsMonitor({ silent: true });
+  }
 }
 
 async function ensureSelectedRun() {
@@ -1489,11 +1568,7 @@ async function submitSelectedDemoJob(button) {
   await withBusyButton(button, status, `${t("runningPrefix")} ${demoName}...`, async () => {
     const payload = await apiFetch(`/demo/jobs/${kind}/${demoName}`, { method: "POST" });
     output.innerHTML = renderJobSubmission(payload);
-    document.querySelector("#job-id").value = payload.job_id || "";
-    await loadJobs();
-    if (kind === "train") {
-      startAutoJobProgress();
-    }
+    await monitorSubmittedJob(payload);
   });
 }
 
@@ -1506,9 +1581,33 @@ async function startHalfHourDemo(button) {
   await withBusyButton(button, status, `${t("runningPrefix")} ${halfHourDemoName}...`, async () => {
     const payload = await apiFetch(`/demo/jobs/train/${halfHourDemoName}`, { method: "POST" });
     output.innerHTML = renderJobSubmission(payload);
-    document.querySelector("#job-id").value = payload.job_id || "";
-    await loadJobs();
-    startAutoJobProgress();
+    await monitorSubmittedJob(payload);
+  });
+}
+
+async function startIdealTrainingDemo(button) {
+  const status = document.querySelector("#job-submit-status");
+  const output = document.querySelector("#job-submit-output");
+  document.querySelector("#job-demo-kind").value = "train";
+  renderJobDemoOptions();
+  document.querySelector("#job-demo-name").value = idealTrainingDemoName;
+  await withBusyButton(button, status, `${t("runningPrefix")} ${idealTrainingDemoName}...`, async () => {
+    const payload = await apiFetch(`/demo/jobs/train/${idealTrainingDemoName}`, { method: "POST" });
+    output.innerHTML = renderJobSubmission(payload);
+    await monitorSubmittedJob(payload);
+  });
+}
+
+async function startIdealTargetDemo(button) {
+  const status = document.querySelector("#job-submit-status");
+  const output = document.querySelector("#job-submit-output");
+  document.querySelector("#job-demo-kind").value = "compare";
+  renderJobDemoOptions();
+  document.querySelector("#job-demo-name").value = idealTargetDemoName;
+  await withBusyButton(button, status, `${t("runningPrefix")} ${idealTargetDemoName}...`, async () => {
+    const payload = await apiFetch(`/demo/jobs/compare/${idealTargetDemoName}`, { method: "POST" });
+    output.innerHTML = renderJobSubmission(payload);
+    await monitorSubmittedJob(payload);
   });
 }
 
@@ -1534,12 +1633,21 @@ async function submitAllDemoJobs(button) {
       "created_at",
     ]);
     const lastJob = payloads[payloads.length - 1];
-    document.querySelector("#job-id").value = lastJob?.job_id || "";
-    await loadJobs();
-    if (lastJob?.job_type === "train") {
-      startAutoJobProgress();
+    if (lastJob) {
+      await monitorSubmittedJob(lastJob);
     }
   });
+}
+
+async function monitorSubmittedJob(payload) {
+  if (!payload?.job_id) {
+    return;
+  }
+  document.querySelector("#job-id").value = payload.job_id;
+  await loadJobs({ silent: true });
+  stopAutoJobProgress();
+  setDashboardPage("monitor", { updateHash: true });
+  startRunningJobsMonitor({ force: true });
 }
 
 function renderJobSubmission(payload) {
@@ -1649,7 +1757,11 @@ function renderDatasetCatalogDetail() {
   const profileAction = row.dataset_type === "csv" && row.path
     ? `<button class="table-action ghost" type="button" data-profile-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("datasetProfile"))}</button>`
     : "";
+  const prepareAction = row.download_url && !row.user_defined
+    ? `<button class="table-action ghost" type="button" data-prepare-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(row.prepared ? t("datasetPrepared") : t("prepareDataset"))}</button>`
+    : "";
   const path = row.path ? escapeHtml(row.path) : escapeHtml(t("noDatasetPath"));
+  const preparedText = row.prepared ? t("datasetPrepared") : "-";
   detail.innerHTML = `<article class="dataset-detail-card">
     <div class="panel-heading">
       <div>
@@ -1660,6 +1772,7 @@ function renderDatasetCatalogDetail() {
     </div>
     <dl class="dataset-detail-grid">
       <div><dt>type</dt><dd>${escapeHtml(row.dataset_type || "-")}</dd></div>
+      <div><dt>${escapeHtml(t("preparedStatus"))}</dt><dd>${escapeHtml(preparedText)}</dd></div>
       <div><dt>${escapeHtml(t("frequency"))}</dt><dd>${escapeHtml(row.frequency || "-")}</dd></div>
       <div><dt>${escapeHtml(t("targetCols"))}</dt><dd>${escapeHtml((row.target_cols || []).join(", ") || "-")}</dd></div>
       <div><dt>${escapeHtml(t("featureCols"))}</dt><dd>${escapeHtml((row.feature_cols || []).join(", ") || "-")}</dd></div>
@@ -1668,6 +1781,7 @@ function renderDatasetCatalogDetail() {
     </dl>
     <div class="table-actions">
       <button class="table-action ghost" type="button" data-use-dataset="${escapeHtml(row._catalogKey)}">${escapeHtml(t("useDataset"))}</button>
+      ${prepareAction}
       ${profileAction}
       ${deleteAction}
     </div>
@@ -1682,6 +1796,11 @@ function renderDatasetCatalogDetail() {
   detail.querySelectorAll("[data-delete-dataset]").forEach((button) => {
     button.addEventListener("click", () => {
       deleteUserDataset(button.dataset.deleteDataset);
+    });
+  });
+  detail.querySelectorAll("[data-prepare-dataset]").forEach((button) => {
+    button.addEventListener("click", () => {
+      prepareCatalogDataset(button.dataset.prepareDataset);
     });
   });
   detail.querySelectorAll("[data-profile-dataset]").forEach((button) => {
@@ -1951,6 +2070,28 @@ async function profileDataset(catalogKey) {
     const query = params.toString() ? `?${params.toString()}` : "";
     const payload = await apiFetch(`/datasets/${encodeURIComponent(row.name)}/profile${query}`);
     output.innerHTML = renderDatasetProfile(payload);
+  } catch (error) {
+    output.innerHTML = renderError(error.message);
+  }
+}
+
+async function prepareCatalogDataset(catalogKey) {
+  const row = datasetRowsForLookup().find((item) => item._catalogKey === catalogKey);
+  const output = document.querySelector("#user-dataset-output");
+  if (!row || !row.name) {
+    return;
+  }
+  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
+  try {
+    const payload = await apiFetch(`/datasets/${encodeURIComponent(row.name)}/prepare`, {
+      method: "POST",
+    });
+    state.overview.datasets = await apiFetch("/datasets");
+    renderDatasetCatalog(state.overview.datasets || { datasets: [] });
+    const normalized = normalizeName(payload.name || row.name);
+    state.datasetCatalog.selectedKey = `catalog:${normalized}`;
+    renderDatasetCatalog(state.overview.datasets || { datasets: [] });
+    output.innerHTML = `<p class="muted">${escapeHtml(t("datasetPrepared"))}: ${escapeHtml(payload.path || "-")}</p>`;
   } catch (error) {
     output.innerHTML = renderError(error.message);
   }
@@ -2377,11 +2518,16 @@ function jobQuery(options = {}) {
   return query ? `?${query}` : "";
 }
 
-async function loadJobs() {
+async function loadJobs(options = {}) {
   const output = document.querySelector("#jobs-output");
-  output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
+  if (!options.silent) {
+    output.innerHTML = `<p class="muted">${escapeHtml(t("loading"))}</p>`;
+  }
   try {
     const payload = await apiFetch(`/jobs${jobQuery({ includeBackend: true })}`);
+    if (options.silent) {
+      return payload;
+    }
     output.innerHTML = renderTable(payload.jobs || [], [
       "job_id",
       "status",
@@ -2390,8 +2536,12 @@ async function loadJobs() {
       "run_id",
       "error",
     ]);
+    return payload;
   } catch (error) {
-    output.innerHTML = renderError(error.message);
+    if (!options.silent) {
+      output.innerHTML = renderError(error.message);
+    }
+    return null;
   }
 }
 
@@ -2430,8 +2580,10 @@ async function loadJobProgress(options = {}) {
   try {
     const payload = await apiFetch(`/jobs/${encodeURIComponent(jobId)}/progress${query}`);
     output.innerHTML = renderJobProgress(payload);
+    await loadJobs({ silent: true });
     if (payload?.job?.status && !["queued", "running", "cancel_requested"].includes(payload.job.status)) {
       stopAutoJobProgress();
+      await loadDashboard();
     }
   } catch (error) {
     output.innerHTML = renderError(error.message);
@@ -2472,9 +2624,316 @@ function stopAutoJobProgress() {
   }
 }
 
+function toggleRunningJobsMonitor(event) {
+  if (event.target.checked) {
+    startRunningJobsMonitor({ force: true });
+    return;
+  }
+  stopRunningJobsMonitor({ uncheck: false });
+  refreshRunningJobsMonitor();
+}
+
+function startRunningJobsMonitor(options = {}) {
+  const checkbox = document.querySelector("#auto-running-jobs");
+  if (checkbox && options.force) {
+    checkbox.checked = true;
+  }
+  if (checkbox && !checkbox.checked) {
+    refreshRunningJobsMonitor();
+    return;
+  }
+  if (state.runningJobsTimer !== null) {
+    window.clearInterval(state.runningJobsTimer);
+  }
+  refreshRunningJobsMonitor({ silent: true });
+  state.runningJobsTimer = window.setInterval(() => {
+    refreshRunningJobsMonitor({ silent: true });
+  }, 3000);
+}
+
+function stopRunningJobsMonitor(options = {}) {
+  if (state.runningJobsTimer !== null) {
+    window.clearInterval(state.runningJobsTimer);
+    state.runningJobsTimer = null;
+  }
+  const checkbox = document.querySelector("#auto-running-jobs");
+  if (checkbox && options.uncheck) {
+    checkbox.checked = false;
+  }
+}
+
+async function refreshRunningJobsMonitor(options = {}) {
+  const status = document.querySelector("#job-monitor-status");
+  const output = document.querySelector("#job-monitor-output");
+  const summary = document.querySelector("#job-monitor-summary");
+  if (!status || !output || !summary) {
+    return null;
+  }
+  if (!options.silent) {
+    status.textContent = t("loading");
+  }
+  try {
+    const jobsPayload = await apiFetch(`/jobs${jobQuery({ includeBackend: true })}`);
+    const jobsList = jobsPayload.jobs || [];
+    const activeJobs = jobsList.filter(isActiveJob);
+    const progressQuery = jobQuery({ includeBackend: true, includeRunsRoot: true });
+    const progressPayloads = await Promise.all(
+      activeJobs.map(async (job) => {
+        try {
+          return await apiFetch(`/jobs/${encodeURIComponent(job.job_id)}/progress${progressQuery}`);
+        } catch (error) {
+          return {
+            job,
+            progress: null,
+            log_tail: null,
+            error: error.message,
+          };
+        }
+      }),
+    );
+    renderRunningJobsMonitor({
+      jobs: jobsList,
+      activeJobs,
+      progressPayloads,
+      updatedAt: new Date(),
+    });
+    status.textContent = activeJobs.length
+      ? `${activeJobs.length} ${t("activeJobs")}`
+      : t("idle");
+    return progressPayloads;
+  } catch (error) {
+    status.textContent = t("error");
+    summary.innerHTML = "";
+    output.innerHTML = renderError(error.message);
+    return null;
+  }
+}
+
+function isActiveJob(job) {
+  return activeJobStatuses.has(job?.status);
+}
+
+function renderRunningJobsMonitor({ jobs, activeJobs, progressPayloads, updatedAt }) {
+  const summary = document.querySelector("#job-monitor-summary");
+  const output = document.querySelector("#job-monitor-output");
+  const queuedCount = activeJobs.filter((job) => job.status === "queued").length;
+  const runningCount = activeJobs.filter((job) => job.status === "running").length;
+  summary.innerHTML = [
+    metric(t("activeJobs"), activeJobs.length),
+    metric("queued", queuedCount),
+    metric(t("runningJobs"), runningCount),
+    metric(t("lastUpdated"), formatDate(updatedAt.toISOString())),
+  ].join("");
+  if (!activeJobs.length) {
+    const recentRows = jobs.slice(0, 5);
+    output.innerHTML = `<div class="job-monitor-empty">
+      <p>${escapeHtml(t("noActiveJobs"))}</p>
+      ${recentRows.length ? renderTable(recentRows, ["job_id", "status", "job_type", "created_at", "run_id"]) : ""}
+    </div>`;
+    return;
+  }
+  output.innerHTML = progressPayloads.map(renderRunningJobCard).join("");
+}
+
+function renderRunningJobCard(payload) {
+  const job = payload?.job || {};
+  const progress = payload?.progress || {};
+  const percent = progressPercent(progress, job);
+  const title = job.experiment_name || progress.experiment_name || job.job_id || "-";
+  const subtitle = [job.job_type || progress.run_type, job.job_id].filter(Boolean).join(" / ");
+  const isCompare = progress.run_type === "compare";
+  const statusRows = Array.isArray(progress.model_statuses) ? progress.model_statuses : [];
+  const child = progress.current_model_progress || {};
+  const completed = isCompare ? progress.completed_models : progress.completed_epochs;
+  const total = isCompare ? progress.total_models : progress.total_epochs;
+  const latestLoss = isCompare ? child.latest?.train_loss : progress.latest?.train_loss;
+  const latestValMae = isCompare
+    ? child.latest?.validation_metrics?.original?.mae
+    : progress.latest?.validation_metrics?.original?.mae;
+  const chartHistory = isCompare ? child.history : progress.history;
+  const logTail = payload?.log_tail || "";
+  const elapsedMinutes = secondsToMinutes(progress.elapsed_seconds);
+  const remainingMinutes = secondsToMinutes(progress.estimated_remaining_seconds);
+  const targetMinutes = progress.target_duration_minutes ?? secondsToMinutes(progress.target_duration_seconds);
+  return `<article class="job-monitor-card">
+    <div class="job-monitor-card-head">
+      <div>
+        <h3>${escapeHtml(title)}</h3>
+        <p>${escapeHtml(subtitle || "-")}</p>
+      </div>
+      <button class="table-action ghost" type="button" data-monitor-job-id="${escapeHtml(job.job_id || "")}">Open</button>
+    </div>
+    <div class="job-progress-bar" aria-label="job progress">
+      <div class="job-progress-fill" style="width: ${escapeHtml(String(percent))}%"></div>
+    </div>
+    <div class="summary">
+      ${metric("status", job.status || "-")}
+      ${metric("progress", `${formatNumber(percent)}%`)}
+      ${metric(isCompare ? "models" : "epoch", `${completed ?? "-"} / ${total ?? "-"}`)}
+      ${metric("current", progress.current_model_alias || progress.current_model || "-")}
+      ${metric("train_loss", latestLoss === undefined ? "-" : formatNumber(latestLoss))}
+      ${metric("val_mae", latestValMae === undefined ? "-" : formatNumber(latestValMae))}
+      ${metric(t("elapsedTime"), elapsedMinutes === null ? "-" : `${formatNumber(elapsedMinutes)} min`)}
+      ${metric(t("remainingTime"), remainingMinutes === null ? "-" : `${formatNumber(remainingMinutes)} min`)}
+      ${metric(t("targetDuration"), targetMinutes === null ? "-" : `${formatNumber(targetMinutes)} min`)}
+      ${metric("updated", progress.updated_at || "-")}
+    </div>
+    ${renderJobMonitorChart(chartHistory)}
+    ${payload?.error ? renderError(payload.error) : ""}
+    ${statusRows.length ? renderTable(statusRows, ["model_alias", "model_name", "status", "primary_metric_value", "run_id", "error"]) : ""}
+    <details>
+      <summary>progress.json</summary>
+      ${renderJson(progress || null)}
+    </details>
+    <details class="job-monitor-log">
+      <summary>log tail</summary>
+      <pre>${escapeHtml(logTail)}</pre>
+    </details>
+  </article>`;
+}
+
+function renderJobMonitorChart(history) {
+  const rows = jobMonitorChartRows(history);
+  const latestTrain = latestChartValue(rows, "train");
+  const latestVal = latestChartValue(rows, "val");
+  const subtitle = rows.length
+    ? `${rows.length} epoch${rows.length === 1 ? "" : "s"} / train_loss ${formatOptionalMetric(latestTrain)} / val_mae ${formatOptionalMetric(latestVal)}`
+    : t("noChartData");
+  return `<section class="job-monitor-chart-panel">
+    <div class="job-monitor-chart-head">
+      <div>
+        <h4>${escapeHtml(t("trainingCurve"))}</h4>
+        <p>${escapeHtml(subtitle)}</p>
+      </div>
+      <div class="job-monitor-legend" aria-label="chart legend">
+        <span><i class="job-legend-train"></i>train_loss</span>
+        <span><i class="job-legend-val"></i>val_mae</span>
+      </div>
+    </div>
+    ${rows.length ? renderJobMonitorLineChart(rows) : `<div class="job-monitor-chart-empty">${escapeHtml(t("noChartData"))}</div>`}
+  </section>`;
+}
+
+function jobMonitorChartRows(history) {
+  return (Array.isArray(history) ? history : [])
+    .map((row, index) => ({
+      epoch: metricNumber(row?.epoch) ?? index + 1,
+      train: metricNumber(row?.train_loss),
+      val: metricNumber(row?.validation_metrics?.original?.mae),
+    }))
+    .filter((row) => row.epoch !== null && (row.train !== null || row.val !== null))
+    .sort((a, b) => a.epoch - b.epoch);
+}
+
+function latestChartValue(rows, key) {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const value = rows[index]?.[key];
+    if (value !== null && value !== undefined) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function formatOptionalMetric(value) {
+  return value === null || value === undefined ? "-" : formatNumber(value);
+}
+
+function renderJobMonitorLineChart(rows) {
+  const width = 560;
+  const height = 220;
+  const pad = { left: 54, right: 18, top: 18, bottom: 34 };
+  const values = rows.flatMap((row) => [row.train, row.val]).filter((value) => value !== null);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const spread = max - min || Math.max(Math.abs(max), 1);
+  const yMin = min >= 0 ? Math.max(0, min - spread * 0.08) : min - spread * 0.08;
+  const yMax = max + spread * 0.1;
+  const epochMin = Math.min(...rows.map((row) => row.epoch));
+  const epochMax = Math.max(...rows.map((row) => row.epoch));
+  const x = (row, index) => {
+    if (epochMax === epochMin) {
+      return pad.left + (width - pad.left - pad.right) / 2;
+    }
+    return pad.left + ((row.epoch - epochMin) / (epochMax - epochMin)) * (width - pad.left - pad.right);
+  };
+  const y = (value) =>
+    height - pad.bottom - ((value - yMin) / (yMax - yMin || 1)) * (height - pad.top - pad.bottom);
+  const line = (key) =>
+    rows
+      .map((row, index) => (row[key] === null ? null : `${x(row, index)},${y(row[key])}`))
+      .filter(Boolean)
+      .join(" ");
+  const dots = (key, label, className) =>
+    rows
+      .map((row, index) => {
+        if (row[key] === null) {
+          return "";
+        }
+        return `<circle class="${escapeHtml(className)}" cx="${x(row, index)}" cy="${y(row[key])}" r="3.5">
+          <title>${escapeHtml(label)} | epoch ${formatValue(row.epoch)}: ${formatNumber(row[key])}</title>
+        </circle>`;
+      })
+      .join("");
+  const grid = [0, 0.25, 0.5, 0.75, 1]
+    .map((ratio) => {
+      const gy = pad.top + ratio * (height - pad.top - pad.bottom);
+      const value = yMax - ratio * (yMax - yMin);
+      return `<line class="grid" x1="${pad.left}" x2="${width - pad.right}" y1="${gy}" y2="${gy}" /><text x="8" y="${gy + 4}">${escapeHtml(formatNumber(value))}</text>`;
+    })
+    .join("");
+  return `<svg class="chart job-monitor-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(t("trainingCurve"))}">
+    ${grid}
+    <line class="axis" x1="${pad.left}" x2="${width - pad.right}" y1="${height - pad.bottom}" y2="${height - pad.bottom}" />
+    <line class="axis" x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${height - pad.bottom}" />
+    <polyline class="job-line-train" points="${line("train")}" />
+    <polyline class="job-line-val" points="${line("val")}" />
+    ${dots("train", "train_loss", "job-dot-train")}
+    ${dots("val", "val_mae", "job-dot-val")}
+    <text x="${pad.left}" y="${height - 10}">${escapeHtml(formatValue(epochMin))}</text>
+    <text x="${width - pad.right - 28}" y="${height - 10}">${escapeHtml(formatValue(epochMax))}</text>
+  </svg>`;
+}
+
+function progressPercent(progress, job) {
+  const value = Number(progress?.progress_percent);
+  if (Number.isFinite(value)) {
+    return Math.max(0, Math.min(100, value));
+  }
+  if (job?.status === "succeeded") {
+    return 100;
+  }
+  return 0;
+}
+
+function secondsToMinutes(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds)) {
+    return null;
+  }
+  return seconds / 60;
+}
+
+function handleJobMonitorClick(event) {
+  const button = event.target.closest("[data-monitor-job-id]");
+  if (!button) {
+    return;
+  }
+  const jobId = button.dataset.monitorJobId;
+  if (!jobId) {
+    return;
+  }
+  document.querySelector("#job-id").value = jobId;
+  setDashboardPage("jobs", { updateHash: true });
+  loadJobProgress();
+}
+
 function renderJobProgress(payload) {
   const progress = payload?.progress || {};
   const job = payload?.job || {};
+  if (progress.run_type === "compare") {
+    return renderCompareJobProgress(payload);
+  }
   const completed = progress.completed_epochs ?? "-";
   const total = progress.total_epochs ?? "-";
   const percent = progress.progress_percent ?? 0;
@@ -2493,6 +2952,38 @@ function renderJobProgress(payload) {
   </div>
   ${progress.history ? renderTrainingMonitor({ history: progress.history }) : ""}
   <h3>progress.json</h3>
+  ${renderJson(progress || null)}
+  <h3>log tail</h3>
+  <pre>${escapeHtml(payload?.log_tail || "")}</pre>`;
+}
+
+function renderCompareJobProgress(payload) {
+  const progress = payload?.progress || {};
+  const child = progress.current_model_progress || {};
+  const job = payload?.job || {};
+  const completedModels = progress.completed_models ?? "-";
+  const totalModels = progress.total_models ?? "-";
+  const childCompleted = child.completed_epochs ?? "-";
+  const childTotal = child.total_epochs ?? "-";
+  const latestLoss = child.latest?.train_loss;
+  const latestValMae = child.latest?.validation_metrics?.original?.mae;
+  const testMae = child.test_metrics?.original?.mae;
+  const statusRows = Array.isArray(progress.model_statuses) ? progress.model_statuses : [];
+  return `<div class="summary">
+    ${metric("job", job.job_id || "-")}
+    ${metric("status", job.status || "-")}
+    ${metric("models", `${completedModels} / ${totalModels}`)}
+    ${metric("progress", `${formatNumber(progress.progress_percent ?? 0)}%`)}
+    ${metric("current", progress.current_model_alias || "-")}
+    ${metric("epoch", `${childCompleted} / ${childTotal}`)}
+    ${metric("train_loss", latestLoss === undefined ? "-" : formatNumber(latestLoss))}
+    ${metric("val_mae", latestValMae === undefined ? "-" : formatNumber(latestValMae))}
+    ${metric("test_mae", testMae === undefined ? "-" : formatNumber(testMae))}
+    ${metric("result", job.result_path || "-")}
+  </div>
+  ${statusRows.length ? renderTable(statusRows, ["model_alias", "model_name", "status", "primary_metric_value", "run_id", "error"]) : ""}
+  ${child.history ? renderTrainingMonitor({ history: child.history }) : ""}
+  <h3>compare progress</h3>
   ${renderJson(progress || null)}
   <h3>log tail</h3>
   <pre>${escapeHtml(payload?.log_tail || "")}</pre>`;
@@ -2649,11 +3140,7 @@ async function runConfigFile(event) {
     });
     if (mode === "job") {
       output.innerHTML = renderJobSubmission(payload);
-      document.querySelector("#job-id").value = payload.job_id || "";
-      await loadJobs();
-      if (kind === "train") {
-        startAutoJobProgress();
-      }
+      await monitorSubmittedJob(payload);
       return;
     }
     output.innerHTML = renderRunCompletion(payload, kind === "compare" ? t("compareDemoComplete") : t("trainDemoComplete"));

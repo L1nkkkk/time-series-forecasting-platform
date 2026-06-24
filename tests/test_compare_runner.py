@@ -93,6 +93,23 @@ def test_compare_run_writes_artifacts_json(tmp_path) -> None:
     assert (result.compare_run_dir / "artifacts.json").exists()
 
 
+def test_compare_run_writes_progress_json(tmp_path) -> None:
+    result = CompareRunner(_compare_config(tmp_path)).run()
+
+    payload = json.loads((result.compare_run_dir / "progress.json").read_text(encoding="utf-8"))
+
+    assert payload["run_type"] == "compare"
+    assert payload["status"] == "succeeded"
+    assert payload["experiment_name"] == "compare_unit"
+    assert payload["total_models"] == 2
+    assert payload["completed_models"] == 2
+    assert payload["progress_percent"] == 100
+    assert [row["model_alias"] for row in payload["model_statuses"]] == [
+        "001_naive",
+        "002_moving_average",
+    ]
+
+
 def test_compare_artifacts_json_contains_leaderboard_entries(tmp_path) -> None:
     result = CompareRunner(_compare_config(tmp_path)).run()
     payload = json.loads((result.compare_run_dir / "artifacts.json").read_text(encoding="utf-8"))
@@ -318,13 +335,16 @@ def test_compare_model_zoo_config_runs(tmp_path) -> None:
 
     result = CompareRunner(config).run()
 
-    assert result.success_count == 11
+    assert result.success_count == 14
     assert result.failed_count == 0
     assert {row["model_name"] for row in result.rows} == {
         "naive",
         "moving_average",
         "seasonal_naive",
         "linear",
+        "dlinear",
+        "nlinear",
+        "patchtst",
         "mlp",
         "nbeats",
         "rnn",

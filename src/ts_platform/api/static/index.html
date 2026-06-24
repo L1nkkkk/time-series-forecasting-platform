@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>时间序列平台实验中心</title>
     <link rel="stylesheet" href="/ui/static/styles.css?v=20260622-job-dataset-select" />
-    <script src="/ui/static/app.js?v=20260624-cli-parity" defer></script>
+    <script src="/ui/static/app.js?v=20260624-job-monitor" defer></script>
   </head>
   <body>
     <header class="topbar">
@@ -20,6 +20,7 @@
         <button type="button" data-page-nav="results" data-i18n="pageResults">实验结果</button>
         <button type="button" data-page-nav="custom" data-i18n="pageCustom">自定义实验</button>
         <button type="button" data-page-nav="jobs" data-i18n="pageJobs">任务</button>
+        <button type="button" data-page-nav="monitor" data-i18n="pageMonitor">Monitor</button>
       </nav>
       <div class="topbar-actions">
         <button id="language-toggle" class="secondary" type="button">English</button>
@@ -472,6 +473,23 @@
         </div>
       </section>
 
+      <section class="job-monitor page-section" data-page-section="monitor" aria-labelledby="job-monitor-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow dark" data-i18n="jobMonitorEyebrow">Live Job Monitor</p>
+            <h2 id="job-monitor-title" data-i18n="jobMonitorTitle">Running Jobs Monitor</h2>
+            <p class="section-caption" data-i18n="jobMonitorCaption">Automatically tracks queued and running jobs.</p>
+          </div>
+          <span id="job-monitor-status" class="status" data-i18n="idle">Idle</span>
+        </div>
+        <div class="monitor-control-row">
+          <label class="check-row"><input id="auto-running-jobs" type="checkbox" checked /><span data-i18n="autoRunningJobs">Auto refresh running jobs</span></label>
+          <button id="refresh-running-jobs" type="button" data-i18n="refreshMonitor">Refresh Monitor</button>
+        </div>
+        <div id="job-monitor-summary" class="summary"></div>
+        <div id="job-monitor-output" class="job-monitor-grid"></div>
+      </section>
+
       <section class="operations page-section" data-page-section="jobs" aria-labelledby="operations-title" hidden>
         <div class="section-heading">
           <div>
@@ -526,6 +544,8 @@
             </div>
             <div class="actions">
               <button id="submit-demo-job" type="button" data-output-target="#job-submit-output" data-i18n="submitDemoJob">提交任务</button>
+              <button id="start-ideal-training-demo" type="button" data-output-target="#job-submit-output" data-i18n="idealTrainingDemo">理想训练 30 分钟</button>
+              <button id="start-ideal-target-demo" type="button" data-output-target="#job-submit-output" data-i18n="idealTargetDemo">理想目标 Demo</button>
               <button id="start-half-hour-demo" type="button" data-output-target="#job-submit-output" data-i18n="halfHourDemo">一键半小时监控演示</button>
               <button id="submit-all-demo-jobs" class="ghost" type="button" data-output-target="#job-submit-output" data-i18n="submitAllDemoJobs">提交当前类别全部</button>
             </div>

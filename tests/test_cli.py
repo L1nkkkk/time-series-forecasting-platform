@@ -34,6 +34,9 @@ def test_cli_main_build_parser_contains_core_commands() -> None:
         "profile-dataset",
         "profile-catalog",
         "make-config-from-catalog",
+        "prepare-dataset",
+        "show-dataset-cache",
+        "clear-dataset-cache",
         "list-models",
         "show-results",
         "show-leaderboard",
@@ -309,6 +312,63 @@ def test_make_config_from_catalog_output_loads(tmp_path, capsys) -> None:
     assert config.data.name == "csv"
     assert config.data.params["target_cols"] == ["value"]
     assert config.training.epochs == 1
+
+
+def test_cli_prepare_dataset_uses_catalog_metadata(tmp_path, monkeypatch, capsys) -> None:
+    catalog_path = tmp_path / "remote_catalog.yaml"
+    catalog_path.write_text(
+        "datasets:\n"
+        "  - name: remote_tiny\n"
+        "    dataset_type: external_csv\n"
+        "    domain: demo\n"
+        "    description: Remote tiny\n"
+        "    source: https://example.test/remote_tiny.csv\n"
+        "    download_url: https://example.test/remote_tiny.csv\n"
+        "    archive_format: raw_csv\n"
+        "    target_cols: [value]\n",
+        encoding="utf-8",
+    )
+
+    def fake_prepare(metadata, *, force=False):
+        assert metadata.name == "remote_tiny"
+        assert force is True
+        return {"name": metadata.name, "prepared": True}
+
+    monkeypatch.setattr("ts_platform.cli.commands.datasets.prepare_dataset_asset", fake_prepare)
+
+    exit_code = main(
+        [
+            "prepare-dataset",
+            "--catalog",
+            str(catalog_path),
+            "--dataset",
+            "remote_tiny",
+            "--force",
+        ]
+    )
+    stdout = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert json.loads(stdout) == {"name": "remote_tiny", "prepared": True}
+
+
+def test_cli_dataset_cache_commands(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "ts_platform.cli.commands.datasets.list_dataset_cache",
+        lambda: {"assets": [{"name": "remote_tiny"}]},
+    )
+    monkeypatch.setattr(
+        "ts_platform.cli.commands.datasets.clear_dataset_asset",
+        lambda name: {"dataset": name, "removed": True},
+    )
+
+    assert main(["show-dataset-cache"]) == 0
+    show_payload = json.loads(capsys.readouterr().out)
+    assert show_payload["assets"][0]["name"] == "remote_tiny"
+
+    assert main(["clear-dataset-cache", "--dataset", "remote_tiny"]) == 0
+    clear_payload = json.loads(capsys.readouterr().out)
+    assert clear_payload == {"dataset": "remote_tiny", "removed": True}
 
 
 def test_make_config_from_catalog_rejects_missing_dataset(tmp_path) -> None:

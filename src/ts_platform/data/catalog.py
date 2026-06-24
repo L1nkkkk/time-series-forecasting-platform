@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,12 @@ class DatasetMetadata:
     target_cols: list[str] | None = None
     feature_cols: list[str] | None = None
     timestamp_col: str | None = None
+    download_url: str | None = None
+    archive_format: str | None = None
+    local_path: str | None = None
+    version: str | None = None
+    checksum: str | None = None
+    prepared: bool | None = None
 
 
 class DatasetCatalog:
@@ -53,7 +60,7 @@ class DatasetCatalog:
 
         return sorted(self._items)
 
-    def list(self) -> list[dict[str, str | None]]:
+    def list(self) -> list[dict[str, Any]]:
         """Return catalog metadata as serializable dictionaries."""
 
         return [asdict(item) for item in self._items.values()]

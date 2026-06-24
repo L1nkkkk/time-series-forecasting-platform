@@ -1,185 +1,96 @@
-# 时间序列预测平台
+# 时间序列预测快速开发平台
 
-本仓库是一个配置驱动的时间序列预测平台 MVP，用于展示从数据集、模型、
-训练、评估、对比实验、产物管理到本地 Dashboard Demo 的完整工程闭环。
+本项目是一个面向课程验收和现场展示的时间序列深度学习模型快速开发平台。它以 Python、PyTorch、FastAPI、CLI 和本地 Dashboard 为基础，串起数据集准备、模型训练、模型对比、排行榜、预测样本、任务队列和实验产物管理。
 
-项目不复制 BasicTS 代码，但借鉴了类似的工程分层思想：数据集、缩放器、
-模型、指标、Runner、配置和 API 都保持相对独立，并通过注册表和小接口扩展。
+项目不复制 BasicTS 代码，但采用类似的工程分层思想：数据集、模型、指标、训练器、对比 runner、配置、API 和 UI 都保持相对独立，并通过注册表和配置文件扩展。
 
-## 项目能力概览
+## 课程题目需求对齐
 
-当前版本支持：
+本项目对应课程截图中的“题目 3：面向时间序列的深度学习模型快速开发平台”。截图要求开发一个综合性的时间序列预测平台，提供集中式数据集库、数据集访问接口、多种先进预测模型和快速训练框架，帮助研究人员和行业专家快速构建、训练和比较模型。
 
-- 合成时间序列数据集。
-- 本地 CSV 时间序列数据集，支持按时间顺序切分。
-- Naive、Moving Average、Seasonal Naive、Linear、MLP、RNN、GRU、LSTM、
-  TCN 等预测模型。
-- Standard 和 MinMax 缩放器。
-- MAE、MSE、RMSE、MAPE、WAPE 等指标。
-- 原始尺度评估指标，按需保存缩放空间指标。
-- 训练配置快照、checkpoint、运行环境元数据和 `results.json`。
-- 多模型对比实验，输出 `leaderboard.json` 和 `leaderboard.csv`。
-- Feature-aware CSV 训练和对比实验，支持目标列与外生特征列分离。
-- Artifact manifest，用于发现训练和对比产物。
-- 安全的 manifest-based artifact 读取，默认禁止 checkpoint 下载。
-- CLI、本地 FastAPI Demo API、本地异步 job prototype。
-- 轻量本地 Dashboard UI，用于答辩或现场展示，支持分页导航、数据集下拉选择、自定义实验、训练监控、异步 demo job 和 Markdown 报告导出。
+当前实现围绕这些要求展开：数据集库负责公开数据和本地 CSV 管理；FastAPI 与 CLI 提供数据准备、训练、对比和产物访问接口；`MODEL_REGISTRY` 集成 linear、DLinear、NLinear、PatchTST 以及 RNN/GRU/LSTM/TCN/Transformer 等模型；训练与 compare runner 输出 checkpoint、leaderboard、训练曲线、预测样本和报告材料。更详细的需求映射见 `docs/course_requirements.zh-CN.md`。
 
-## 安装
+## 核心能力
 
-需要 Python 3.10 或更新版本。
+- 数据集库：内置公开数据集目录、本地 CSV 数据集、用户自定义 CSV 元数据。
+- 可准备数据资产：支持对 ETTh1、ETTm1、Exchange、Traffic 等公开数据集执行一键准备，写入 `data/external/` 和 `data/cache/`。
+- 模型库：支持 naive、moving average、seasonal naive、linear、DLinear、NLinear、PatchTST、MLP、N-BEATS、RNN、GRU、LSTM、TCN、Transformer。
+- 快速训练：配置驱动训练，支持 checkpoint、模型导出、原始尺度指标、预测样本和环境快照。
+- 训练控制：支持 best validation checkpoint、early stopping、gradient clipping、step/cosine 学习率调度。
+- 多模型对比：生成 `leaderboard.json` 和 `leaderboard.csv`，便于横向比较模型。
+- 本地 Dashboard：提供概览、数据集库、实验结果、自定义实验、任务页面。
+- 异步任务：支持本地 train/compare job、任务状态、日志、结果查询。
+- 产物管理：通过 artifact manifest 安全发现和下载 JSON、YAML、CSV、log、model export 等产物。
+
+## 快速开始
+
+安装开发依赖：
 
 ```bash
 py -m pip install -e ".[dev]"
 ```
 
-在 macOS 或 Linux 上通常使用：
+运行基础训练：
 
 ```bash
-python -m pip install -e ".[dev]"
+py -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
 ```
 
-## 快速开始
-
-运行合成数据训练示例：
+运行模型库对比：
 
 ```bash
-python -m ts_platform.cli.main train --config configs/examples/simple_forecast.yaml
+py -m ts_platform.cli.main compare --config configs/examples/compare_model_zoo.yaml
 ```
 
-运行本地 CSV 训练示例：
+准备公开数据集并运行“理想目标 Demo”：
 
 ```bash
-python -m ts_platform.cli.main train --config configs/examples/csv_forecast.yaml
+py -m ts_platform.cli.main prepare-dataset --dataset etth1
+py -m ts_platform.cli.main compare --config configs/examples/ideal_target_demo.yaml
 ```
 
-运行 feature-aware CSV 训练示例：
+启动本地 Dashboard：
 
 ```bash
-python -m ts_platform.cli.main train --config configs/examples/csv_feature_forecast.yaml
-```
-
-运行多模型对比：
-
-```bash
-python -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
-```
-
-查看对比结果和产物：
-
-```bash
-python -m ts_platform.cli.main show-results --experiment compare_feature_forecast --run latest
-python -m ts_platform.cli.main show-leaderboard --experiment compare_feature_forecast --run latest
-python -m ts_platform.cli.main show-artifacts --experiment compare_feature_forecast --run latest
-python -m ts_platform.cli.main show-artifact --experiment compare_feature_forecast --run latest --artifact leaderboard_json
-```
-
-## Dashboard Demo
-
-启动本地 FastAPI：
-
-```bash
-uvicorn ts_platform.api.app:create_app --factory
+uvicorn ts_platform.api.app:create_app --factory --port 8001
 ```
 
 打开：
 
-http://127.0.0.1:8000/ui
-
-Dashboard 默认显示中文，右上角可以点击 `English` 切换到英文界面。顶部导航分为 `概览`、`数据集`、`实验结果`、`自定义实验`、`任务` 五页，避免所有内容堆在一个长页面中。
-
-推荐演示流程：
-
-1. 在 Overview 中点击 Refresh，展示后端状态、版本、数据集数量、模型列表和实验数量。
-2. 进入 `数据集`，用搜索和领域筛选缩小范围，通过下拉选择一个数据集，查看来源、路径、目标列和特征列。
-3. 点击 `使用` 跳到 `自定义实验`，展示数据集元数据会自动填入训练表单。
-4. 在 `自定义实验` 中运行单模型训练，或切换到模型对比模式运行多模型对比。
-5. 在 `任务` 中用下拉选择训练/对比 demo，并提交为本地异步 job。
-6. 进入 `实验结果`，选择训练 run，查看 W&B 风格训练监控面板中的 `train_loss`、`val_mae`、`val_mse` 等曲线。
-7. 选择对比 run，查看 leaderboard 中的 `feature_aware`、`input_dim`、`target_dim`、
-   `feature_dim`、`target_cols`、`feature_cols`。
-8. 在 Artifacts / Leaderboard Preview 面板中加载 leaderboard 和 artifacts。
-9. 点击 `导出报告` 下载 Markdown 实验总结。
-
-如果需要展示 loss 明显下降的训练曲线，可以把自定义实验的 epoch 设置为 6 到 10，或参考中文 Dashboard 指南中的 `loss_demo_*` API 示例。
-
-现场展示时，如果时间有限，可以提前运行：
-
-```bash
-python -m ts_platform.cli.main compare --config configs/examples/compare_feature_forecast.yaml
+```text
+http://127.0.0.1:8001/ui
 ```
 
-然后在 Dashboard 中直接 Load Leaderboard。
+## 推荐展示流程
 
-更完整的中文演示文档见：`docs/dashboard_demo.zh-CN.md`。
+1. 打开 Dashboard 的“概览”页，展示后端状态、数据集数量、模型数量和最近实验。
+2. 进入“数据集库”，选择 `etth1`，点击“准备数据集”，展示公开数据从目录条目变成本地可训练 CSV。
+3. 进入“任务”页，点击“理想目标 Demo”，提交 `ideal_target_demo` 异步对比任务。
+4. 任务完成后进入“实验结果”，查看 leaderboard、训练曲线、预测样本和 artifacts。
+5. 对比 linear、DLinear、NLinear、PatchTST，说明平台支持快速模型切换和统一指标评估。
 
-## 配置说明
-
-训练和对比都通过 YAML 或 JSON 配置驱动。训练配置主要包含：
-
-- `experiment`：实验名称、输出目录、随机种子、覆盖策略。
-- `data`：数据集名称、窗口长度、预测长度、batch size、切分比例、缩放器和数据参数。
-- `model`：模型名称和模型参数。
-- `training`：epoch、学习率、设备、优化器、loss 和 checkpoint 策略。
-- `evaluation`：评估指标和是否保存缩放空间指标。
-
-示例配置：
-
-- `configs/examples/simple_forecast.yaml`
-- `configs/examples/csv_forecast.yaml`
-- `configs/examples/csv_feature_forecast.yaml`
-- `configs/examples/compare_feature_forecast.yaml`
-
-## Feature-aware 训练
-
-CSV 数据支持 `target_cols` 和 `feature_cols`：
-
-- `target_cols` 是需要预测和评估的目标列。
-- `feature_cols` 是只作为输入历史使用的外生特征列。
-- 模型输入维度 `input_dim = target_dim + feature_dim`。
-- 评估指标仍然只针对目标列，避免特征列污染预测指标。
-
-`csv_feature_forecast.yaml` 和 `compare_feature_forecast.yaml` 都可用于展示该能力。
-
-## 安全边界
-
-本项目是本地研究和演示 MVP，不是多租户生产系统。当前安全边界包括：
-
-- API 会把训练和对比输出目录约束到固定的 runs root。
-- `experiment.name` 和 `run_id` 必须是安全路径组件。
-- Demo endpoint 只允许运行白名单示例配置，不接受任意路径。
-- Artifact 下载只能读取 manifest 中登记的安全文件。
-- 默认禁止下载 checkpoint。
-- Dashboard 是本地 demo UI，不是生产级 Web UI。
-
-## 常用质量门禁
+## 常用命令
 
 ```bash
-python -m pytest
-ruff check .
-ruff format --check .
-mypy src
+py -m ts_platform.cli.main list-datasets
+py -m ts_platform.cli.main prepare-dataset --dataset etth1
+py -m ts_platform.cli.main show-dataset-cache
+py -m ts_platform.cli.main clear-dataset-cache --dataset etth1
+py -m ts_platform.cli.main list-models
+py -m ts_platform.cli.main show-results --experiment ideal_target_demo --run latest
+py -m ts_platform.cli.main show-leaderboard --experiment ideal_target_demo --run latest
 ```
 
-完整发布 smoke gate 见：
+## 项目边界
 
-- `docs/release_checklist.md`
-- `CONTRIBUTING.md`
+当前版本定位为课程理想版和本地演示平台，不是多租户生产 SaaS。它暂不包含多用户账号、细粒度权限、Redis/Celery 生产队列和云端部署监控。这些内容保留为后续生产平台化方向。
 
 ## 文档入口
 
-- 英文 README：`README.md`
-- 中文 Dashboard 演示指南：`docs/dashboard_demo.zh-CN.md`
-- 英文 Dashboard Demo：`docs/dashboard_demo.md`
-- Demo Guide：`docs/demo_guide.md`
-- Release Checklist：`docs/release_checklist.md`
-- Roadmap：`docs/roadmap.md`
-
-## 当前状态
-
-项目已进入 Final Freeze。建议后续只做：
-
-- UI 小 bug 修复。
-- Demo 文案和展示流程打磨。
-- 答辩报告和最终材料准备。
-- 发布前质量门禁复核。
+- Dashboard 中文演示指南：`docs/dashboard_demo.zh-CN.md`
+- 课程题目需求对齐：`docs/course_requirements.zh-CN.md`
+- API 设计：`docs/api_design.md`
+- 数据格式：`docs/data_format.md`
+- 数据集目录：`docs/dataset_catalog.md`
+- 模型库说明：`docs/model_zoo.md`
+- 交付报告提纲：`docs/final_report_outline.md`

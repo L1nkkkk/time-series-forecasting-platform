@@ -17,6 +17,9 @@ def result_payload(
     validation_metrics: OptionalMetricGroups,
     test_metrics: MetricGroups,
     resumed_from: str | None,
+    best_checkpoint_path: str | None = None,
+    best_epoch: int | None = None,
+    best_metric: dict[str, Any] | None = None,
     model_export_path: str | None = None,
     model_export_metadata_path: str | None = None,
     data_metadata: dict[str, Any] | None = None,
@@ -35,6 +38,12 @@ def result_payload(
         payload["model_export_path"] = model_export_path
     if model_export_metadata_path is not None:
         payload["model_export_metadata_path"] = model_export_metadata_path
+    if best_checkpoint_path is not None:
+        payload["best_checkpoint_path"] = best_checkpoint_path
+    if best_epoch is not None:
+        payload["best_epoch"] = best_epoch
+    if best_metric is not None:
+        payload["best_metric"] = best_metric
     if data_metadata is not None:
         payload["data_metadata"] = data_metadata
     if forecast_samples is not None:

@@ -89,6 +89,30 @@ def _metadata_from_entry(entry: dict[str, Any], index: int) -> DatasetMetadata:
     if source is not None and not isinstance(source, str):
         msg = f"Dataset catalog entry {index} field 'source' must be a string"
         raise ValueError(msg)
+    download_url = entry.get("download_url")
+    if download_url is not None and not isinstance(download_url, str):
+        msg = f"Dataset catalog entry {index} field 'download_url' must be a string"
+        raise ValueError(msg)
+    archive_format = entry.get("archive_format")
+    if archive_format is not None and not isinstance(archive_format, str):
+        msg = f"Dataset catalog entry {index} field 'archive_format' must be a string"
+        raise ValueError(msg)
+    local_path = entry.get("local_path")
+    if local_path is not None and not isinstance(local_path, str):
+        msg = f"Dataset catalog entry {index} field 'local_path' must be a string"
+        raise ValueError(msg)
+    version = entry.get("version")
+    if version is not None and not isinstance(version, str):
+        msg = f"Dataset catalog entry {index} field 'version' must be a string"
+        raise ValueError(msg)
+    checksum = entry.get("checksum")
+    if checksum is not None and not isinstance(checksum, str):
+        msg = f"Dataset catalog entry {index} field 'checksum' must be a string"
+        raise ValueError(msg)
+    prepared = entry.get("prepared")
+    if prepared is not None and not isinstance(prepared, bool):
+        msg = f"Dataset catalog entry {index} field 'prepared' must be a bool"
+        raise ValueError(msg)
 
     return DatasetMetadata(
         name=entry["name"],
@@ -103,4 +127,10 @@ def _metadata_from_entry(entry: dict[str, Any], index: int) -> DatasetMetadata:
         target_cols=target_cols,
         feature_cols=feature_cols,
         timestamp_col=timestamp_col,
+        download_url=download_url,
+        archive_format=archive_format,
+        local_path=local_path,
+        version=version,
+        checksum=checksum,
+        prepared=prepared,
     )

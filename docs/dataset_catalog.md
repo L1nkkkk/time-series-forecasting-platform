@@ -1,15 +1,16 @@
 # Dataset Catalog
 
-Dataset catalogs describe local datasets for discovery, profiling, and config
-generation. They are metadata only: the platform does not download remote data,
-does not auto-train from a catalog entry, and does not let API users submit
-arbitrary paths for profiling.
+Dataset catalogs describe local and public-source datasets for discovery,
+profiling, config generation, and selected dataset preparation. Most public
+entries remain metadata, but selected benchmark rows include enough asset
+metadata for the platform to download or convert them into local trainable CSV
+files.
 
 `configs/datasets/public_time_series.yaml` is a curated public-source catalog
 covering energy, finance, traffic, weather, environment, mobility, retail,
 forecasting competitions, medical/ICU time series, and industrial predictive
 maintenance datasets. Remote entries keep source attribution but remain
-metadata-only until a user downloads or converts the data locally.
+metadata-only unless they define `download_url` and `archive_format`.
 
 The dashboard exposes the merged catalog with keyword search and domain
 filtering. Filtered views only change the visible table; the custom experiment
@@ -50,9 +51,19 @@ Recommended fields for local CSV entries:
 - `frequency`: optional documented frequency.
 - `license`: optional license label.
 
+Recommended fields for prepared public assets:
+
+- `download_url`: direct downloadable source URL.
+- `archive_format`: one of `raw_csv`, `csv`, `raw_txt`, `raw_matrix`, or
+  `zip_csv`.
+- `local_path`: local prepared file name under `data/external/<name>/<version>/`.
+- `version`: dataset asset version label, default `v1`.
+- `checksum`: optional `sha256:<digest>` integrity check.
+
 `source` and `citation` are optional free-text metadata fields. When `source`
 is omitted, the loader uses `path` for CSV entries. A catalog is metadata only:
-loading it does not train a model, clean data, or download remote datasets.
+loading it does not train a model or download remote datasets. Downloads happen
+only through explicit prepare commands or prepare API calls.
 
 ## Validation
 
@@ -104,10 +115,33 @@ The generated config uses:
 The command writes YAML and prints a JSON summary. It does not run training.
 The output must still pass the normal config loader before training.
 
+## Prepare Public Dataset Assets
+
+Prepare a supported public dataset:
+
+```bash
+py -m ts_platform.cli.main prepare-dataset --dataset etth1
+```
+
+The prepare command writes:
+
+- local CSV data under `data/external/<dataset>/<version>/`;
+- `data/cache/datasets/manifest.json`;
+- `data/cache/datasets/prepared_catalog.yaml`;
+- a default train config under `data/cache/datasets/configs/`.
+
+Inspect or clear the cache:
+
+```bash
+py -m ts_platform.cli.main show-dataset-cache
+py -m ts_platform.cli.main clear-dataset-cache --dataset etth1
+```
+
 ## API Detail And Profile
 
 `GET /datasets` returns built-in catalog metadata merged with persisted user
-dataset metadata from `data/user_datasets.json`.
+dataset metadata from `data/user_datasets.json`. Prepared public entries expose
+their local CSV path and can be used by the custom experiment form.
 
 `POST /datasets/user` persists one user-supplied CSV dataset metadata entry.
 The UI uses this when the user saves a local CSV dataset after choosing a file
@@ -117,6 +151,16 @@ or filling in a path manually.
 
 `DELETE /datasets/user/{dataset_name}` removes one persisted user dataset
 metadata entry.
+
+`POST /datasets/{dataset_name}/prepare` prepares one supported public dataset
+asset.
+
+`GET /datasets/{dataset_name}/asset` returns one dataset asset status record.
+
+`GET /datasets/cache` returns all prepared dataset asset records.
+
+`DELETE /datasets/cache/{dataset_name}` removes one prepared asset and cache
+manifest entry.
 
 `GET /datasets/{dataset_name}` returns registered catalog metadata. User
 metadata overrides a built-in row with the same normalized name.
@@ -134,10 +178,11 @@ required columns before launching training.
 
 ## Current Limitations
 
-- Training still uses local CSV paths; public remote entries are source
-  metadata until downloaded and converted by the user.
+- Training still uses local CSV paths; public entries become trainable only
+  after explicit preparation.
 - No parquet support.
-- No remote dataset download.
+- Remote download is supported only for curated rows with direct URLs and known
+  archive formats.
 - Catalog entries are discovery/config-generation metadata and do not
   automatically launch feature-aware training.
 - No automatic training from catalog metadata.

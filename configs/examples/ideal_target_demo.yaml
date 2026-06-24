@@ -1,0 +1,63 @@
+experiment:
+  name: ideal_target_demo
+  output_dir: runs
+  seed: 42
+  overwrite: true
+
+data:
+  name: csv
+  input_len: 24
+  output_len: 12
+  batch_size: 16
+  train_ratio: 0.7
+  val_ratio: 0.15
+  test_ratio: 0.15
+  scaler:
+    name: standard
+  params:
+    path: data/external/etth1/v1/ETTh1.csv
+    timestamp_col: date
+    target_cols: [OT]
+    feature_cols: [HUFL, HULL, MUFL, MULL, LUFL, LULL]
+    missing_policy: error
+    sort_by_time: true
+
+models:
+  - name: linear
+  - name: dlinear
+    params:
+      kernel_size: 7
+  - name: nlinear
+  - name: patchtst
+    params:
+      patch_len: 6
+      stride: 3
+      d_model: 16
+      num_heads: 4
+      num_layers: 1
+      dim_feedforward: 32
+      dropout: 0.0
+
+training:
+  epochs: 1
+  learning_rate: 0.001
+  device: cpu
+  optimizer: adam
+  loss: mse
+  checkpoint_every: 1
+  gradient_clip_norm: 1.0
+  best_checkpoint_metric: mae
+  early_stopping:
+    enabled: false
+    patience: 3
+    min_delta: 0.0
+    mode: min
+  lr_scheduler:
+    name: none
+
+evaluation:
+  metrics: [mae, mse, rmse, wape]
+  include_scaled_metrics: false
+
+primary_metric: mae
+continue_on_error: true

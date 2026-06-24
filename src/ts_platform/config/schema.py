@@ -94,6 +94,25 @@ class ModelConfig(StrictConfigModel):
     params: dict[str, Any] = Field(default_factory=dict)
 
 
+class EarlyStoppingConfig(StrictConfigModel):
+    """Validation-metric early stopping settings."""
+
+    enabled: bool = False
+    patience: int = Field(default=5, gt=0)
+    min_delta: float = Field(default=0.0, ge=0.0)
+    metric: str | None = None
+    mode: Literal["min", "max"] = "min"
+
+
+class LRSchedulerConfig(StrictConfigModel):
+    """Learning-rate scheduler settings."""
+
+    name: Literal["none", "step", "cosine"] = "none"
+    step_size: int = Field(default=10, gt=0)
+    gamma: float = Field(default=0.5, gt=0.0)
+    eta_min: float = Field(default=0.0, ge=0.0)
+
+
 class TrainingConfig(StrictConfigModel):
     """Training loop settings."""
 
@@ -105,6 +124,11 @@ class TrainingConfig(StrictConfigModel):
     checkpoint_every: int = Field(default=1, ge=0)
     num_workers: int = Field(default=0, ge=0)
     resume_from: Path | None = None
+    early_stopping: EarlyStoppingConfig = Field(default_factory=EarlyStoppingConfig)
+    lr_scheduler: LRSchedulerConfig = Field(default_factory=LRSchedulerConfig)
+    gradient_clip_norm: float | None = Field(default=None, gt=0.0)
+    best_checkpoint_metric: str = "mae"
+    target_duration_minutes: float | None = Field(default=None, gt=0.0)
 
 
 class EvaluationConfig(StrictConfigModel):

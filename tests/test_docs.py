@@ -191,8 +191,13 @@ def test_phase15a_dashboard_static_assets_are_packaged() -> None:
 def test_chinese_readme_is_available() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     chinese_readme = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    course_requirements = (ROOT / "docs/course_requirements.zh-CN.md").read_text(encoding="utf-8")
 
     assert "README.zh-CN.md" in readme
-    assert "# 时间序列预测平台" in chinese_readme
-    assert "Dashboard Demo" in chinese_readme
-    assert "Final Freeze" in chinese_readme
+    assert "docs/course_requirements.zh-CN.md" in readme
+    assert "# 时间序列预测快速开发平台" in chinese_readme
+    assert "课程题目需求对齐" in chinese_readme
+    assert "题目 3：面向时间序列的深度学习模型快速开发平台" in course_requirements
+    assert "Python、PyTorch" in course_requirements
+    assert "Dashboard" in chinese_readme
+    assert "课程理想版" in chinese_readme

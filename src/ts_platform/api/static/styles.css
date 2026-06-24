@@ -160,6 +160,7 @@ main {
 .dataset-catalog,
 .workbench,
 .custom-builder,
+.job-monitor,
 .operations {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -1006,6 +1007,172 @@ pre {
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
+.monitor-control-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.job-monitor-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  min-width: 0;
+}
+
+.job-monitor-card,
+.job-monitor-empty {
+  background: var(--panel-alt);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.job-monitor-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.job-monitor-card-head h3 {
+  overflow-wrap: anywhere;
+}
+
+.job-monitor-card-head p {
+  color: var(--muted);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.job-progress-bar {
+  background: #dfe7ea;
+  border-radius: 999px;
+  height: 10px;
+  margin: 8px 0 12px;
+  overflow: hidden;
+}
+
+.job-progress-fill {
+  background: var(--accent);
+  height: 100%;
+  min-width: 2px;
+  transition: width 160ms ease;
+}
+
+.job-monitor-chart-panel {
+  border-top: 1px solid var(--line);
+  margin: 12px 0;
+  min-width: 0;
+  padding-top: 12px;
+}
+
+.job-monitor-chart-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.job-monitor-chart-head h4 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.job-monitor-chart-head p {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 3px 0 0;
+}
+
+.job-monitor-legend {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.job-monitor-legend span {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.job-monitor-legend i {
+  border-radius: 999px;
+  display: inline-block;
+  height: 3px;
+  width: 20px;
+}
+
+.job-legend-train {
+  background: var(--accent);
+}
+
+.job-legend-val {
+  background: var(--blue);
+}
+
+.job-monitor-chart-empty {
+  align-items: center;
+  background: #f4f7f8;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  min-height: 112px;
+  padding: 12px;
+}
+
+.job-monitor-chart {
+  max-height: 230px;
+}
+
+.job-monitor-chart .job-line-train {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.8;
+}
+
+.job-monitor-chart .job-line-val {
+  fill: none;
+  stroke: var(--blue);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2.6;
+}
+
+.job-monitor-chart .job-dot-train {
+  fill: #ffffff;
+  stroke: var(--accent);
+  stroke-width: 1.8;
+}
+
+.job-monitor-chart .job-dot-val {
+  fill: #ffffff;
+  stroke: var(--blue);
+  stroke-width: 1.8;
+}
+
+.job-monitor-log pre {
+  max-height: 220px;
+}
+
+.job-monitor-empty {
+  color: var(--muted);
+  grid-column: 1 / -1;
+}
+
 .job-launch-grid {
   grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
 }
@@ -1155,6 +1322,7 @@ pre {
   .dataset-catalog-grid,
   .custom-grid,
   .operations-grid,
+  .job-monitor-grid,
   .visual-grid {
     grid-template-columns: 1fr;
   }
@@ -1191,11 +1359,13 @@ pre {
   .actions,
   .form-row,
   .filter-row,
+  .monitor-control-row,
   .section-heading button,
   .topbar button,
   .detail-actions button,
   .actions button,
   .form-row button,
+  .monitor-control-row button,
   .custom-actions button,
   .file-picker-row button,
   input,
@@ -1214,6 +1384,14 @@ pre {
 
   .monitor-stats {
     grid-template-columns: 1fr;
+  }
+
+  .job-monitor-chart-head {
+    flex-direction: column;
+  }
+
+  .job-monitor-legend {
+    justify-content: flex-start;
   }
 
   .span-2 {
